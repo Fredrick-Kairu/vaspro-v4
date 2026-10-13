@@ -1,0 +1,9 @@
+CLAUDE.local.md
+.env
+.env.*
+secrets/
+bin/
+coverage.out
+node_modules/
+dist/
+.DS_Store
