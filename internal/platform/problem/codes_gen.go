@@ -29,6 +29,7 @@ const (
 	SYS5030  Code = "SYS-5030"
 	SYS9000  Code = "SYS-9000"
 	VAL4000  Code = "VAL-4000"
+	VAL4001  Code = "VAL-4001"
 )
 
 var registry = map[Code]entry{
@@ -125,6 +126,14 @@ var registry = map[Code]entry{
 		Title:     "Request failed validation",
 		Cause:     "One or more fields in the request body don't satisfy the API's rules.",
 		Fix:       "Fix the named field(s) and resubmit.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4001: {
+		Status:    409,
+		Title:     "Idempotency key reused with a different request body",
+		Cause:     "The Idempotency-Key header matches an earlier request whose body hashes differently.",
+		Fix:       "Use a fresh Idempotency-Key for a genuinely different request; resend the original body to replay the first response.",
 		Retryable: false,
 		Billable:  false,
 	},
