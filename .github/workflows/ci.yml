@@ -1,0 +1,222 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *" # nightly, 02:00 UTC
+  workflow_dispatch: {}
+
+env:
+  GOLANGCI_LINT_VERSION: "v2.11.4"
+  GITLEAKS_VERSION: "8.30.1"
+  GOVULNCHECK_VERSION: "v1.9.0"
+
+jobs:
+  fast:
+    name: Fast (gen-check, lint, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: make gen-check lint test
+        run: make gen-check lint test
+
+  integration:
+    name: Integration (test-int, test-contract)
+    needs: fast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # testcontainers-go drives the runner's own Docker daemon directly;
+      # ubuntu-latest already has one, so no `services:` block is needed here.
+      - name: make test-int test-contract
+        run: make test-int test-contract
+
+  e2e:
+    name: End to end
+    needs: fast
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start vaspro-all and fakes, run make test-e2e
+        run: |
+          if [ ! -f cmd/vaspro-all/main.go ]; then
+            echo "e2e: cmd/vaspro-all doesn't exist yet (lands in task 0.13); skipping"
+            exit 0
+          fi
+          go run ./cmd/vaspro-all &
+          VASPRO_PID=$!
+          trap 'kill $VASPRO_PID' EXIT
+          make test-e2e
+
+  security:
+    name: Security (govulncheck, gitleaks, trivy)
+    needs: fast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        run: |
+          if [ -z "$(go list ./... 2>/dev/null)" ]; then
+            echo "govulncheck: no Go packages yet, skipping"
+            exit 0
+          fi
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck ./...
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: gitleaks detect
+        run: gitleaks detect --no-banner
+
+      - name: trivy image
+        run: |
+          shopt -s nullglob
+          images=(cmd/*/Dockerfile)
+          if [ ${#images[@]} -eq 0 ]; then
+            echo "trivy: no service Dockerfiles yet, skipping image scan"
+            exit 0
+          fi
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+          for f in "${images[@]}"; do
+            svc=$(basename "$(dirname "$f")")
+            docker build -t "vaspro-v4/${svc}:${GITHUB_SHA}" -f "$f" .
+            trivy image --exit-code 1 --severity HIGH,CRITICAL "vaspro-v4/${svc}:${GITHUB_SHA}"
+          done
+
+  build:
+    name: Build binaries and images
+    needs: fast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build each cmd/* binary and image
+        run: |
+          shopt -s nullglob
+          mains=(cmd/*/main.go)
+          if [ ${#mains[@]} -eq 0 ]; then
+            echo "build: no cmd/* services yet, skipping"
+            exit 0
+          fi
+          mkdir -p bin
+          for f in "${mains[@]}"; do
+            svc=$(basename "$(dirname "$f")")
+            echo "building ${svc}"
+            go build -o "bin/${svc}" "./cmd/${svc}"
+            if [ -f "cmd/${svc}/Dockerfile" ]; then
+              docker build -t "vaspro-v4/${svc}:${GITHUB_SHA}" -f "cmd/${svc}/Dockerfile" .
+            fi
+          done
+
+  nightly:
+    name: Nightly (fuzz, chaos, k6, Daraja sandbox)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Long fuzz runs
+        run: |
+          fuzz_files=$(find . -name '*_fuzz_test.go')
+          if [ -z "$fuzz_files" ]; then
+            echo "fuzz: no *_fuzz_test.go files yet, skipping"
+            exit 0
+          fi
+          for f in $fuzz_files; do
+            pkg=$(dirname "$f")
+            fn=$(grep -oE 'func (Fuzz[A-Za-z0-9_]+)' "$f" | awk '{print $2}')
+            for name in $fn; do
+              go test -run=^$ -fuzz="^${name}$" -fuzztime=5m "./${pkg}"
+            done
+          done
+
+      - name: Chaos scenarios
+        run: |
+          if ! ls test/e2e/chaos_*.go >/dev/null 2>&1; then
+            echo "chaos: no test/e2e/chaos_* scenarios yet, skipping"
+            exit 0
+          fi
+          go test -tags=e2e -run TestChaos ./test/e2e/...
+
+      - name: k6 smoke on staging
+        run: |
+          if [ -z "${STAGING_URL:-}" ]; then
+            echo "k6: STAGING_URL not set yet, skipping"
+            exit 0
+          fi
+          if ! ls test/load/smoke*.js >/dev/null 2>&1; then
+            echo "k6: no test/load/smoke*.js scenario yet, skipping"
+            exit 0
+          fi
+          curl -sSfL https://github.com/grafana/k6/releases/latest/download/k6-linux-amd64.tar.gz -o /tmp/k6.tar.gz
+          tar -xzf /tmp/k6.tar.gz -C /tmp --strip-components=1
+          /tmp/k6 run test/load/smoke.js
+        env:
+          STAGING_URL: ${{ secrets.STAGING_URL }}
+
+      - name: Daraja sandbox contract run
+        run: |
+          if ! ls test/contract/daraja_sandbox*.go >/dev/null 2>&1; then
+            echo "daraja: no sandbox contract test yet (lands in Phase 4), skipping"
+            exit 0
+          fi
+          go test -tags=contract -run TestDarajaSandbox ./test/contract/...
+        env:
+          DARAJA_SANDBOX_KEY: ${{ secrets.DARAJA_SANDBOX_KEY }}
+          DARAJA_SANDBOX_SECRET: ${{ secrets.DARAJA_SANDBOX_SECRET }}
