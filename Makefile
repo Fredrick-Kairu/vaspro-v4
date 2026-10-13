@@ -28,7 +28,7 @@ gen:
 	else echo "gen: no error catalogue or generator yet, skipping"; fi
 
 gen-check: gen
-	@git diff --exit-code -- . ':!go.sum' || \
+	@git diff --exit-code -- . ':!go.sum' ':!go.mod' || \
 		(echo "gen-check: generated code is out of date; run make gen and commit the result" && exit 1)
 
 migrate:
