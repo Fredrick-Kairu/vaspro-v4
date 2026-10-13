@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make *)",
+      "Bash(go test *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go mod tidy)",
+      "Bash(golangci-lint run *)",
+      "Bash(sqlc *)",
+      "Bash(goose *)",
+      "Bash(buf *)",
+      "Bash(docker compose *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(pnpm *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Bash(git push *)"
+    ]
+  }
+}
