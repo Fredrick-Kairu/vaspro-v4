@@ -53,11 +53,11 @@ test-int:
 	else go test -tags=integration ./...; fi
 
 test-contract:
-	@if [ -z "$(GO_PKGS)" ]; then echo "test-contract: no Go packages yet, skipping"; \
+	@if [ -z "$$(go list ./test/contract/... 2>/dev/null)" ]; then echo "test-contract: no packages under test/contract yet, skipping"; \
 	else go test -tags=contract ./test/contract/...; fi
 
 test-e2e:
-	@if [ -z "$(GO_PKGS)" ]; then echo "test-e2e: no Go packages yet, skipping"; \
+	@if [ -z "$$(go list ./test/e2e/... 2>/dev/null)" ]; then echo "test-e2e: no packages under test/e2e yet, skipping"; \
 	else go test -tags=e2e ./test/e2e/...; fi
 
 check: gen-check lint test test-int test-contract
