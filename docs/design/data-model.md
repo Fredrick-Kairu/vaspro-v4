@@ -66,9 +66,13 @@ CREATE TABLE idempotency_keys (
 
 -- On every client-owned table:
 ALTER TABLE <table> ENABLE ROW LEVEL SECURITY;
+ALTER TABLE <table> FORCE ROW LEVEL SECURITY; -- binds the table owner too, not just other roles
 CREATE POLICY tenant_isolation ON <table>
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
+
+`current_setting(name, true)` (the `missing_ok` form) is required, not optional: with a pooled connection, a query that runs outside `db.WithTenantTx` must fail closed to zero rows, not error — and plain `current_setting(name)` errors instead when the setting was never touched in that session. `nullif(..., '')` is required too, for a reason that only shows up under connection pooling and is easy to miss testing against a single fresh connection: once a session has run `SET LOCAL`/`set_config(name, value, true)` inside any transaction, `current_setting(name, true)` after that transaction ends returns `''` (empty string), not `NULL`, even though the setting is unset again — casting `''::uuid` errors, so without `nullif` a later query on the same pooled connection, outside any `WithTenantTx`, raises an error instead of returning no rows. `WITH CHECK` (not just `USING`) is what makes an `INSERT`/`UPDATE` into another tenant's rows fail, not merely invisible.
 
 ## 2. Schema map
 
