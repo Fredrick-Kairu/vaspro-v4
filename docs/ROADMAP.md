@@ -670,7 +670,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 0.1 Repository skeleton: `go.mod`, `Makefile` with every target in section 8.2, `.golangci.yml` (including `depguard` boundaries and `gosec`), `.editorconfig`, `.gitignore`.
 - [x] 0.2 Local stack in `deploy/compose/`: PostgreSQL 16, Redis 7, NATS with JetStream, RabbitMQ with the management UI, ClickHouse, MinIO, Mailpit, `grafana/otel-lgtm`. Health checks; `make up` waits until everything is healthy. (MinIO swapped for SeaweedFS's S3 gateway — see docs/STATUS.md; same S3 API.)
 - [x] 0.3 CI workflow with the jobs in section 8.7.
-- [ ] 0.4 `platform/config` (environment variables, validation at start-up), `platform/log` (`slog` JSON with request, tenant and trace IDs), `platform/otel` (traces and metrics).
+- [x] 0.4 `platform/config` (environment variables, validation at start-up), `platform/log` (`slog` JSON with request, tenant and trace IDs), `platform/otel` (traces and metrics).
 - [ ] 0.5 `platform/problem` and `platform/httpx`: problem+json writer; error type with code families; generated Go constants from `docs/errors/catalogue.yaml`; middleware for request ID, panic recovery (turning panics into `SYS-` problems without stack traces), timeouts, body limits, strict CORS.
 - [ ] 0.6 `platform/db`: pgx pool; `WithTenantTx(ctx, tenantID, fn)` that runs `SET LOCAL app.tenant_id`; one database role per service; migrations per schema with goose; sqlc configuration.
 - [ ] 0.7 `platform/ids` (UUIDv7, prefixed public IDs), `platform/money` (minor units, currency exponents, allocation without losing a cent, VAT split), `platform/clock`.
