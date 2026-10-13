@@ -17,7 +17,13 @@ reset:
 	$(COMPOSE) up -d --wait
 
 # Runs every generator whose input already exists. Each step is a no-op,
-# not a failure, until the task that introduces its input lands.
+# not a failure, until the task that introduces its input lands. Every
+# generator's output must be named *_gen.<ext> — gen-check's diff is
+# scoped to exactly that pattern, so it can tell "generated code is
+# stale" apart from "something else in the tree changed" regardless of
+# what else is mid-edit (see Makefile history: go.mod, non-generated
+# test paths, and plain doc edits all tripped up an earlier, unscoped
+# version of this check).
 gen:
 	@if [ -f sqlc.yaml ]; then sqlc generate; else echo "gen: no sqlc.yaml yet, skipping sqlc"; fi
 	@if [ -f buf.yaml ]; then buf generate; else echo "gen: no buf.yaml yet, skipping buf"; fi
@@ -28,7 +34,7 @@ gen:
 	else echo "gen: no error catalogue or generator yet, skipping"; fi
 
 gen-check: gen
-	@git diff --exit-code -- . ':!go.sum' ':!go.mod' || \
+	@git diff --exit-code -- ':(glob)**/*_gen.*' || \
 		(echo "gen-check: generated code is out of date; run make gen and commit the result" && exit 1)
 
 migrate:
