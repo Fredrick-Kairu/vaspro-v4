@@ -681,7 +681,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 0.10 `platform/packs`: pack JSON Schema, loader, version pinning, and a `vaspro packs validate` command. A KE pack v0 with numbering, currency, tax and send windows.
 - [x] 0.11 `platform/crypto`: KMS interface with a local implementation, envelope encryption, HMAC helpers, Argon2id.
 - [x] 0.12 `platform/testkit`: PostgreSQL, NATS, Redis and RabbitMQ through testcontainers with migrations applied; factories; golden-file helper; fake clock; an RLS assertion helper.
-- [ ] 0.13 Service template and `make new-service`; `cmd/vaspro-all`; health and readiness endpoints; graceful shutdown.
+- [x] 0.13 Service template and `make new-service`; `cmd/vaspro-all`; health and readiness endpoints; graceful shutdown.
 - [ ] 0.14 ADRs: 0001 event bus, 0002 repository and deployment shape, 0003 migration tool, 0004 code generation, 0005 error catalogue format.
 
 **Tests specific to this phase**

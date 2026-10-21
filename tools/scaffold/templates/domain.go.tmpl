@@ -1,0 +1,32 @@
+// Package domain holds {{.Name}}'s business rules — pure Go, no I/O: no
+// imports of store/, adapters/ or net/http (.claude/rules/go.md).
+package domain
+
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
+)
+
+// Widget is {{.Name}}'s starter domain type — replace it with your own
+// first aggregate. It exists only to prove the outbox/inbox wiring end
+// to end (ROADMAP's M0 exit gate).
+type Widget struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	Name     string
+}
+
+// NewWidget validates name and assigns a fresh ID.
+func NewWidget(tenantID uuid.UUID, name string) (Widget, error) {
+	if name == "" {
+		return Widget{}, fmt.Errorf("domain: widget name must not be empty")
+	}
+	id, err := ids.New()
+	if err != nil {
+		return Widget{}, fmt.Errorf("domain: generating id: %w", err)
+	}
+	return Widget{ID: id, TenantID: tenantID, Name: name}, nil
+}

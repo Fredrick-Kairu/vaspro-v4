@@ -1,0 +1,8 @@
+// Package events names {{.Name}}'s event types. Each payload's shape
+// lives next to where it's built and applied (app/).
+package events
+
+// WidgetCreated is published after app.Service.CreateWidget commits.
+// platform/outbox writes it as event_type; Service.relaySubject maps it
+// to the bus subject "{{.Name}}.widget_created".
+const WidgetCreated = "widget_created"
