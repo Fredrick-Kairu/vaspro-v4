@@ -1,0 +1,31 @@
+# Kenya country pack, v0 (ROADMAP task 0.10 / Stage A item A6).
+# Deliberately partial: only numbering, currency, tax and send windows —
+# what task 0.10 asks for. operators, routes, rails, compliance_keywords
+# and test_numbers are schema-optional and arrive with Stage A6's
+# completion and Phase 7 (routes).
+
+version: "0"
+country_code: KE
+
+currency:
+  code: KES
+  exponent: 2
+
+numbering:
+  country_code: "254"
+  trunk_prefix: "0"
+  national_significant_number_length: 9
+
+tax:
+  # 16%, VAT included by default (OD-06's default; data model's worked
+  # example).
+  vat_rate_basis_points: 1600
+  vat_inclusive_by_default: true
+
+send_windows:
+  promotional:
+    # system design §1's Kenya row: "Promotional SMS 8am-8pm; STOP on
+    # every promotional message."
+    start: "08:00"
+    end: "20:00"
+    timezone: Africa/Nairobi
