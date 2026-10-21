@@ -50,6 +50,53 @@ func (q *Queries) CreateVerificationToken(ctx context.Context, arg CreateVerific
 	return i, err
 }
 
+const deletePendingVerificationTokens = `-- name: DeletePendingVerificationTokens :exec
+DELETE FROM identity.verification_tokens
+WHERE target = $1 AND purpose = $2 AND used_at IS NULL
+`
+
+type DeletePendingVerificationTokensParams struct {
+	Target  string               `json:"target"`
+	Purpose IdentityTokenPurpose `json:"purpose"`
+}
+
+func (q *Queries) DeletePendingVerificationTokens(ctx context.Context, arg DeletePendingVerificationTokensParams) error {
+	_, err := q.db.Exec(ctx, deletePendingVerificationTokens, arg.Target, arg.Purpose)
+	return err
+}
+
+const getPendingVerificationTokenByTarget = `-- name: GetPendingVerificationTokenByTarget :one
+SELECT id, user_id, purpose, target, token_hash, attempts, expires_at, used_at FROM identity.verification_tokens
+WHERE target = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+ORDER BY expires_at DESC
+LIMIT 1
+`
+
+type GetPendingVerificationTokenByTargetParams struct {
+	Target  string               `json:"target"`
+	Purpose IdentityTokenPurpose `json:"purpose"`
+}
+
+// verification_tokens has no created_at (data model §3's own column
+// list) — DeletePendingVerificationTokens always clears any prior
+// pending row before a new one is issued, so at most one should exist;
+// ordering by expires_at DESC is just a defensive tie-breaker.
+func (q *Queries) GetPendingVerificationTokenByTarget(ctx context.Context, arg GetPendingVerificationTokenByTargetParams) (IdentityVerificationToken, error) {
+	row := q.db.QueryRow(ctx, getPendingVerificationTokenByTarget, arg.Target, arg.Purpose)
+	var i IdentityVerificationToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Purpose,
+		&i.Target,
+		&i.TokenHash,
+		&i.Attempts,
+		&i.ExpiresAt,
+		&i.UsedAt,
+	)
+	return i, err
+}
+
 const getVerificationTokenByHash = `-- name: GetVerificationTokenByHash :one
 SELECT id, user_id, purpose, target, token_hash, attempts, expires_at, used_at FROM identity.verification_tokens WHERE token_hash = $1
 `
@@ -68,4 +115,22 @@ func (q *Queries) GetVerificationTokenByHash(ctx context.Context, tokenHash []by
 		&i.UsedAt,
 	)
 	return i, err
+}
+
+const incrementVerificationTokenAttempts = `-- name: IncrementVerificationTokenAttempts :exec
+UPDATE identity.verification_tokens SET attempts = attempts + 1 WHERE id = $1
+`
+
+func (q *Queries) IncrementVerificationTokenAttempts(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, incrementVerificationTokenAttempts, id)
+	return err
+}
+
+const markVerificationTokenUsed = `-- name: MarkVerificationTokenUsed :exec
+UPDATE identity.verification_tokens SET used_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkVerificationTokenUsed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markVerificationTokenUsed, id)
+	return err
 }

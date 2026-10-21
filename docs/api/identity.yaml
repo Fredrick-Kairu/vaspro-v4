@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: VASPRO identity API
+  version: "1"
+  description: >
+    Sign-up and email verification (ROADMAP task 1.2). Both operations
+    are anonymous — there's no gateway or auth context yet (Phase 1
+    task 1.11) — and both return the same shape regardless of outcome
+    where leaking the outcome would let a caller enumerate registered
+    emails.
+servers:
+  - url: /
+paths:
+  /v1/auth/signups:
+    post:
+      operationId: createSignup
+      summary: Start sign-up for an email address
+      description: >
+        Always returns 202, whether the email is new, already pending
+        verification, or already verified — the response never reveals
+        which. A verification code is emailed only in the first two
+        cases.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+            example:
+              email: "Ada@Example.com"
+              full_name: "Ada Lovelace"
+              phone_e164: "+254700000000"
+      responses:
+        "202":
+          description: Accepted — check the email for a verification code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupAccepted'
+              example:
+                message: "If that address can be registered, a verification code was sent to it."
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/email-verifications:
+    post:
+      operationId: createEmailVerification
+      summary: Verify an email address with its code
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+            example:
+              email: "ada@example.com"
+              code: "042918"
+      responses:
+        "200":
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "verified"
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    SignupRequest:
+      type: object
+      required: [email, full_name]
+      properties:
+        email:
+          type: string
+        full_name:
+          type: string
+        phone_e164:
+          type: string
+          description: E.164 format, optional (data model §3).
+    SignupAccepted:
+      type: object
+      properties:
+        message:
+          type: string
+    EmailVerificationRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+        code:
+          type: string
+          description: The 6-digit code emailed at sign-up.
+    EmailVerificationResult:
+      type: object
+      properties:
+        status:
+          type: string
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

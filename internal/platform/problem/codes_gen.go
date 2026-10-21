@@ -30,6 +30,7 @@ const (
 	SYS9000  Code = "SYS-9000"
 	VAL4000  Code = "VAL-4000"
 	VAL4001  Code = "VAL-4001"
+	VAL4002  Code = "VAL-4002"
 )
 
 var registry = map[Code]entry{
@@ -134,6 +135,14 @@ var registry = map[Code]entry{
 		Title:     "Idempotency key reused with a different request body",
 		Cause:     "The Idempotency-Key header matches an earlier request whose body hashes differently.",
 		Fix:       "Use a fresh Idempotency-Key for a genuinely different request; resend the original body to replay the first response.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4002: {
+		Status:    400,
+		Title:     "Verification code invalid or expired",
+		Cause:     "The submitted code doesn't match the most recent one issued for this address, has already been used, has expired, or has been guessed wrong too many times. Deliberately not distinguished in the response.",
+		Fix:       "Request a new code and try again.",
 		Retryable: false,
 		Billable:  false,
 	},

@@ -60,6 +60,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4002
+    status: 400
+    title: Verification code invalid or expired
+    cause: The submitted code doesn't match the most recent one issued for this address, has already been used, has expired, or has been guessed wrong too many times. Deliberately not distinguished in the response.
+    fix: Request a new code and try again.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

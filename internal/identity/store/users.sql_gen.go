@@ -13,16 +13,16 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO identity.users (id, email, full_name, password_hash)
+INSERT INTO identity.users (id, email, full_name, phone_e164)
 VALUES ($1, $2, $3, $4)
 RETURNING id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	ID           uuid.UUID   `json:"id"`
-	Email        string      `json:"email"`
-	FullName     string      `json:"full_name"`
-	PasswordHash pgtype.Text `json:"password_hash"`
+	ID        uuid.UUID   `json:"id"`
+	Email     string      `json:"email"`
+	FullName  string      `json:"full_name"`
+	PhoneE164 pgtype.Text `json:"phone_e164"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (IdentityUser, error) {
@@ -30,7 +30,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Identit
 		arg.ID,
 		arg.Email,
 		arg.FullName,
-		arg.PasswordHash,
+		arg.PhoneE164,
 	)
 	var i IdentityUser
 	err := row.Scan(
@@ -74,4 +74,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (IdentityUse
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const markEmailVerified = `-- name: MarkEmailVerified :exec
+UPDATE identity.users SET email_verified_at = now(), updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markEmailVerified, id)
+	return err
 }

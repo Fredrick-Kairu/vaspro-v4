@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	// vaspro-all:imports-begin
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
 	// vaspro-all:imports-end
 )
 
@@ -30,6 +31,12 @@ func main() {
 
 	var services []runner
 	// vaspro-all:services-begin
+	if svc, err := identity.Bootstrap(ctx); err != nil {
+		logger.Error("vaspro-all: identity: bootstrap", "error", err)
+		os.Exit(1)
+	} else {
+		services = append(services, svc)
+	}
 	// vaspro-all:services-end
 
 	if len(services) == 0 {

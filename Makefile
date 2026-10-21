@@ -28,7 +28,10 @@ gen:
 	@if [ -f sqlc.yaml ]; then sqlc generate; else echo "gen: no sqlc.yaml yet, skipping sqlc"; fi
 	@if [ -f buf.yaml ]; then buf generate; else echo "gen: no buf.yaml yet, skipping buf"; fi
 	@if ls docs/api/*.yaml >/dev/null 2>&1; then \
-		for f in docs/api/*.yaml; do oapi-codegen -config "$$f.oapi-codegen.yaml" "$$f"; done; \
+		for f in docs/api/*.yaml; do \
+			case "$$f" in *.oapi-codegen.yaml) continue;; esac; \
+			oapi-codegen -config "$$f.oapi-codegen.yaml" "$$f"; \
+		done; \
 	else echo "gen: no OpenAPI specs yet, skipping oapi-codegen"; fi
 	@if [ -f docs/errors/catalogue.yaml ] && [ -d tools/errcodes ]; then go run ./tools/errcodes; \
 	else echo "gen: no error catalogue or generator yet, skipping"; fi

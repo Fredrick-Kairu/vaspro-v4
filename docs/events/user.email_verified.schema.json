@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/user.email_verified.schema.json",
+  "title": "user.email_verified",
+  "description": "Published by identity when a verification code is accepted (data model §3's Events table). This is the envelope's data field, not the whole envelope (see platform/events.Envelope for id/type/version/tenant_id/occurred_at/trace_id).",
+  "type": "object",
+  "required": ["user_id", "email"],
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "email": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
