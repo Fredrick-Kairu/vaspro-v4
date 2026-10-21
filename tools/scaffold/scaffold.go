@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"time"
 )
 
 //go:embed templates/*.tmpl
@@ -40,6 +41,13 @@ type file struct {
 	relPath  string // relative to root
 }
 
+// migrationFileName returns the goose timestamp-named filename for a
+// new service's first migration (.claude/rules/migrations.md: "File
+// names: goose timestamps with a short description").
+func migrationFileName() string {
+	return time.Now().UTC().Format("20060102150405") + "_init.sql"
+}
+
 func files(name string) []file {
 	return []file{
 		{"service.go.tmpl", filepath.Join("internal", name, name+".go")},
@@ -51,7 +59,7 @@ func files(name string) []file {
 		{"grpc_doc.go.tmpl", filepath.Join("internal", name, "grpc", "doc.go")},
 		{"adapters_doc.go.tmpl", filepath.Join("internal", name, "adapters", "doc.go")},
 		{"cmd_main.go.tmpl", filepath.Join("cmd", name, "main.go")},
-		{"migration.sql.tmpl", filepath.Join("migrations", name, "00001_init.sql")},
+		{"migration.sql.tmpl", filepath.Join("migrations", name, migrationFileName())},
 	}
 }
 

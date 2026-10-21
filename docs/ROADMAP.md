@@ -716,7 +716,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 1.1 `identity` migrations and sqlc queries from data model §3.
+- [x] 1.1 `identity` migrations and sqlc queries from data model §3.
 - [ ] 1.2 Sign-up with email verification. Email is unique and case-insensitive; phone is optional.
 - [ ] 1.3 Password sign-in with Argon2id; TOTP enrolment and verification; recovery codes.
 - [ ] 1.4 Passkeys (WebAuthn): registration, sign-in, and management of several passkeys.
