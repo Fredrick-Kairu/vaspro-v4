@@ -4,17 +4,13 @@ package db_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
 
 // appRoleDSN starts a postgres container as the test superuser, creates a
@@ -26,44 +22,7 @@ func appRoleDSN(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
-	// The official postgres image logs "database system is ready to accept
-	// connections" once for a temporary setup server and again for the
-	// real one; waiting for only the first occurrence races the restart
-	// in between and produces "connection reset by peer".
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("vaspro_test"),
-		postgres.WithUsername("super"),
-		postgres.WithPassword("super"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	superDSN, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	host, err := ctr.Host(ctx)
-	if err != nil {
-		t.Fatalf("failed to get container host: %v", err)
-	}
-	port, err := ctr.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("failed to get container port: %v", err)
-	}
-
-	superPool, err := vasdb.NewPool(ctx, superDSN)
-	if err != nil {
-		t.Fatalf("failed to connect as superuser: %v", err)
-	}
-	defer superPool.Close()
+	pg := testkit.StartPostgres(t)
 
 	const setup = `
 		CREATE TABLE sample (
@@ -84,11 +43,36 @@ func appRoleDSN(t *testing.T) string {
 		CREATE ROLE app_role LOGIN PASSWORD 'app_role';
 		GRANT SELECT, INSERT, UPDATE, DELETE ON sample TO app_role;
 	`
-	if _, err := superPool.Exec(ctx, setup); err != nil {
+	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
 		t.Fatalf("failed to set up the sample table: %v", err)
 	}
 
-	return fmt.Sprintf("postgres://app_role:app_role@%s:%s/vaspro_test?sslmode=disable", host, port.Port())
+	return pg.RoleDSN("app_role", "app_role")
+}
+
+// TestAssertRowLevelSecurity_OnTheSampleTable dogfoods
+// testkit.AssertRowLevelSecurity against the same sample table/policy the
+// tests below exercise by hand — proof the generic helper holds up
+// against a real RLS policy, not just its own throwaway scratch table.
+func TestAssertRowLevelSecurity_OnTheSampleTable(t *testing.T) {
+	ctx := context.Background()
+	pool, err := vasdb.NewPool(ctx, appRoleDSN(t))
+	if err != nil {
+		t.Fatalf("failed to connect as app_role: %v", err)
+	}
+	defer pool.Close()
+
+	insert := func(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) error {
+		_, err := tx.Exec(ctx, "INSERT INTO sample (tenant_id, value) VALUES ($1, 'x')", tenantID)
+		return err
+	}
+	count := func(ctx context.Context, tx pgx.Tx) (int, error) {
+		var n int
+		err := tx.QueryRow(ctx, "SELECT count(*) FROM sample").Scan(&n)
+		return n, err
+	}
+
+	testkit.AssertRowLevelSecurity(t, pool, insert, count)
 }
 
 func TestWithTenantTx_ReadIsolation(t *testing.T) {

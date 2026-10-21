@@ -11,40 +11,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
-
-func newTestBus(t *testing.T) *bus.Bus {
-	t.Helper()
-	ctx := context.Background()
-
-	ctr, err := natscontainer.Run(ctx, "nats:2.11.7")
-	if err != nil {
-		t.Fatalf("failed to start nats container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	url, err := ctr.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	b, err := bus.Connect(ctx, url)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	t.Cleanup(b.Close)
-	return b
-}
 
 // waitFor polls cond until it's true or timeout elapses, instead of a
 // fixed sleep (.claude/rules/tests.md: "no sleeps to wait for async work;
@@ -65,7 +38,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 
 func TestPublishAndConsume_RoundTrips(t *testing.T) {
 	ctx := context.Background()
-	b := newTestBus(t)
+	b := testkit.StartNATS(t)
 
 	stream := "TEST_STREAM"
 	subject := "test.events.a"
@@ -111,7 +84,7 @@ func TestPublishAndConsume_RoundTrips(t *testing.T) {
 
 func TestConsume_RetriesOnFailureThenSucceeds(t *testing.T) {
 	ctx := context.Background()
-	b := newTestBus(t)
+	b := testkit.StartNATS(t)
 
 	stream := "TEST_STREAM"
 	subject := "test.events.retry"
@@ -154,7 +127,7 @@ func TestConsume_RetriesOnFailureThenSucceeds(t *testing.T) {
 
 func TestConsume_DeadLettersAfterMaxDeliver(t *testing.T) {
 	ctx := context.Background()
-	b := newTestBus(t)
+	b := testkit.StartNATS(t)
 
 	stream := "TEST_STREAM"
 	subject := "test.events.dlq-source"
@@ -221,7 +194,7 @@ func TestConsume_DeadLettersAfterMaxDeliver(t *testing.T) {
 
 func TestBusPublish_SatisfiesOutboxPublisherAndRelays(t *testing.T) {
 	ctx := context.Background()
-	b := newTestBus(t)
+	b := testkit.StartNATS(t)
 
 	var _ outbox.Publisher = b // compile-time proof, checked again at runtime below
 
@@ -289,31 +262,7 @@ func newOutboxPool(t *testing.T) *vasdb.Pool {
 	t.Helper()
 	ctx := context.Background()
 
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("vaspro_test"),
-		postgres.WithUsername("super"),
-		postgres.WithPassword("super"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	pool, err := vasdb.NewPool(ctx, dsn)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := testkit.StartPostgres(t).Pool
 
 	const schema = `
 		CREATE TABLE outbox_events (

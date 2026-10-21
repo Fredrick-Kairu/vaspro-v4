@@ -9,12 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
-	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
 
 // assertJSONEqual compares got and want by value, not by byte, since
@@ -41,31 +38,7 @@ func newTestStore(t *testing.T) idempotency.Store {
 	t.Helper()
 	ctx := context.Background()
 
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("vaspro_test"),
-		postgres.WithUsername("super"),
-		postgres.WithPassword("super"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	pool, err := vasdb.NewPool(ctx, dsn)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := testkit.StartPostgres(t).Pool
 
 	const schema = `
 		CREATE TABLE idempotency_keys (
