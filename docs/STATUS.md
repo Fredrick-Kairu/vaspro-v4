@@ -1,8 +1,8 @@
 # Build status
 
-**Updated:** 2026-10-13
+**Updated:** 2026-10-21
 **Current phase:** Phase 0: Foundations and platform
-**Current task:** 0.10 platform/packs
+**Current task:** 0.11 platform/crypto
 **Branch:** p0/skeleton
 
 ## Done in the current phase
@@ -15,10 +15,11 @@
 - 0.7 platform/ids, platform/money, platform/clock: `ids.New`/`NewPrefixed`; `money.Allocate`/`SplitVATInclusive`/`AddVATExclusive` (no floats, verified against the data model's worked example exactly); `clock.Real`/`Fake`.
 - 0.8 platform/events, platform/outbox, platform/inbox, platform/idempotency: event envelope, transactional outbox + relay (via a `Publisher` interface, deliberately decoupled from NATS), inbox dedup guard, idempotency-key middleware/store. Added catalogue code `VAL-4001`.
 - 0.9 platform/bus, platform/cache: `bus.Bus` wraps NATS JetStream — `Publish` satisfies `outbox.Publisher` directly (closes the 0.8 interface), `Consume` runs a durable pull consumer with retries (`Nak` on handler error) and a hand-rolled dead-letter subject (JetStream has no client-level "move to this subject" config, so `Consume` checks delivery count itself and publishes to the dead-letter subject + `Term`s on the final attempt). `cache.Cache` embeds `*redis.Client` (same shape as `db.Pool` over `*pgxpool.Pool`) — no wrapper methods, since sessions/rate-limiting don't exist yet to narrow the surface to. Both integration-tested against real containers; `bus`'s tests include a full Postgres+NATS round trip proving `Bus.Publish` and `outbox.Relay` actually fit together, not just type-check.
+- 0.10 platform/packs: `packs/schema.json` (JSON Schema) + `packs.Load`/`LoadPinned` (validates via `santhosh-tekuri/jsonschema/v6`, decodes YAML through `sigs.k8s.io/yaml` to dodge the `map[interface{}]interface{}` trap, reuses `platform/money.Currency`/`VATRateBasisPoints` rather than a second shape). `packs/ke/pack.yaml` v0: numbering, currency, tax, send windows — deliberately partial, per task scope. `tools/vaspro` (`vaspro packs validate [pack.yaml ...]`, globs `packs/*/pack.yaml` when none given) wraps the loader for operational use. Tested against the real KE pack plus broken fixtures (missing field, wrong type, malformed YAML).
 
 ## Next up
-1. 0.10 platform/packs
-2. 0.11 platform/crypto
+1. 0.11 platform/crypto
+2. 0.12 platform/testkit
 
 ## Blockers
 - (none)
@@ -27,6 +28,7 @@
 - OD-01 Event bus: default NATS JetStream unless decided otherwise
 
 ## Notes for next session
+- `vaspro packs validate` lives at `tools/vaspro/` (plain `package main`, dispatch by subcommand string — not `tools/scaffold`-style, not `cmd/`). ROADMAP's tree sketch doesn't show a path for it explicitly; `tools/` was picked because it's an operational/dev CLI like `tools/fakes` and `tools/scaffold`, not a long-running service like everything under `cmd/`. Revisit if a second subcommand family makes the dispatch outgrow a single `main.go`.
 - `go mod tidy` silently downgraded `github.com/nats-io/nats.go` from `v1.54.0` to `v1.33.1` partway through 0.9 (presumably satisfying some other module's lower transitive requirement) — caught it because a diagnostic flagged a broken import after a tidy run that otherwise reported success. Re-ran `go get github.com/nats-io/nats.go@v1.54.0` explicitly and it held on subsequent tidies. If any pinned version mysteriously drops after `go mod tidy`, check `go.mod` immediately rather than trusting the command's own success output.
 - `platform/bus.Consume`'s dead-lettering is entirely client-side (delivery-count check + manual publish + `Term`) — JetStream has no server-side "move to this subject after N failures" config at this API surface. Any change to retry/DLQ behavior happens in `platform/bus`, not NATS server config.
 - `platform/idempotency.Middleware` has a documented, deliberate gap: concurrent duplicate requests on the same key both run the handler (no lock/poll on an in-flight claim) — fine until something actually issues concurrent duplicates.

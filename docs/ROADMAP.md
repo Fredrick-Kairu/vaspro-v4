@@ -678,7 +678,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 0.7 `platform/ids` (UUIDv7, prefixed public IDs), `platform/money` (minor units, currency exponents, allocation without losing a cent, VAT split), `platform/clock`.
 - [x] 0.8 `platform/idempotency` (HTTP middleware and store), `platform/outbox` (write in the business transaction; relay to the bus), `platform/inbox` (`processed_events`), `platform/events` (envelope: `id`, `type`, `version`, `tenant_id`, `occurred_at`, `trace_id`, `data`).
 - [x] 0.9 `platform/bus` (NATS JetStream publish, durable consumers, retries, dead-letter subject) and `platform/cache` (Redis).
-- [ ] 0.10 `platform/packs`: pack JSON Schema, loader, version pinning, and a `vaspro packs validate` command. A KE pack v0 with numbering, currency, tax and send windows.
+- [x] 0.10 `platform/packs`: pack JSON Schema, loader, version pinning, and a `vaspro packs validate` command. A KE pack v0 with numbering, currency, tax and send windows.
 - [ ] 0.11 `platform/crypto`: KMS interface with a local implementation, envelope encryption, HMAC helpers, Argon2id.
 - [ ] 0.12 `platform/testkit`: PostgreSQL, NATS, Redis and RabbitMQ through testcontainers with migrations applied; factories; golden-file helper; fake clock; an RLS assertion helper.
 - [ ] 0.13 Service template and `make new-service`; `cmd/vaspro-all`; health and readiness endpoints; graceful shutdown.
