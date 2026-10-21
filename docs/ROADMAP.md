@@ -311,7 +311,7 @@ Code may rely on these. Changing one needs an ADR.
 | D-08 | Errors are RFC 9457 problem+json with code families AUTH, KYC, VAL, BAL, CMP, RTE, DLR, RATE, SYS, LIM, PAY | System design §8 |
 | D-09 | Country rules live in versioned country packs (KE first, then TZ and UG) | System design §1 |
 | D-10 | Double-entry ledger; main wallet plus one token wallet per service; holds are not journal entries; usage settles in batches | Data model §5 |
-| D-11 | Tokens are worth the same as money today; the token price is configuration (`token_products`) | Decision 12 Oct |
+| D-11 | A token is one unit of a service, bought at the client's price: the list price with volume tiers, or a negotiated deal (`ledger.token_prices`, maker-checker). The price is locked in the lot at purchase, so a new deal applies from the next purchase. Airtime tokens stay at one currency unit. Supersedes "tokens are worth the same as money" | Decision 21 Oct; data model §5 |
 | D-12 | VAT is charged on use, not on top-up or token purchase | Decision 12 Oct |
 | D-13 | VASPRO never holds client money. Collections settle into the client's own paybill or till. Payouts leave from the client's own shortcode with the client's own credentials. VASPRO earns a fee per transaction | Decision 12 Oct; data model §7 |
 | D-14 | SMS sending stays in the existing Go SMS engine, unchanged. v4 chooses the route from the country pack and hands off exactly as v3 does | Decision 12 Oct; system design §5.2 |
@@ -320,6 +320,8 @@ Code may rely on these. Changing one needs an ADR.
 | D-17 | Reversals, credit notes, payout batches and allowlisting use maker-checker | System design §4.3, §13 |
 | D-18 | Scope is everything in the requirements except Voice and IVR | Requirements |
 | D-19 | Kenya reaches v3 parity and v3 is switched off before new channels and countries | Requirements, phasing |
+| D-20 | Allocating money to a service is final for the client. No transaction moves tokens back to the main wallet; only an approved reversal claws back unused tokens | Decision 21 Oct |
+| D-21 | Code, shortcode and sender ID rentals are billed by invoice from the billable assets register (auto-pay or Pay now), not bought with tokens. Paying VASPRO (ledger, billing) and client collections and payouts (payments, no ledger except VASPRO's fee) are separate flows | Decision 21 Oct; data model §6–7 |
 
 ### 4.3 Open decisions and when they block
 
@@ -331,7 +333,7 @@ If a decision isn't made by its **needed by** phase, the build uses the default 
 | OD-02 | Hosting, cloud and data residency | Phase 8 (staging); Phase 17 (production) | Containers, cloud-agnostic; Kubernetes manifests |
 | OD-03 | KYC vendor | Phase 2 | Fake adapter until chosen; interface fixed |
 | OD-04 | Tier 1 caps (values) | Phase 7 | Configurable; conservative placeholders |
-| OD-05 | Pricing: list rate cards and plan prices | Phase 3 (structure); M2 (values) | Values loaded as data |
+| OD-05 | Pricing: list token prices and volume tiers, rate cards and plan prices | Phase 3 (structure); M2 (values) | Values loaded as data |
 | OD-06 | Rate cards with or without VAT, per country | Phase 3 | VAT included (as in the worked example) |
 | OD-07 | Settlement window length | Phase 3 | 5 minutes, configurable |
 | OD-08 | eTIMS: one usage invoice per month or per batch | Phase 9 | Monthly |
@@ -688,7 +690,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - Idempotency: the same key with the same body returns the first response; the same key with a different body returns a `VAL-` conflict; keys expire as configured.
 - Problem+json: golden output for each code family; a panic returns `SYS-9000` with no stack trace in the body.
 - RLS helper: a sample table proves cross-tenant reads and writes fail.
-- Money: property test that allocating any amount over any ratios sums back exactly; VAT split matches the data model's worked example (190.00 → 163.79 revenue and 26.21 VAT at 16% inclusive); UGX with zero decimals.
+- Money: property test that allocating any amount over any ratios sums back exactly; VAT split matches the data model's worked example (304.00 → 262.07 revenue and 41.93 VAT at 16% inclusive); UGX with zero decimals.
 - UUIDv7 IDs sort by creation time; public ID prefixes round-trip.
 - Pack loader rejects an invalid pack with a clear error.
 - `depguard` fails the build if one service imports another.
@@ -802,10 +804,10 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 3.1 `ledger` migrations: currencies, accounts, balances, token products, rate cards, tax rates, transactions, entries, token lots, lot consumptions, holds, usage batches, auto-buy rules, reversals.
+- [ ] 3.1 `ledger` migrations: currencies, accounts, balances, token prices, rate cards, tax rates, transactions, entries, token lots, lot consumptions, holds, usage batches, auto-buy rules, reversals.
 - [ ] 3.2 Database guards: a deferred trigger that rejects unbalanced transactions; a trigger and grants that block updates and deletes on transactions and entries; a trigger that stops client wallets going below zero.
 - [ ] 3.3 Posting API over gRPC: post a transaction, place a hold, capture, release, query balances. Every call is idempotent.
-- [ ] 3.4 Token purchase from the main wallet into a service wallet, creating a lot at the current token price; FIFO use of lots.
+- [ ] 3.4 Token purchase from the main wallet into a service wallet, creating a lot at the client's price (negotiated deal if one is in force, otherwise the list price and its volume tier); FIFO use of lots. Staff console screen for entering and approving deals (maker-checker).
 - [ ] 3.5 Usage settlement: usage batches per wallet per settlement window, splitting revenue and VAT from the lots actually used.
 - [ ] 3.6 Hold expiry job; auto-buy rules.
 - [ ] 3.7 Reversals with maker-checker, as in system design §4.3.
@@ -817,7 +819,8 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 - Property test: for any random sequence of valid operations, debits equal credits per currency, and every balance equals the replay of its entries.
 - Concurrency: 200 goroutines hold against one wallet at once; nothing is overspent; run with `-race`.
-- Golden test of the worked example: KES 1,000 top-up, buy 1,000 SMS tokens, 400-SMS campaign at 0.5 tokens each, 380 delivered → SMS wallet 190.00, revenue 163.79, VAT 26.21, 10 tokens released. Also the tax-exclusive variant (220.40).
+- Golden test of the worked example: client deal KES 0.80 per SMS unit; KES 13,000 top-up, buy 10,000 units (8,000.00), 400-SMS campaign at 1 unit each, 380 delivered → SMS wallet 304.00, revenue 262.07, VAT 41.93, 20 units released. Also the tax-exclusive variant (352.64). Then a new deal of KES 0.50: the next 10,000 units cost 5,000.00 and the 9,620 units left at 80 cents are used first.
+- Pricing: a client with a deal in force always gets the deal price; without one, the list tier matching the quantity applies; a deal that has ended falls back to the list price; an unapproved price row is never used; two active prices for the same client, service and tier cannot overlap.
 - Token price change: lots bought before the change keep their price; use draws from the oldest lot first.
 - An update or delete on `entries` fails; a transaction that doesn't balance fails at commit.
 - A reversal approved by its own maker fails at the database.

@@ -159,8 +159,8 @@ const basisPointsDenominator = 10000
 
 // SplitVATInclusive treats total as already including tax at rate and
 // returns (revenue, vat) summing back exactly to total (round-half-up on
-// the unrounded revenue; data model's worked example: 190.00 at 16%
-// inclusive → 163.79 revenue, 26.21 VAT — OD-06's default).
+// the unrounded revenue; data model's worked example: 304.00 at 16%
+// inclusive → 262.07 revenue, 41.93 VAT — OD-06's default).
 func SplitVATInclusive(total Money, rate VATRateBasisPoints) (revenue, vat Money, err error) {
 	if total.minor < 0 {
 		return Money{}, Money{}, errors.New("money: SplitVATInclusive: total must not be negative")
@@ -182,8 +182,8 @@ func SplitVATInclusive(total Money, rate VATRateBasisPoints) (revenue, vat Money
 }
 
 // AddVATExclusive treats base as pre-tax and returns (total, vat) where
-// total = base + vat (the tax-exclusive variant: 190.00 base + 16% →
-// 220.40 total, 30.40 VAT).
+// total = base + vat (the tax-exclusive variant: 304.00 base + 16% →
+// 352.64 total, 48.64 VAT).
 func AddVATExclusive(base Money, rate VATRateBasisPoints) (total, vat Money, err error) {
 	if base.minor < 0 {
 		return Money{}, Money{}, errors.New("money: AddVATExclusive: base must not be negative")

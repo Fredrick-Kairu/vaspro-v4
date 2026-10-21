@@ -140,17 +140,20 @@ func TestAllocate_RejectsNegativeWeightsOrTotal(t *testing.T) {
 }
 
 func TestSplitVATInclusive_WorkedExample(t *testing.T) {
-	total := money.New(19000, money.KES) // 190.00
+	// Data model's ledger worked example, updated 21 Oct for the
+	// token_prices model (a client deal of KES 0.80/SMS unit, 380
+	// delivered of a 400-unit campaign): 304.00 at 16% inclusive.
+	total := money.New(30400, money.KES) // 304.00
 
 	revenue, vat, err := money.SplitVATInclusive(total, 1600) // 16%
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if revenue.Minor() != 16379 {
-		t.Fatalf("revenue = %d, want 16379 (163.79)", revenue.Minor())
+	if revenue.Minor() != 26207 {
+		t.Fatalf("revenue = %d, want 26207 (262.07)", revenue.Minor())
 	}
-	if vat.Minor() != 2621 {
-		t.Fatalf("vat = %d, want 2621 (26.21)", vat.Minor())
+	if vat.Minor() != 4193 {
+		t.Fatalf("vat = %d, want 4193 (41.93)", vat.Minor())
 	}
 	sum, err := revenue.Add(vat)
 	if err != nil {
@@ -162,17 +165,17 @@ func TestSplitVATInclusive_WorkedExample(t *testing.T) {
 }
 
 func TestAddVATExclusive_WorkedExample(t *testing.T) {
-	base := money.New(19000, money.KES) // 190.00
+	base := money.New(30400, money.KES) // 304.00, same updated worked example
 
 	total, vat, err := money.AddVATExclusive(base, 1600) // 16%
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if total.Minor() != 22040 {
-		t.Fatalf("total = %d, want 22040 (220.40)", total.Minor())
+	if total.Minor() != 35264 {
+		t.Fatalf("total = %d, want 35264 (352.64)", total.Minor())
 	}
-	if vat.Minor() != 3040 {
-		t.Fatalf("vat = %d, want 3040 (30.40)", vat.Minor())
+	if vat.Minor() != 4864 {
+		t.Fatalf("vat = %d, want 4864 (48.64)", vat.Minor())
 	}
 }
 

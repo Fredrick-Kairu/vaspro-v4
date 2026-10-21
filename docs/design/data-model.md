@@ -1,20 +1,20 @@
-<!-- Exported on 2026-10-12 from "VASPRO v4 Data Model" (https://claude.ai/code/artifact/2210198c-313f-4a2d-9692-931aa5dac3c6). The live doc is the source of truth until this file is committed; after that, change design here first and mirror it back. Diagrams appear as '[embedded content: ...]' placeholders: open the live doc to see them. -->
-
 # VASPRO v4 Data Model
 
 Oct 12, 2026 · @Fred Kairu
 
 This is the v4 data model. Part 1 sets the rules every service schema follows, and designs the three foundation services the rest depend on: identity, accounts and KYC, and the ledger. Each service gets an entity-relationship diagram, PostgreSQL table definitions with keys and indexes, its events, and how its v3 tables map across. Part 2 adds billing and payments (sections 6 and 7), and Parts 3 and 4 follow in the same format. Flows referred to here are in [VASPRO v4 System Design: Core Flows](https://claude.ai/code/artifact/e41284c4-aa32-45a8-ba2e-484b736454a4).
 
-## Decisions applied (12 Oct 2026)
+## Decisions applied (12 and 21 Oct 2026)
 
 | Decision | Effect on the data model |
 | --- | --- |
-| Tokens are worth the same as money today, but the token price must be changeable later by configuration | Service wallets hold money. Each token purchase records how many tokens were bought and the locked price per token. The price lives in a `token_products` row (today 1 token = 1 currency unit), so a new price is a new row, not a code change. |
+| Each client buys tokens at its own price, fixed at purchase (21 Oct; replaces "tokens are worth the same as money") | A token is one unit of a service: one SMS unit, one USSD session unit. Its price comes from `token_prices` when the client buys: the list price with its volume tiers, or the client's negotiated deal. Each purchase is a lot with the price locked, so a new deal applies from the next purchase and units already bought keep their price. Airtime tokens stay at one currency unit each. |
 | VAT is charged on use | Buying tokens moves the client's own money between wallets and carries no tax. Each usage posting splits its value into revenue and VAT payable, and monthly usage invoices (Part 2) are built from those lines. |
 | VASPRO does not hold client collections | There is no collection wallet in the ledger. Collections are records of payments into the client's own paybill (Payments, Part 2), not ledger money. Premium MT revenue share is still money VASPRO owes clients, so it stays as a payable. |
 | SMS sending stays in the existing SMS engine | Messaging (Part 3) keeps no SMPP binds or failover state. It stores the country-pack routes it chooses from, a log of each hand-off to the engine, and the DLR mapping tables. |
 | Payouts leave from the client's own shortcode, like collections | No payout float in the ledger. Payments stores each client's rail accounts and encrypted credentials, and VASPRO's fee on each payout is held and settled in the client's payments token wallet like any other usage. |
+| Allocating money to a service is final for the client (21 Oct) | No transaction type moves tokens back to the main wallet. Only an approved reversal can claw back unused tokens, for fraud, a chargeback or closing an account. |
+| Code, shortcode and sender ID rentals are billed by invoice (21 Oct) | Rentals stay in Billing's billable assets register and monthly invoices, paid by auto-pay from the main wallet or by Pay now. They are not token purchases. USSD sessions and SMS still draw on their token wallets. |
 
 ## 1. Shared rules
 
@@ -437,7 +437,7 @@ CREATE TABLE accounts.tier_changes (
 | `user_client_map` | `accounts.memberships` | One row per user per client; `permission_acl` becomes a role |
 | `client_authentication`, `client_auth_roles`, `user_permission` | `accounts.roles` | Permission names are redefined per v4 service, such as `sms:send` |
 | `client_resellers`, `client_reseller_accounts` | `tenants.type`, `parent_tenant_id` | Resellers become parent tenants and their clients sub-accounts |
-| `client_services` (unit\_cost, discount) | `tenant_services` plus `ledger.rate_cards` | The selection stays here; client-specific prices move to the ledger's rate cards |
+| `client_services` (unit\_cost, discount) | `tenant_services` plus `ledger.token_prices` | The selection stays here; client-specific prices move to the ledger's token prices |
 | Sign-up `national_id`, `date_of_birth` | `kyc_checks`, `documents` | Self-declared v3 values are not trusted; Tier 1 KYC verifies again |
 | `client_billingmode` | Billing (Part 2) | Pre-paid or post-paid becomes a billing plan setting |
 | `clients_leads`, `client_referral` | Part 4 | Sales and referral data is not a foundation concern |
@@ -497,26 +497,39 @@ CREATE TABLE ledger.balances (               -- a copy of the journal, updated i
 );
 -- Available = balance_minor - held_minor. A trigger stops client wallets going below zero.
 
-CREATE TABLE ledger.token_products (         -- the price of a token: configuration, not code
+CREATE TABLE ledger.token_prices (           -- what a client pays per token: list price, volume tier or negotiated deal
   id               uuid PRIMARY KEY,
-  service_code     text NOT NULL,
+  tenant_id        uuid,                     -- null = list price for everyone; set = this client's negotiated deal
+  service_code     text NOT NULL,            -- sms, ussd, payments, airtime ...
   currency         char(3) NOT NULL REFERENCES ledger.currencies (code),
-  minor_per_token  numeric(18,6) NOT NULL,   -- today one token = one currency unit, e.g. 100 for KES
-  volume_tiers     jsonb NOT NULL DEFAULT '[]',  -- e.g. [{"from_tokens": 100000, "minor_per_token": 95}]
+  min_tokens       numeric(18,6) NOT NULL DEFAULT 0,   -- volume tier: applies to purchases of at least this many
+  minor_per_token  numeric(18,6) NOT NULL CHECK (minor_per_token > 0),  -- e.g. 80 = KES 0.80 per SMS unit
+  deal_reference   text,                     -- the signed quote or agreement behind a negotiated price
+  status           text NOT NULL CHECK (status IN ('pending_approval', 'active', 'withdrawn')),
   effective_from   timestamptz NOT NULL,
-  effective_to     timestamptz,
-  EXCLUDE USING gist (service_code WITH =, currency WITH =,
-                     tstzrange(effective_from, effective_to) WITH &&)   -- no overlapping prices
+  effective_to     timestamptz,              -- a deal "until 31 March" ends here; the list price applies after
+  created_by       uuid NOT NULL,
+  approved_by      uuid,
+  CHECK (status <> 'active' OR approved_by IS NOT NULL),
+  CHECK (approved_by IS NULL OR approved_by <> created_by),   -- maker-checker for every price
+  EXCLUDE USING gist (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid) WITH =,
+                     service_code WITH =, currency WITH =, min_tokens WITH =,
+                     tstzrange(effective_from, effective_to) WITH &&)
+    WHERE (status = 'active')                -- one active price per tier at any moment
 );
+CREATE INDEX token_prices_lookup ON ledger.token_prices (service_code, currency, tenant_id, effective_from DESC)
+  WHERE status = 'active';
+-- Price at purchase: the client's own active rows for the service if any are in force, otherwise the list rows;
+-- of those, the row with the highest min_tokens not above the quantity bought. The price is copied into the lot.
 
-CREATE TABLE ledger.rate_cards (             -- what one event costs, in tokens
+CREATE TABLE ledger.rate_cards (             -- how many tokens one event uses; prices are in token_prices
   id                  uuid PRIMARY KEY,
-  tenant_id           uuid,                  -- null = list price; set = this client's price
+  tenant_id           uuid,                  -- null = standard; set = a rare per-client exception
   service_code        text NOT NULL,
   country_code        char(2) NOT NULL,
   operator_code       text,                  -- null = any operator in the country
   variant             text,                  -- promotional, transactional, international ...
-  tokens_per_event    numeric(18,6) NOT NULL,
+  tokens_per_event    numeric(18,6) NOT NULL,   -- e.g. 1 per local SMS segment, 3 per international
   prices_include_tax  boolean NOT NULL,
   effective_from      timestamptz NOT NULL,
   effective_to        timestamptz
@@ -575,7 +588,8 @@ CREATE TABLE ledger.token_lots (             -- each purchase and its locked pri
   transaction_id    uuid NOT NULL REFERENCES ledger.transactions (id),
   tokens_bought     numeric(18,6) NOT NULL,
   tokens_remaining  numeric(18,6) NOT NULL CHECK (tokens_remaining >= 0),
-  minor_per_token   numeric(18,6) NOT NULL,
+  minor_per_token   numeric(18,6) NOT NULL,   -- locked at purchase
+  token_price_id    uuid NOT NULL REFERENCES ledger.token_prices (id),   -- the list, tier or deal row used
   purchased_at      timestamptz NOT NULL,
   expires_at        timestamptz                -- unused today; ready if tokens ever expire
 );
@@ -648,22 +662,24 @@ CREATE TABLE ledger.reversals (
 );
 ```
 
-**Worked example (Kenya, tokens at 1:1, prices include VAT at 16%)**
+**Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
-| Step | Debit | Credit | KES | Tokens |
+| Step | Debit | Credit | KES | SMS units |
 | --- | --- | --- | --- | --- |
-| 1. Client tops up by M-Pesa | Provider clearing (M-Pesa KE) | Main wallet | 1,000.00 | — |
-| 2. Buys SMS tokens at KES 1.00 each | Main wallet | SMS service wallet | 1,000.00 | 1,000 added, one lot at 100 cents each |
-| 3. Sends a 400-SMS campaign at 0.50 tokens per SMS | No journal entry; a hold reserves the tokens | — | 200.00 held | 200 held |
-| 4. Settlement: 380 delivered, 20 failed (not billable) | SMS service wallet 190.00 | Revenue (SMS) 163.79 and VAT payable 26.21 | 190.00 | 190 used, 10 released |
+| 1. Client tops up by M-Pesa | Provider clearing (M-Pesa KE) | Main wallet | 13,000.00 | — |
+| 2. Buys 10,000 SMS units at its deal of KES 0.80 | Main wallet | SMS service wallet | 8,000.00 | 10,000 added, lot A at 80 cents each |
+| 3. Sends a 400-SMS campaign at 1 unit per SMS | No journal entry; a hold reserves the units | — | 320.00 held | 400 held |
+| 4. Settlement: 380 delivered, 20 failed (not billable) | SMS service wallet 304.00 | Revenue (SMS) 262.07 and VAT payable 41.93 | 304.00 | 380 used from lot A, 20 released |
+| 5. New deal of KES 0.50 from 1 Nov; buys 10,000 more | Main wallet | SMS service wallet | 5,000.00 | 10,000 added, lot B at 50 cents; lot A's 9,620 keep 80 cents and are used first |
 
-Buying tokens (step 2) carries no VAT, because it only moves the client's own money; VAT is charged when tokens are used (step 4). If a country's rate cards are set to exclude tax, step 4 debits 220.40: 190.00 for usage plus 30.40 VAT.
+Buying tokens (steps 2 and 5) carries no VAT, because it only moves the client's own money; VAT is charged when units are used (step 4), on the price of the lot they came from. If a country's prices are set to exclude tax, step 4 debits 352.64: 304.00 for usage plus 48.64 VAT.
 
 **Why it is built this way**
 
 - **Holds are not journal entries.** A hold only raises held\_minor, and the journal is touched once per wallet per settlement window, when delivered usage is posted as one usage transaction. Per-message detail stays in ClickHouse, tagged with the batch ID. This keeps the journal at millions of rows a year instead of billions. Payout fees settle the same way, because the payout itself leaves from the client's own shortcode. Airtime, data and bill purchases are the exception: each posts its own transaction, because VASPRO pays a provider for each one.
-- **Changing the token price later is configuration.** A new `token_products` row takes effect from its start date. Tokens already bought keep the price in their lot, and usage draws from the oldest lot first, so revenue and VAT are always calculated on the price actually paid.
-- **Fractional tokens are allowed** (`numeric(18,6)`), so an SMS can cost 0.35 tokens.
+- **Prices are configuration, per client.** A list price, a volume tier or a negotiated deal is a `token_prices` row with start and end dates, approved by a second staff member. The price is found when tokens are bought and locked in the lot. Usage draws from the oldest lot first, so revenue and VAT are always calculated on the price actually paid, and a new deal never changes units already bought.
+- **Allocation is final.** No transaction type moves tokens back to the main wallet. Only an approved reversal can claw back unused tokens, for fraud, a chargeback or closing an account.
+- **Fractional tokens are allowed** (`numeric(18,6)`), so a rate card can use part of a unit and a price can carry fractions of a cent.
 - **Proof of correctness:** each night the job rebuilds every balance from the entries. Any difference, or any transaction that does not balance, raises a P1 incident through the alerting engine.
 
 **Events**
@@ -688,7 +704,7 @@ Buying tokens (step 2) carries no VAT, because it only moves the client's own mo
 | `client_balance.alert_threshold` | Client alert rule (Monitoring, Part 4) | Not ledger data |
 | `user_balance.commissions` | `commission_payable` | Reseller and agent commissions |
 | `transactions` (reference types 1 to 30) | `transactions` and `entries` | v3 history is imported read-only as `migration` transactions with the v3 reference kept. Balances are checked against v3 totals before cut-over |
-| `client_services.unit_cost`, `discount` | `rate_cards` with `tenant_id` set | Client-specific prices |
+| `client_services.unit_cost`, `discount` | `token_prices` with `tenant_id` set | Each client's current SMS price (unit\_cost less discount) becomes its negotiated deal from cut-over |
 | `manual_payments` | `topup` transactions with `created_by` | v4 adds maker-checker for manual loads |
 | `invoices`, `invoice_status`, `mpesa_transactions` | Billing and Payments (Part 2) |  |
 
@@ -1285,7 +1301,7 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 
 - **Credentials are envelope-encrypted** with KMS and decrypted only inside the rail adapter at call time. The API never returns them. Rotating adds a new active row and retires the old one, and an account turns active only after a test call works. v3 keeps several clients' Daraja keys, passkeys and initiator passwords in its source code; none are migrated from there. Each client re-enters them, and the old ones are revoked with Safaricom.
 - **No double payouts.** The idempotency key is unique per client, and a rail receipt is unique per account. If a submit times out, the payout moves to pending\_query and the rail is asked for the outcome before any retry.
-- **Fees are rate cards.** VASPRO's fee per payout is a ledger rate card for the payments service, priced per kind and client like any other usage. The rail's own charges hit the client's account directly and show up in statement\_lines.charges\_minor.
+- **Fees are tokens.** A rate card sets how many payments tokens each payout kind uses, and the client's price per token, list or negotiated in `ledger.token_prices`, turns that into money. The rail's own charges hit the client's account directly and show up in statement\_lines.charges\_minor.
 - **Row-level security with VASPRO's paybill.** Notices on VASPRO's paybill have no owner until matched, so their policy also checks matched\_tenant\_id. Staff reach unmatched ones through a separate operations role.
 - **Reconciliation runs daily per rail account.** For client accounts it proves that every payout and collection VASPRO relayed is real. For VASPRO's paybill it also checks provider clearing in the ledger.
 - **Balances on client shortcodes** are polled within the rail's limits, so the dashboard can warn before a payout fails and section 10 of the design doc can alert on a low balance.
@@ -1309,7 +1325,7 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 | client\_mpesa\_paybill, client\_paybill (paybill, store\_number, type\_id, organisation\_name, org\_acc\_balance) | rail\_accounts | type\_id becomes account\_type; org\_acc\_balance becomes last\_balance\_minor |
 | client\_mpesa\_paybill.access\_token, expires\_on | Redis cache | Not migrated |
 | client\_mpesa\_paybill.pushUrl | Webhook endpoint (Part 4) | Notices go out as signed webhooks |
-| client\_mpesa\_paybill.markup\_amount, bulk\_payment\_settings.rate | ledger.rate\_cards for the payments service, per client | VASPRO's fee per transaction |
+| client\_mpesa\_paybill.markup\_amount, bulk\_payment\_settings.rate | ledger.token\_prices for the payments service, per client | VASPRO's fee per transaction |
 | Daraja keys, passkeys and initiators in MpesaTools.php | rail\_credentials | Re-entered by each client; the exposed ones are revoked |
 | bulk\_payment\_settings (merchant\_code, auth\_type, approved\_ips, max\_alert\_amount) | rail\_accounts, client limits (Part 3), API client IP allowlist, low\_balance\_minor | One v3 table splits four ways |
 | mpesa\_transactions, mpesa\_transactions\_failed | collection\_notices | Imported read-only; history depth to agree |
