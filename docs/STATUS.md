@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-21
 **Current phase:** Phase 0: Foundations and platform
-**Current task:** 0.11 platform/crypto
+**Current task:** 0.12 platform/testkit
 **Branch:** p0/skeleton
 
 ## Done in the current phase
@@ -16,10 +16,11 @@
 - 0.8 platform/events, platform/outbox, platform/inbox, platform/idempotency: event envelope, transactional outbox + relay (via a `Publisher` interface, deliberately decoupled from NATS), inbox dedup guard, idempotency-key middleware/store. Added catalogue code `VAL-4001`.
 - 0.9 platform/bus, platform/cache: `bus.Bus` wraps NATS JetStream — `Publish` satisfies `outbox.Publisher` directly (closes the 0.8 interface), `Consume` runs a durable pull consumer with retries (`Nak` on handler error) and a hand-rolled dead-letter subject (JetStream has no client-level "move to this subject" config, so `Consume` checks delivery count itself and publishes to the dead-letter subject + `Term`s on the final attempt). `cache.Cache` embeds `*redis.Client` (same shape as `db.Pool` over `*pgxpool.Pool`) — no wrapper methods, since sessions/rate-limiting don't exist yet to narrow the surface to. Both integration-tested against real containers; `bus`'s tests include a full Postgres+NATS round trip proving `Bus.Publish` and `outbox.Relay` actually fit together, not just type-check.
 - 0.10 platform/packs: `packs/schema.json` (JSON Schema) + `packs.Load`/`LoadPinned` (validates via `santhosh-tekuri/jsonschema/v6`, decodes YAML through `sigs.k8s.io/yaml` to dodge the `map[interface{}]interface{}` trap, reuses `platform/money.Currency`/`VATRateBasisPoints` rather than a second shape). `packs/ke/pack.yaml` v0: numbering, currency, tax, send windows — deliberately partial, per task scope. `tools/vaspro` (`vaspro packs validate [pack.yaml ...]`, globs `packs/*/pack.yaml` when none given) wraps the loader for operational use. Tested against the real KE pack plus broken fixtures (missing field, wrong type, malformed YAML).
+- 0.11 platform/crypto: `KMS` interface (`Encrypt`/`Decrypt` over a named key ID) + `LocalKMS`, the tech stack table's "local key-encryption key in development" stand-in — validates every master key is exactly 32 bytes up front, copies the caller's map rather than aliasing it. `Envelope` (`Seal`/`Open`) does the actual envelope encryption on top of any `KMS`: a fresh random 32-byte data key encrypts the payload (AES-256-GCM via a shared, separately-tested `sealAESGCM`/`openAESGCM` helper), the KMS only ever wraps that data key, output is one self-contained blob (`[len][encrypted DEK][sealed payload]`) — the shape `payments.rail_credentials.ciphertext` wants, with `kms_key_id` tracked by the caller alongside it. No AAD binding of the key ID is needed: GCM's own tag already fails closed if the wrong master key (or a tampered blob) is used to open it. `HMACSign`/`HMACVerify` (HMAC-SHA256, constant-time compare) are generic primitives for both request signing (task 1.9 builds the actual signature-over-method+path+body+timestamp on top) and `rail_credentials.fingerprint`-style keyed hashing. `Argon2Hash`/`Argon2Verify` encode to the standard self-describing `$argon2id$v=19$m=...,t=...,p=...$salt$hash` string, covering both `identity.users.password_hash` and `identity.api_client_secrets.secret_hash`. Pure in-process package, no containers needed; 25 tests covering round-trips, wrong-key/tampered-ciphertext/wrong-key-ID failure paths, and malformed-encoding handling.
 
 ## Next up
-1. 0.11 platform/crypto
-2. 0.12 platform/testkit
+1. 0.12 platform/testkit
+2. 0.13 Service template, `make new-service`, `cmd/vaspro-all`
 
 ## Blockers
 - (none)
@@ -28,6 +29,8 @@
 - OD-01 Event bus: default NATS JetStream unless decided otherwise
 
 ## Notes for next session
+- `platform/crypto`'s `KMS` interface only has `LocalKMS` (dev/test) implementing it so far — no design doc fixes a shape for the real Cloud KMS/Vault implementation yet, so that's deferred to whichever later task actually needs it (likely alongside payments' `rail_credentials` or identity's secrets). Also explicitly deferred: JWT/JWKS signing (`identity.signing_keys`, EdDSA — identity's task, uses `lestrrat-go/jwx` directly), the v3 bcrypt(MD5) one-time verify path (task 1.13), and the actual HMAC request-signing flow with replay/nonce checking (task 1.9) — 0.11 only shipped the `HMACSign`/`HMACVerify` primitive those will build on.
+- `golang.org/x/crypto` was already an indirect dependency (pulled in transitively); 0.11 just promoted it to direct in `go.mod` by importing `argon2` — `go mod tidy` held it at the same pinned `v0.57.0`, no other version moved.
 - `vaspro packs validate` lives at `tools/vaspro/` (plain `package main`, dispatch by subcommand string — not `tools/scaffold`-style, not `cmd/`). ROADMAP's tree sketch doesn't show a path for it explicitly; `tools/` was picked because it's an operational/dev CLI like `tools/fakes` and `tools/scaffold`, not a long-running service like everything under `cmd/`. Revisit if a second subcommand family makes the dispatch outgrow a single `main.go`.
 - `go mod tidy` silently downgraded `github.com/nats-io/nats.go` from `v1.54.0` to `v1.33.1` partway through 0.9 (presumably satisfying some other module's lower transitive requirement) — caught it because a diagnostic flagged a broken import after a tidy run that otherwise reported success. Re-ran `go get github.com/nats-io/nats.go@v1.54.0` explicitly and it held on subsequent tidies. If any pinned version mysteriously drops after `go mod tidy`, check `go.mod` immediately rather than trusting the command's own success output.
 - `platform/bus.Consume`'s dead-lettering is entirely client-side (delivery-count check + manual publish + `Term`) — JetStream has no server-side "move to this subject after N failures" config at this API surface. Any change to retry/DLQ behavior happens in `platform/bus`, not NATS server config.
