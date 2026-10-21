@@ -1,0 +1,3 @@
+this is: [not, valid: yaml structure
+  because: of
+inconsistent indentation and a stray colon: : :

@@ -1,0 +1,130 @@
+package packs_test
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/money"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
+)
+
+const (
+	realSchemaPath = "../../../packs/schema.json"
+	realKEPackPath = "../../../packs/ke/pack.yaml"
+)
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // test-only, path is always a fixture constant passed by the test itself
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", path, err)
+	}
+	return data
+}
+
+func TestParse_RealKEPack_ParsesCleanly(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	pack := readFile(t, realKEPackPath)
+
+	p, err := packs.Parse(schema, pack)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if p.Version != "0" {
+		t.Errorf("Version = %q, want %q", p.Version, "0")
+	}
+	if p.CountryCode != "KE" {
+		t.Errorf("CountryCode = %q, want %q", p.CountryCode, "KE")
+	}
+	if p.Currency != money.KES {
+		t.Errorf("Currency = %+v, want %+v", p.Currency, money.KES)
+	}
+	if p.Numbering.CountryCode != "254" || p.Numbering.TrunkPrefix != "0" || p.Numbering.NationalSignificantNumberLength != 9 {
+		t.Errorf("Numbering = %+v, unexpected", p.Numbering)
+	}
+	if p.Tax.VATRateBasisPoints != 1600 || !p.Tax.VATInclusiveByDefault {
+		t.Errorf("Tax = %+v, unexpected", p.Tax)
+	}
+	if p.SendWindows.Promotional.Start != "08:00" || p.SendWindows.Promotional.End != "20:00" || p.SendWindows.Promotional.Timezone != "Africa/Nairobi" {
+		t.Errorf("SendWindows.Promotional = %+v, unexpected", p.SendWindows.Promotional)
+	}
+}
+
+func TestParse_MissingRequiredField_RejectedWithClearError(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	pack := readFile(t, "testdata/missing_currency.yaml")
+
+	_, err := packs.Parse(schema, pack)
+	if err == nil {
+		t.Fatal("expected an error for a pack missing a required field")
+	}
+	if !strings.Contains(err.Error(), "currency") {
+		t.Fatalf("expected the error to name the missing field 'currency', got: %v", err)
+	}
+}
+
+func TestParse_WrongType_Rejected(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	pack := readFile(t, "testdata/wrong_type.yaml")
+
+	_, err := packs.Parse(schema, pack)
+	if err == nil {
+		t.Fatal("expected an error for a field with the wrong type")
+	}
+}
+
+func TestParse_MalformedYAML_ErrorsWithoutPanic(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	pack := readFile(t, "testdata/malformed.yaml")
+
+	_, err := packs.Parse(schema, pack)
+	if err == nil {
+		t.Fatal("expected an error for malformed YAML")
+	}
+}
+
+func TestParse_InvalidSchemaJSON_Errors(t *testing.T) {
+	_, err := packs.Parse([]byte("{not valid json"), readFile(t, realKEPackPath))
+	if err == nil {
+		t.Fatal("expected an error for an invalid schema document")
+	}
+}
+
+func TestLoad_ReadsFromDisk(t *testing.T) {
+	p, err := packs.Load(realSchemaPath, realKEPackPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.CountryCode != "KE" {
+		t.Fatalf("CountryCode = %q, want KE", p.CountryCode)
+	}
+}
+
+func TestLoad_MissingFile_Errors(t *testing.T) {
+	_, err := packs.Load(realSchemaPath, "testdata/does-not-exist.yaml")
+	if err == nil {
+		t.Fatal("expected an error for a missing pack file")
+	}
+}
+
+func TestLoadPinned_CorrectVersion_Succeeds(t *testing.T) {
+	p, err := packs.LoadPinned(realSchemaPath, realKEPackPath, "0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Version != "0" {
+		t.Fatalf("Version = %q, want %q", p.Version, "0")
+	}
+}
+
+func TestLoadPinned_WrongVersion_FailsWithBothVersionsNamed(t *testing.T) {
+	_, err := packs.LoadPinned(realSchemaPath, realKEPackPath, "99")
+	if err == nil {
+		t.Fatal("expected an error when the wanted version doesn't match")
+	}
+	if !strings.Contains(err.Error(), "99") || !strings.Contains(err.Error(), "0") {
+		t.Fatalf("expected the error to name both the wanted (99) and actual (0) versions, got: %v", err)
+	}
+}
