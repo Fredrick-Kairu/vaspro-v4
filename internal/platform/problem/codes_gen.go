@@ -32,6 +32,7 @@ const (
 	VAL4000  Code = "VAL-4000"
 	VAL4001  Code = "VAL-4001"
 	VAL4002  Code = "VAL-4002"
+	VAL4003  Code = "VAL-4003"
 )
 
 var registry = map[Code]entry{
@@ -152,6 +153,14 @@ var registry = map[Code]entry{
 		Title:     "Verification code invalid or expired",
 		Cause:     "The submitted code doesn't match the most recent one issued for this address, has already been used, has expired, or has been guessed wrong too many times. Deliberately not distinguished in the response.",
 		Fix:       "Request a new code and try again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4003: {
+		Status:    404,
+		Title:     "Resource not found",
+		Cause:     "The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.",
+		Fix:       "Check the ID and retry; the resource may have been deleted or never belonged to this account.",
 		Retryable: false,
 		Billable:  false,
 	},

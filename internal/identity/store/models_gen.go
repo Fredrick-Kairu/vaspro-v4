@@ -268,14 +268,19 @@ type IdentityUser struct {
 }
 
 type IdentityUserPasskey struct {
-	ID           uuid.UUID          `json:"id"`
-	UserID       uuid.UUID          `json:"user_id"`
-	CredentialID []byte             `json:"credential_id"`
-	PublicKey    []byte             `json:"public_key"`
-	SignCount    int64              `json:"sign_count"`
-	Name         pgtype.Text        `json:"name"`
-	CreatedAt    time.Time          `json:"created_at"`
-	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
+	ID                uuid.UUID          `json:"id"`
+	UserID            uuid.UUID          `json:"user_id"`
+	CredentialID      []byte             `json:"credential_id"`
+	PublicKey         []byte             `json:"public_key"`
+	SignCount         int64              `json:"sign_count"`
+	Name              pgtype.Text        `json:"name"`
+	CreatedAt         time.Time          `json:"created_at"`
+	LastUsedAt        pgtype.Timestamptz `json:"last_used_at"`
+	Flags             int16              `json:"flags"`
+	AttestationType   string             `json:"attestation_type"`
+	AttestationFormat string             `json:"attestation_format"`
+	Transports        []string           `json:"transports"`
+	CloneWarning      bool               `json:"clone_warning"`
 }
 
 type IdentityUserTotp struct {

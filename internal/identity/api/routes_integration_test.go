@@ -44,6 +44,8 @@ func newTestRouter(t *testing.T) http.Handler {
 	cfg := identity.Config{
 		TOTPKMSKey:          randomBase64Key(t),
 		ChallengeSigningKey: randomBase64Key(t),
+		WebAuthnRPID:        "localhost",
+		WebAuthnOrigins:     []string{"https://localhost"},
 	}
 	svc, err := identity.New(cfg, pool, nil, &email.Sender{})
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -45,6 +46,11 @@ var ErrBadCredentials = errors.New("app: invalid credentials")
 // recovery code, and an expired or malformed challenge token alike —
 // same "don't distinguish" principle. api/ maps it to AUTH-4011.
 var ErrTwoFactorInvalid = errors.New("app: two-factor code invalid or expired")
+
+// ErrNotFound covers "doesn't exist" and "exists but isn't the
+// caller's" alike — same anti-enumeration principle as
+// ErrBadCredentials/ErrTwoFactorInvalid. api/ maps it to VAL-4003.
+var ErrNotFound = errors.New("app: resource not found")
 
 const (
 	verificationTTL         = 15 * time.Minute
@@ -80,16 +86,23 @@ type Service struct {
 	envelope  *vascrypto.Envelope
 	totpKeyID string
 
-	// challengeKey signs the short-lived, stateless TOTP-challenge
-	// token SignIn issues — see issueChallenge/verifyChallenge. Not the
-	// same key as envelope's: different purpose, shouldn't share
-	// material.
+	// challengeKey signs every short-lived, stateless challenge token
+	// this service issues — the TOTP sign-in challenge
+	// (issueChallenge/verifyChallenge) and the WebAuthn ceremony
+	// session token (issueWebAuthnSession/verifyWebAuthnSession).
+	// Not the same key as envelope's: different purpose, shouldn't
+	// share material.
 	challengeKey []byte
+
+	// webauthn is nil-safe to construct once per process (1.4): its
+	// Config fixes the relying party ID/display name/origins for
+	// every registration and sign-in ceremony.
+	webauthn *webauthn.WebAuthn
 }
 
 // Deps is everything New needs. Grouped into a struct rather than
-// growing New's positional parameter list indefinitely as 1.3 adds
-// TOTP/challenge dependencies on top of 1.2's three.
+// growing New's positional parameter list indefinitely as each task
+// adds its own dependencies on top of the last.
 type Deps struct {
 	Pool         *db.Pool
 	Email        adapters.EmailSender
@@ -97,6 +110,7 @@ type Deps struct {
 	Envelope     *vascrypto.Envelope
 	TOTPKeyID    string
 	ChallengeKey []byte
+	WebAuthn     *webauthn.WebAuthn
 }
 
 // New builds a Service.
@@ -108,6 +122,7 @@ func New(d Deps) *Service {
 		envelope:     d.Envelope,
 		totpKeyID:    d.TOTPKeyID,
 		challengeKey: d.ChallengeKey,
+		webauthn:     d.WebAuthn,
 	}
 }
 
@@ -223,41 +238,59 @@ type totpChallenge struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// signPayload returns a short-lived, stateless, HMAC-signed token
+// wrapping payload — no new table: a signed opaque value needs
+// nothing persisted, unlike the "pending sign-ins" table a stateful
+// design would need (and that isn't in the data model). Format:
+// base64url(payload) + "." + base64url(HMAC-SHA256 of the payload
+// half). Shared by every challenge-shaped token this service issues
+// (the TOTP sign-in challenge, the WebAuthn ceremony session).
+func signPayload(key, payload []byte) string {
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
+	sig := vascrypto.HMACSign(key, []byte(payloadB64))
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return payloadB64 + "." + sigB64
+}
+
+// verifyPayload reverses signPayload, checking the signature before
+// returning anything decoded from it. ok is false for a malformed or
+// tampered token; it does not check expiry, since that's each
+// payload's own shape to decode and compare.
+func verifyPayload(key []byte, token string) (payload []byte, ok bool) {
+	payloadB64, sigB64, cut := strings.Cut(token, ".")
+	if !cut {
+		return nil, false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
+	if err != nil {
+		return nil, false
+	}
+	if !vascrypto.HMACVerify(key, []byte(payloadB64), sig) {
+		return nil, false
+	}
+	payload, err = base64.RawURLEncoding.DecodeString(payloadB64)
+	if err != nil {
+		return nil, false
+	}
+	return payload, true
+}
+
 // issueChallenge returns a short-lived, stateless, HMAC-signed token
-// proving the caller already supplied a correct password for userID —
-// no new table: a signed opaque value needs nothing persisted, unlike
-// the "pending sign-ins" table a stateful design would need (and that
-// isn't in the data model). Format: base64url(JSON payload) + "." +
-// base64url(HMAC-SHA256 of the payload half).
+// proving the caller already supplied a correct password for userID.
 func (s *Service) issueChallenge(userID uuid.UUID) (string, error) {
 	c := totpChallenge{UserID: userID, ExpiresAt: s.clk.Now().Add(challengeTTL)}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return "", fmt.Errorf("app: building challenge: %w", err)
 	}
-	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
-	sig := vascrypto.HMACSign(s.challengeKey, []byte(payloadB64))
-	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-	return payloadB64 + "." + sigB64, nil
+	return signPayload(s.challengeKey, payload), nil
 }
 
-// verifyChallenge reverses issueChallenge, checking the signature
-// before trusting anything decoded from the payload, and rejects an
-// expired challenge.
+// verifyChallenge reverses issueChallenge and rejects an expired
+// challenge.
 func (s *Service) verifyChallenge(token string) (uuid.UUID, error) {
-	payloadB64, sigB64, ok := strings.Cut(token, ".")
+	payload, ok := verifyPayload(s.challengeKey, token)
 	if !ok {
-		return uuid.Nil, ErrTwoFactorInvalid
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
-	if err != nil {
-		return uuid.Nil, ErrTwoFactorInvalid
-	}
-	if !vascrypto.HMACVerify(s.challengeKey, []byte(payloadB64), sig) {
-		return uuid.Nil, ErrTwoFactorInvalid
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(payloadB64)
-	if err != nil {
 		return uuid.Nil, ErrTwoFactorInvalid
 	}
 	var c totpChallenge
@@ -269,4 +302,3 @@ func (s *Service) verifyChallenge(token string) (uuid.UUID, error) {
 	}
 	return c.UserID, nil
 }
-

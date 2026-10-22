@@ -13,17 +13,24 @@ import (
 )
 
 const createPasskey = `-- name: CreatePasskey :one
-INSERT INTO identity.user_passkeys (id, user_id, credential_id, public_key, name)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at
+INSERT INTO identity.user_passkeys (
+  id, user_id, credential_id, public_key, name,
+  flags, attestation_type, attestation_format, transports
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at, flags, attestation_type, attestation_format, transports, clone_warning
 `
 
 type CreatePasskeyParams struct {
-	ID           uuid.UUID   `json:"id"`
-	UserID       uuid.UUID   `json:"user_id"`
-	CredentialID []byte      `json:"credential_id"`
-	PublicKey    []byte      `json:"public_key"`
-	Name         pgtype.Text `json:"name"`
+	ID                uuid.UUID   `json:"id"`
+	UserID            uuid.UUID   `json:"user_id"`
+	CredentialID      []byte      `json:"credential_id"`
+	PublicKey         []byte      `json:"public_key"`
+	Name              pgtype.Text `json:"name"`
+	Flags             int16       `json:"flags"`
+	AttestationType   string      `json:"attestation_type"`
+	AttestationFormat string      `json:"attestation_format"`
+	Transports        []string    `json:"transports"`
 }
 
 func (q *Queries) CreatePasskey(ctx context.Context, arg CreatePasskeyParams) (IdentityUserPasskey, error) {
@@ -33,6 +40,10 @@ func (q *Queries) CreatePasskey(ctx context.Context, arg CreatePasskeyParams) (I
 		arg.CredentialID,
 		arg.PublicKey,
 		arg.Name,
+		arg.Flags,
+		arg.AttestationType,
+		arg.AttestationFormat,
+		arg.Transports,
 	)
 	var i IdentityUserPasskey
 	err := row.Scan(
@@ -44,12 +55,34 @@ func (q *Queries) CreatePasskey(ctx context.Context, arg CreatePasskeyParams) (I
 		&i.Name,
 		&i.CreatedAt,
 		&i.LastUsedAt,
+		&i.Flags,
+		&i.AttestationType,
+		&i.AttestationFormat,
+		&i.Transports,
+		&i.CloneWarning,
 	)
 	return i, err
 }
 
+const deletePasskey = `-- name: DeletePasskey :execrows
+DELETE FROM identity.user_passkeys WHERE id = $1 AND user_id = $2
+`
+
+type DeletePasskeyParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeletePasskey(ctx context.Context, arg DeletePasskeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePasskey, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getPasskeyByCredentialID = `-- name: GetPasskeyByCredentialID :one
-SELECT id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at FROM identity.user_passkeys WHERE credential_id = $1
+SELECT id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at, flags, attestation_type, attestation_format, transports, clone_warning FROM identity.user_passkeys WHERE credential_id = $1
 `
 
 func (q *Queries) GetPasskeyByCredentialID(ctx context.Context, credentialID []byte) (IdentityUserPasskey, error) {
@@ -64,6 +97,135 @@ func (q *Queries) GetPasskeyByCredentialID(ctx context.Context, credentialID []b
 		&i.Name,
 		&i.CreatedAt,
 		&i.LastUsedAt,
+		&i.Flags,
+		&i.AttestationType,
+		&i.AttestationFormat,
+		&i.Transports,
+		&i.CloneWarning,
 	)
 	return i, err
+}
+
+const getPasskeyByID = `-- name: GetPasskeyByID :one
+SELECT id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at, flags, attestation_type, attestation_format, transports, clone_warning FROM identity.user_passkeys WHERE id = $1 AND user_id = $2
+`
+
+type GetPasskeyByIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetPasskeyByID(ctx context.Context, arg GetPasskeyByIDParams) (IdentityUserPasskey, error) {
+	row := q.db.QueryRow(ctx, getPasskeyByID, arg.ID, arg.UserID)
+	var i IdentityUserPasskey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CredentialID,
+		&i.PublicKey,
+		&i.SignCount,
+		&i.Name,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.Flags,
+		&i.AttestationType,
+		&i.AttestationFormat,
+		&i.Transports,
+		&i.CloneWarning,
+	)
+	return i, err
+}
+
+const listPasskeysByUserID = `-- name: ListPasskeysByUserID :many
+SELECT id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at, flags, attestation_type, attestation_format, transports, clone_warning FROM identity.user_passkeys WHERE user_id = $1 ORDER BY created_at
+`
+
+func (q *Queries) ListPasskeysByUserID(ctx context.Context, userID uuid.UUID) ([]IdentityUserPasskey, error) {
+	rows, err := q.db.Query(ctx, listPasskeysByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentityUserPasskey
+	for rows.Next() {
+		var i IdentityUserPasskey
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CredentialID,
+			&i.PublicKey,
+			&i.SignCount,
+			&i.Name,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.Flags,
+			&i.AttestationType,
+			&i.AttestationFormat,
+			&i.Transports,
+			&i.CloneWarning,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const renamePasskey = `-- name: RenamePasskey :one
+UPDATE identity.user_passkeys SET name = $3
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, credential_id, public_key, sign_count, name, created_at, last_used_at, flags, attestation_type, attestation_format, transports, clone_warning
+`
+
+type RenamePasskeyParams struct {
+	ID     uuid.UUID   `json:"id"`
+	UserID uuid.UUID   `json:"user_id"`
+	Name   pgtype.Text `json:"name"`
+}
+
+func (q *Queries) RenamePasskey(ctx context.Context, arg RenamePasskeyParams) (IdentityUserPasskey, error) {
+	row := q.db.QueryRow(ctx, renamePasskey, arg.ID, arg.UserID, arg.Name)
+	var i IdentityUserPasskey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CredentialID,
+		&i.PublicKey,
+		&i.SignCount,
+		&i.Name,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.Flags,
+		&i.AttestationType,
+		&i.AttestationFormat,
+		&i.Transports,
+		&i.CloneWarning,
+	)
+	return i, err
+}
+
+const updatePasskeySignCount = `-- name: UpdatePasskeySignCount :exec
+UPDATE identity.user_passkeys
+SET sign_count = $2, flags = $3, clone_warning = $4, last_used_at = now()
+WHERE credential_id = $1
+`
+
+type UpdatePasskeySignCountParams struct {
+	CredentialID []byte `json:"credential_id"`
+	SignCount    int64  `json:"sign_count"`
+	Flags        int16  `json:"flags"`
+	CloneWarning bool   `json:"clone_warning"`
+}
+
+func (q *Queries) UpdatePasskeySignCount(ctx context.Context, arg UpdatePasskeySignCountParams) error {
+	_, err := q.db.Exec(ctx, updatePasskeySignCount,
+		arg.CredentialID,
+		arg.SignCount,
+		arg.Flags,
+		arg.CloneWarning,
+	)
+	return err
 }

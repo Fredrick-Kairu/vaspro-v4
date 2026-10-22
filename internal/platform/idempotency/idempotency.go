@@ -93,6 +93,18 @@ func (b *bufferedResponseWriter) WriteHeader(code int) {
 func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// .claude/rules/api.md requires the header on every WRITE
+			// operation — a safe/read method (GET, HEAD, OPTIONS) isn't
+			// one, and has no body to deduplicate against anyway. Found
+			// by testing: this fell out of a wiring bug once identity's
+			// first GET endpoint (1.4's "list passkeys") hit this
+			// middleware and got rejected for lacking a header its own
+			// OpenAPI contract never asked a reader to send.
+			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			key := r.Header.Get(HeaderName)
 			if key == "" {
 				problem.Respond(w, r, problem.New(problem.VAL4000, "the "+HeaderName+" header is required"))

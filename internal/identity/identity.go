@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
+
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
@@ -50,11 +52,26 @@ type Config struct {
 	// own note); LocalKMS is what the tech stack table names for
 	// development.
 	TOTPKMSKey string `env:"IDENTITY_TOTP_KMS_KEY,required"`
-	// ChallengeSigningKey (base64) signs the short-lived TOTP sign-in
-	// challenge token (app.Service.issueChallenge) — platform/crypto.HMACSign,
-	// not the same key as TOTPKMSKey: different purpose, shouldn't
-	// share material.
+	// ChallengeSigningKey (base64) signs every short-lived, stateless
+	// challenge token this service issues — the TOTP sign-in
+	// challenge and the WebAuthn ceremony session token
+	// (app.Service.issueChallenge/issueWebAuthnSession) —
+	// platform/crypto.HMACSign, not the same key as TOTPKMSKey:
+	// different purpose, shouldn't share material.
 	ChallengeSigningKey string `env:"IDENTITY_CHALLENGE_SIGNING_KEY,required"`
+
+	// WebAuthnRPID is the WebAuthn relying party ID — the domain a
+	// passkey is scoped to (e.g. "dashboard.vaspro.io", or "localhost"
+	// in development). WebAuthnOrigins must each be an origin under
+	// this domain.
+	WebAuthnRPID string `env:"IDENTITY_WEBAUTHN_RP_ID,required"`
+	// WebAuthnRPDisplayName is shown to the user by the authenticator
+	// UI during registration.
+	WebAuthnRPDisplayName string `env:"IDENTITY_WEBAUTHN_RP_DISPLAY_NAME" envDefault:"VASPRO"`
+	// WebAuthnOrigins are the exact origins (scheme+host+port) a
+	// ceremony response is allowed to have been collected at.
+	// Comma-separated.
+	WebAuthnOrigins []string `env:"IDENTITY_WEBAUTHN_ORIGINS,required"`
 }
 
 // Service wires identity's dependencies together and runs them.
@@ -84,6 +101,15 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		return nil, fmt.Errorf("identity: decoding IDENTITY_CHALLENGE_SIGNING_KEY: %w", err)
 	}
 
+	wa, err := webauthn.New(&webauthn.Config{
+		RPID:          cfg.WebAuthnRPID,
+		RPDisplayName: cfg.WebAuthnRPDisplayName,
+		RPOrigins:     cfg.WebAuthnOrigins,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("identity: building webauthn config: %w", err)
+	}
+
 	a := app.New(app.Deps{
 		Pool:         pool,
 		Email:        email,
@@ -91,6 +117,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		Envelope:     vascrypto.NewEnvelope(kms),
 		TOTPKeyID:    totpKMSKeyID,
 		ChallengeKey: challengeKey,
+		WebAuthn:     wa,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)

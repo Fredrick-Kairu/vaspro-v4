@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+
+	"github.com/google/uuid"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
 
@@ -101,6 +104,126 @@ func (h *Handlers) CreateTotpEnrollmentConfirmation(ctx context.Context, request
 	return CreateTotpEnrollmentConfirmation200JSONResponse{Status: &status}, nil
 }
 
+func (h *Handlers) CreatePasskeyRegistration(ctx context.Context, request CreatePasskeyRegistrationRequestObject) (CreatePasskeyRegistrationResponseObject, error) {
+	reg, err := h.app.BeginPasskeyRegistration(ctx, sessionUserIDFromContext(ctx))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	options, err := toOptionsMap(reg.Options)
+	if err != nil {
+		return nil, err
+	}
+	return CreatePasskeyRegistration200JSONResponse{Session: reg.SessionToken, Options: options}, nil
+}
+
+func (h *Handlers) CreatePasskeyRegistrationConfirmation(ctx context.Context, request CreatePasskeyRegistrationConfirmationRequestObject) (CreatePasskeyRegistrationConfirmationResponseObject, error) {
+	body := request.Body
+	credential, err := json.Marshal(body.Credential)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	name := ""
+	if body.Name != nil {
+		name = *body.Name
+	}
+	summary, err := h.app.FinishPasskeyRegistration(ctx, sessionUserIDFromContext(ctx), body.Session, name, credential)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreatePasskeyRegistrationConfirmation200JSONResponse(passkeySummaryResponse(summary)), nil
+}
+
+func (h *Handlers) ListPasskeys(ctx context.Context, request ListPasskeysRequestObject) (ListPasskeysResponseObject, error) {
+	passkeys, err := h.app.ListPasskeys(ctx, sessionUserIDFromContext(ctx))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	summaries := make([]PasskeySummary, len(passkeys))
+	for i, p := range passkeys {
+		summaries[i] = passkeySummaryResponse(&p)
+	}
+	return ListPasskeys200JSONResponse{Passkeys: &summaries}, nil
+}
+
+func (h *Handlers) UpdatePasskey(ctx context.Context, request UpdatePasskeyRequestObject) (UpdatePasskeyResponseObject, error) {
+	passkeyID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	summary, err := h.app.RenamePasskey(ctx, sessionUserIDFromContext(ctx), passkeyID, request.Body.Name)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return UpdatePasskey200JSONResponse(passkeySummaryResponse(summary)), nil
+}
+
+func (h *Handlers) DeletePasskey(ctx context.Context, request DeletePasskeyRequestObject) (DeletePasskeyResponseObject, error) {
+	passkeyID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.DeletePasskey(ctx, sessionUserIDFromContext(ctx), passkeyID); err != nil {
+		return nil, toProblem(err)
+	}
+	return DeletePasskey204Response{}, nil
+}
+
+func (h *Handlers) CreatePasskeyChallenge(ctx context.Context, request CreatePasskeyChallengeRequestObject) (CreatePasskeyChallengeResponseObject, error) {
+	challenge, err := h.app.BeginPasskeyLogin(ctx, request.Body.Email)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	options, err := toOptionsMap(challenge.Options)
+	if err != nil {
+		return nil, err
+	}
+	return CreatePasskeyChallenge200JSONResponse{Session: challenge.SessionToken, Options: options}, nil
+}
+
+func (h *Handlers) CreatePasskeyChallengeVerification(ctx context.Context, request CreatePasskeyChallengeVerificationRequestObject) (CreatePasskeyChallengeVerificationResponseObject, error) {
+	credential, err := json.Marshal(request.Body.Credential)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	info := clientInfoFromContext(ctx)
+	session, err := h.app.CompletePasskeyLogin(ctx, request.Challenge, credential, info.IP, info.UserAgent)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreatePasskeyChallengeVerification200JSONResponse(signInResult(&app.SignInResult{Session: session})), nil
+}
+
+// toOptionsMap re-marshals v (a go-webauthn protocol.CredentialCreation
+// or protocol.CredentialAssertion) into the generic
+// map[string]interface{} shape PasskeyCeremonyOptions.Options carries —
+// the wire format is the library's own JSON encoding, not ours to
+// model field by field.
+func toOptionsMap(v any) (map[string]interface{}, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// passkeySummaryResponse renders an app.PasskeySummary as the API's
+// PasskeySummary shape.
+func passkeySummaryResponse(s *app.PasskeySummary) PasskeySummary {
+	id := s.ID.String()
+	summary := PasskeySummary{Id: &id, CreatedAt: &s.CreatedAt}
+	if s.Name != "" {
+		summary.Name = &s.Name
+	}
+	if s.LastUsedAt != nil {
+		summary.LastUsedAt = s.LastUsedAt
+	}
+	return summary
+}
+
 // signInResult renders an app.SignInResult as the API's SignInResult
 // shape: Challenge set, or SessionId+ExpiresAt set — never both.
 func signInResult(r *app.SignInResult) SignInResult {
@@ -126,6 +249,8 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4010, "invalid email or password")
 	case errors.Is(err, app.ErrTwoFactorInvalid):
 		return problem.New(problem.AUTH4011, "the two-factor code is invalid or has expired")
+	case errors.Is(err, app.ErrNotFound):
+		return problem.New(problem.VAL4003, "not found")
 	default:
 		return err
 	}

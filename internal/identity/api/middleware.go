@@ -71,8 +71,13 @@ func sessionUserIDFromContext(ctx context.Context) uuid.UUID {
 // back 500 instead of 401, because the request sailed through to a
 // handler that got called with no real session.
 var requireSessionOperations = map[string]bool{
-	"CreateTotpEnrollment":             true,
-	"CreateTotpEnrollmentConfirmation": true,
+	"CreateTotpEnrollment":                  true,
+	"CreateTotpEnrollmentConfirmation":      true,
+	"CreatePasskeyRegistration":             true,
+	"CreatePasskeyRegistrationConfirmation": true,
+	"ListPasskeys":                          true,
+	"UpdatePasskey":                         true,
+	"DeletePasskey":                         true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves

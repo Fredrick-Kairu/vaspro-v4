@@ -76,6 +76,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4003
+    status: 404
+    title: Resource not found
+    cause: The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.
+    fix: Check the ID and retry; the resource may have been deleted or never belonged to this account.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

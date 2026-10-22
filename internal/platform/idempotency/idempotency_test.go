@@ -85,6 +85,29 @@ func TestMiddleware_MissingHeaderIsRejected(t *testing.T) {
 	}
 }
 
+func TestMiddleware_GetRequestWithNoHeader_RunsAnyway(t *testing.T) {
+	var handlerCalled bool
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// No withTenant either: a GET bypasses the middleware entirely, so
+	// it never reaches the tenant-context check (which would reject it)
+	// any more than the header check.
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+
+	idempotency.Middleware(newFakeStore(), time.Hour)(next).ServeHTTP(w, r)
+
+	if !handlerCalled {
+		t.Fatal("expected a GET request to run even with no Idempotency-Key header")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", w.Code)
+	}
+}
+
 func TestMiddleware_SameKeySameBody_ReturnsFirstResponseWithoutRerunning(t *testing.T) {
 	var calls int
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -52,6 +52,54 @@ func TestRequireSession_RejectsTotpEnrollmentConfirmationWithoutBearer(t *testin
 	}
 }
 
+func TestRequireSession_RejectsPasskeyManagementRoutesWithoutBearer(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+	}{
+		{"createPasskeyRegistration", http.MethodPost, "/v1/auth/passkey-registrations", nil},
+		{"createPasskeyRegistrationConfirmation", http.MethodPost, "/v1/auth/passkey-registrations/confirmation", mustJSON(t, map[string]any{"session": "x", "credential": map[string]any{}})},
+		{"listPasskeys", http.MethodGet, "/v1/auth/passkeys", nil},
+		{"updatePasskey", http.MethodPatch, "/v1/auth/passkeys/" + "00000000-0000-0000-0000-000000000000", mustJSON(t, map[string]any{"name": "x"})},
+		{"deletePasskey", http.MethodDelete, "/v1/auth/passkeys/" + "00000000-0000-0000-0000-000000000000", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestRouter(t)
+
+			var body *bytes.Reader
+			if tc.body != nil {
+				body = bytes.NewReader(tc.body)
+			} else {
+				body = bytes.NewReader(nil)
+			}
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.Header.Set("Content-Type", "application/json")
+			if tc.method != http.MethodGet {
+				req.Header.Set("Idempotency-Key", "test-key-"+tc.name)
+			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("got status %d, want 401 (body: %s)", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshaling test body: %v", err)
+	}
+	return b
+}
+
 // TestRequireSession_LeavesUnprotectedRoutesAlone proves requireSession
 // is gated on operation ID, not applied globally: a write with no
 // Authorization header at all still has to pass (the existing

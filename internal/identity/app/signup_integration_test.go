@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
@@ -32,6 +33,14 @@ import (
 // a test importing its own service's root package back is a pointless
 // coupling anyway).
 const testTOTPKeyID = "test-totp"
+
+// testRPID/testRPOrigin fix the WebAuthn relying party every passkey
+// test (1.4) registers and signs in against — passkey_integration_test.go's
+// virtualwebauthn.RelyingParty must use these exact same values.
+const (
+	testRPID     = "localhost"
+	testRPOrigin = "https://localhost"
+)
 
 func randomKey(t *testing.T) []byte {
 	t.Helper()
@@ -69,6 +78,15 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 		t.Fatalf("building LocalKMS: %v", err)
 	}
 
+	wa, err := webauthn.New(&webauthn.Config{
+		RPID:          testRPID,
+		RPDisplayName: "VASPRO Test",
+		RPOrigins:     []string{testRPOrigin},
+	})
+	if err != nil {
+		t.Fatalf("building webauthn config: %v", err)
+	}
+
 	svc := app.New(app.Deps{
 		Pool:         pool,
 		Email:        sender,
@@ -76,6 +94,7 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 		Envelope:     vascrypto.NewEnvelope(kms),
 		TOTPKeyID:    testTOTPKeyID,
 		ChallengeKey: randomKey(t),
+		WebAuthn:     wa,
 	})
 	return svc, pool, sender, clk
 }

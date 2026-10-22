@@ -27,6 +27,54 @@ type EmailVerificationResult struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// PasskeyCeremonyOptions defines model for PasskeyCeremonyOptions.
+type PasskeyCeremonyOptions struct {
+	// Options go-webauthn's own CredentialCreation (registration) or CredentialAssertion (sign-in) JSON, passed verbatim to navigator.credentials.create()/get(). Not modelled field by field here — it's the library's wire format, not ours.
+	Options map[string]interface{} `json:"options"`
+
+	// Session Opaque, signed — pass back unchanged to the matching confirmation/verification call.
+	Session string `json:"session"`
+}
+
+// PasskeyChallengeRequest defines model for PasskeyChallengeRequest.
+type PasskeyChallengeRequest struct {
+	Email string `json:"email"`
+}
+
+// PasskeyChallengeVerificationRequest defines model for PasskeyChallengeVerificationRequest.
+type PasskeyChallengeVerificationRequest struct {
+	// Credential The navigator.credentials.get() response, passed through as-is.
+	Credential map[string]interface{} `json:"credential"`
+}
+
+// PasskeyList defines model for PasskeyList.
+type PasskeyList struct {
+	Passkeys *[]PasskeySummary `json:"passkeys,omitempty"`
+}
+
+// PasskeyRegistrationConfirmationRequest defines model for PasskeyRegistrationConfirmationRequest.
+type PasskeyRegistrationConfirmationRequest struct {
+	// Credential The navigator.credentials.create() response, passed through as-is.
+	Credential map[string]interface{} `json:"credential"`
+
+	// Name Optional display name, e.g. "Work laptop".
+	Name    *string `json:"name,omitempty"`
+	Session string  `json:"session"`
+}
+
+// PasskeyRenameRequest defines model for PasskeyRenameRequest.
+type PasskeyRenameRequest struct {
+	Name string `json:"name"`
+}
+
+// PasskeySummary defines model for PasskeySummary.
+type PasskeySummary struct {
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	Id         *string    `json:"id,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	Name       *string    `json:"name,omitempty"`
+}
+
 // PasswordResetConfirmationRequest defines model for PasswordResetConfirmationRequest.
 type PasswordResetConfirmationRequest struct {
 	// Code The reset code emailed by createPasswordReset.
@@ -105,6 +153,36 @@ type CreateEmailVerificationParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreatePasskeyChallengeParams defines parameters for CreatePasskeyChallenge.
+type CreatePasskeyChallengeParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreatePasskeyRegistrationParams defines parameters for CreatePasskeyRegistration.
+type CreatePasskeyRegistrationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreatePasskeyRegistrationConfirmationParams defines parameters for CreatePasskeyRegistrationConfirmation.
+type CreatePasskeyRegistrationConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// DeletePasskeyParams defines parameters for DeletePasskey.
+type DeletePasskeyParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdatePasskeyParams defines parameters for UpdatePasskey.
+type UpdatePasskeyParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreatePasswordResetConfirmationParams defines parameters for CreatePasswordResetConfirmation.
 type CreatePasswordResetConfirmationParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -144,6 +222,18 @@ type CreateTotpEnrollmentConfirmationParams struct {
 // CreateEmailVerificationJSONRequestBody defines body for CreateEmailVerification for application/json ContentType.
 type CreateEmailVerificationJSONRequestBody = EmailVerificationRequest
 
+// CreatePasskeyChallengeJSONRequestBody defines body for CreatePasskeyChallenge for application/json ContentType.
+type CreatePasskeyChallengeJSONRequestBody = PasskeyChallengeRequest
+
+// CreatePasskeyChallengeVerificationJSONRequestBody defines body for CreatePasskeyChallengeVerification for application/json ContentType.
+type CreatePasskeyChallengeVerificationJSONRequestBody = PasskeyChallengeVerificationRequest
+
+// CreatePasskeyRegistrationConfirmationJSONRequestBody defines body for CreatePasskeyRegistrationConfirmation for application/json ContentType.
+type CreatePasskeyRegistrationConfirmationJSONRequestBody = PasskeyRegistrationConfirmationRequest
+
+// UpdatePasskeyJSONRequestBody defines body for UpdatePasskey for application/json ContentType.
+type UpdatePasskeyJSONRequestBody = PasskeyRenameRequest
+
 // CreatePasswordResetConfirmationJSONRequestBody defines body for CreatePasswordResetConfirmation for application/json ContentType.
 type CreatePasswordResetConfirmationJSONRequestBody = PasswordResetConfirmationRequest
 
@@ -167,6 +257,27 @@ type ServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams)
+	// CreatePasskeyChallenge Begin signing in with a passkey
+	// (POST /v1/auth/passkey-challenges)
+	CreatePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreatePasskeyChallengeParams)
+	// CreatePasskeyChallengeVerification Complete a passkey sign-in challenge
+	// (POST /v1/auth/passkey-challenges/{challenge}/verification)
+	CreatePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string)
+	// CreatePasskeyRegistration Begin registering a new passkey for the signed-in account
+	// (POST /v1/auth/passkey-registrations)
+	CreatePasskeyRegistration(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationParams)
+	// CreatePasskeyRegistrationConfirmation Finish registering a passkey
+	// (POST /v1/auth/passkey-registrations/confirmation)
+	CreatePasskeyRegistrationConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationConfirmationParams)
+	// ListPasskeys List the signed-in account's passkeys
+	// (GET /v1/auth/passkeys)
+	ListPasskeys(w http.ResponseWriter, r *http.Request)
+	// DeletePasskey Delete a passkey
+	// (DELETE /v1/auth/passkeys/{id})
+	DeletePasskey(w http.ResponseWriter, r *http.Request, id string, params DeletePasskeyParams)
+	// UpdatePasskey Rename a passkey
+	// (PATCH /v1/auth/passkeys/{id})
+	UpdatePasskey(w http.ResponseWriter, r *http.Request, id string, params UpdatePasskeyParams)
 	// CreatePasswordResetConfirmation Confirm a password reset code and set a new password
 	// (POST /v1/auth/password-reset-confirmations)
 	CreatePasswordResetConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasswordResetConfirmationParams)
@@ -197,6 +308,48 @@ type Unimplemented struct{}
 // CreateEmailVerification Verify an email address with its code
 // (POST /v1/auth/email-verifications)
 func (_ Unimplemented) CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreatePasskeyChallenge Begin signing in with a passkey
+// (POST /v1/auth/passkey-challenges)
+func (_ Unimplemented) CreatePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreatePasskeyChallengeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreatePasskeyChallengeVerification Complete a passkey sign-in challenge
+// (POST /v1/auth/passkey-challenges/{challenge}/verification)
+func (_ Unimplemented) CreatePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreatePasskeyRegistration Begin registering a new passkey for the signed-in account
+// (POST /v1/auth/passkey-registrations)
+func (_ Unimplemented) CreatePasskeyRegistration(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreatePasskeyRegistrationConfirmation Finish registering a passkey
+// (POST /v1/auth/passkey-registrations/confirmation)
+func (_ Unimplemented) CreatePasskeyRegistrationConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationConfirmationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListPasskeys List the signed-in account's passkeys
+// (GET /v1/auth/passkeys)
+func (_ Unimplemented) ListPasskeys(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeletePasskey Delete a passkey
+// (DELETE /v1/auth/passkeys/{id})
+func (_ Unimplemented) DeletePasskey(w http.ResponseWriter, r *http.Request, id string, params DeletePasskeyParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdatePasskey Rename a passkey
+// (PATCH /v1/auth/passkeys/{id})
+func (_ Unimplemented) UpdatePasskey(w http.ResponseWriter, r *http.Request, id string, params UpdatePasskeyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -287,6 +440,289 @@ func (siw *ServerInterfaceWrapper) CreateEmailVerification(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateEmailVerification(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePasskeyChallenge operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasskeyChallenge(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePasskeyChallengeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasskeyChallenge(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePasskeyChallengeVerification operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "challenge" -------------
+	var challenge string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "challenge", chi.URLParam(r, "challenge"), &challenge, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "challenge", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasskeyChallengeVerification(w, r, challenge)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePasskeyRegistration operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasskeyRegistration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePasskeyRegistrationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasskeyRegistration(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePasskeyRegistrationConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasskeyRegistrationConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePasskeyRegistrationConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasskeyRegistrationConfirmation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPasskeys operation middleware
+func (siw *ServerInterfaceWrapper) ListPasskeys(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPasskeys(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePasskey operation middleware
+func (siw *ServerInterfaceWrapper) DeletePasskey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeletePasskeyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePasskey(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePasskey operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePasskey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdatePasskeyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePasskey(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -729,6 +1165,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/totp-enrollments/confirmation", wrapper.CreateTotpEnrollmentConfirmation)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/passkey-registrations", wrapper.CreatePasskeyRegistration)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/passkey-registrations/confirmation", wrapper.CreatePasskeyRegistrationConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/passkeys", wrapper.ListPasskeys)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/auth/passkeys/{id}", wrapper.DeletePasskey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/auth/passkeys/{id}", wrapper.UpdatePasskey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/passkey-challenges", wrapper.CreatePasskeyChallenge)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/passkey-challenges/{challenge}/verification", wrapper.CreatePasskeyChallengeVerification)
+	})
 
 	return r
 }
@@ -780,6 +1237,446 @@ type CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateEmailVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengeRequestObject struct {
+	Params CreatePasskeyChallengeParams
+	Body   *CreatePasskeyChallengeJSONRequestBody
+}
+
+type CreatePasskeyChallengeResponseObject interface {
+	VisitCreatePasskeyChallengeResponse(w http.ResponseWriter) error
+}
+
+type CreatePasskeyChallenge200JSONResponse PasskeyCeremonyOptions
+
+func (response CreatePasskeyChallenge200JSONResponse) VisitCreatePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallenge400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasskeyChallenge400ApplicationProblemPlusJSONResponse) VisitCreatePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasskeyChallengedefaultApplicationProblemPlusJSONResponse) VisitCreatePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengeVerificationRequestObject struct {
+	Challenge string `json:"challenge"`
+	Body      *CreatePasskeyChallengeVerificationJSONRequestBody
+}
+
+type CreatePasskeyChallengeVerificationResponseObject interface {
+	VisitCreatePasskeyChallengeVerificationResponse(w http.ResponseWriter) error
+}
+
+type CreatePasskeyChallengeVerification200JSONResponse SignInResult
+
+func (response CreatePasskeyChallengeVerification200JSONResponse) VisitCreatePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengeVerification400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasskeyChallengeVerification400ApplicationProblemPlusJSONResponse) VisitCreatePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengeVerification401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreatePasskeyChallengeVerification401ApplicationProblemPlusJSONResponse) VisitCreatePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyChallengeVerificationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasskeyChallengeVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreatePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationRequestObject struct {
+	Params CreatePasskeyRegistrationParams
+}
+
+type CreatePasskeyRegistrationResponseObject interface {
+	VisitCreatePasskeyRegistrationResponse(w http.ResponseWriter) error
+}
+
+type CreatePasskeyRegistration200JSONResponse PasskeyCeremonyOptions
+
+func (response CreatePasskeyRegistration200JSONResponse) VisitCreatePasskeyRegistrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistration401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasskeyRegistration401ApplicationProblemPlusJSONResponse) VisitCreatePasskeyRegistrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasskeyRegistrationdefaultApplicationProblemPlusJSONResponse) VisitCreatePasskeyRegistrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationConfirmationRequestObject struct {
+	Params CreatePasskeyRegistrationConfirmationParams
+	Body   *CreatePasskeyRegistrationConfirmationJSONRequestBody
+}
+
+type CreatePasskeyRegistrationConfirmationResponseObject interface {
+	VisitCreatePasskeyRegistrationConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreatePasskeyRegistrationConfirmation200JSONResponse PasskeySummary
+
+func (response CreatePasskeyRegistrationConfirmation200JSONResponse) VisitCreatePasskeyRegistrationConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasskeyRegistrationConfirmation400ApplicationProblemPlusJSONResponse) VisitCreatePasskeyRegistrationConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationConfirmation401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreatePasskeyRegistrationConfirmation401ApplicationProblemPlusJSONResponse) VisitCreatePasskeyRegistrationConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasskeyRegistrationConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasskeyRegistrationConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreatePasskeyRegistrationConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPasskeysRequestObject struct {
+}
+
+type ListPasskeysResponseObject interface {
+	VisitListPasskeysResponse(w http.ResponseWriter) error
+}
+
+type ListPasskeys200JSONResponse PasskeyList
+
+func (response ListPasskeys200JSONResponse) VisitListPasskeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPasskeys401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListPasskeys401ApplicationProblemPlusJSONResponse) VisitListPasskeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPasskeysdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListPasskeysdefaultApplicationProblemPlusJSONResponse) VisitListPasskeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePasskeyRequestObject struct {
+	Id     string `json:"id"`
+	Params DeletePasskeyParams
+}
+
+type DeletePasskeyResponseObject interface {
+	VisitDeletePasskeyResponse(w http.ResponseWriter) error
+}
+
+type DeletePasskey204Response struct {
+}
+
+func (response DeletePasskey204Response) VisitDeletePasskeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeletePasskey401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePasskey401ApplicationProblemPlusJSONResponse) VisitDeletePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePasskey404ApplicationProblemPlusJSONResponse Problem
+
+func (response DeletePasskey404ApplicationProblemPlusJSONResponse) VisitDeletePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePasskeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeletePasskeydefaultApplicationProblemPlusJSONResponse) VisitDeletePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePasskeyRequestObject struct {
+	Id     string `json:"id"`
+	Params UpdatePasskeyParams
+	Body   *UpdatePasskeyJSONRequestBody
+}
+
+type UpdatePasskeyResponseObject interface {
+	VisitUpdatePasskeyResponse(w http.ResponseWriter) error
+}
+
+type UpdatePasskey200JSONResponse PasskeySummary
+
+func (response UpdatePasskey200JSONResponse) VisitUpdatePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePasskey401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePasskey401ApplicationProblemPlusJSONResponse) VisitUpdatePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePasskey404ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdatePasskey404ApplicationProblemPlusJSONResponse) VisitUpdatePasskeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePasskeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdatePasskeydefaultApplicationProblemPlusJSONResponse) VisitUpdatePasskeyResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -1229,6 +2126,27 @@ type StrictServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(ctx context.Context, request CreateEmailVerificationRequestObject) (CreateEmailVerificationResponseObject, error)
+	// CreatePasskeyChallenge Begin signing in with a passkey
+	// (POST /v1/auth/passkey-challenges)
+	CreatePasskeyChallenge(ctx context.Context, request CreatePasskeyChallengeRequestObject) (CreatePasskeyChallengeResponseObject, error)
+	// CreatePasskeyChallengeVerification Complete a passkey sign-in challenge
+	// (POST /v1/auth/passkey-challenges/{challenge}/verification)
+	CreatePasskeyChallengeVerification(ctx context.Context, request CreatePasskeyChallengeVerificationRequestObject) (CreatePasskeyChallengeVerificationResponseObject, error)
+	// CreatePasskeyRegistration Begin registering a new passkey for the signed-in account
+	// (POST /v1/auth/passkey-registrations)
+	CreatePasskeyRegistration(ctx context.Context, request CreatePasskeyRegistrationRequestObject) (CreatePasskeyRegistrationResponseObject, error)
+	// CreatePasskeyRegistrationConfirmation Finish registering a passkey
+	// (POST /v1/auth/passkey-registrations/confirmation)
+	CreatePasskeyRegistrationConfirmation(ctx context.Context, request CreatePasskeyRegistrationConfirmationRequestObject) (CreatePasskeyRegistrationConfirmationResponseObject, error)
+	// ListPasskeys List the signed-in account's passkeys
+	// (GET /v1/auth/passkeys)
+	ListPasskeys(ctx context.Context, request ListPasskeysRequestObject) (ListPasskeysResponseObject, error)
+	// DeletePasskey Delete a passkey
+	// (DELETE /v1/auth/passkeys/{id})
+	DeletePasskey(ctx context.Context, request DeletePasskeyRequestObject) (DeletePasskeyResponseObject, error)
+	// UpdatePasskey Rename a passkey
+	// (PATCH /v1/auth/passkeys/{id})
+	UpdatePasskey(ctx context.Context, request UpdatePasskeyRequestObject) (UpdatePasskeyResponseObject, error)
 	// CreatePasswordResetConfirmation Confirm a password reset code and set a new password
 	// (POST /v1/auth/password-reset-confirmations)
 	CreatePasswordResetConfirmation(ctx context.Context, request CreatePasswordResetConfirmationRequestObject) (CreatePasswordResetConfirmationResponseObject, error)
@@ -1317,6 +2235,216 @@ func (sh *strictHandler) CreateEmailVerification(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateEmailVerificationResponseObject); ok {
 		if err := validResponse.VisitCreateEmailVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePasskeyChallenge operation middleware
+func (sh *strictHandler) CreatePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreatePasskeyChallengeParams) {
+	var request CreatePasskeyChallengeRequestObject
+
+	request.Params = params
+
+	var body CreatePasskeyChallengeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasskeyChallenge(ctx, request.(CreatePasskeyChallengeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasskeyChallenge")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasskeyChallengeResponseObject); ok {
+		if err := validResponse.VisitCreatePasskeyChallengeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePasskeyChallengeVerification operation middleware
+func (sh *strictHandler) CreatePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string) {
+	var request CreatePasskeyChallengeVerificationRequestObject
+
+	request.Challenge = challenge
+
+	var body CreatePasskeyChallengeVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasskeyChallengeVerification(ctx, request.(CreatePasskeyChallengeVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasskeyChallengeVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasskeyChallengeVerificationResponseObject); ok {
+		if err := validResponse.VisitCreatePasskeyChallengeVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePasskeyRegistration operation middleware
+func (sh *strictHandler) CreatePasskeyRegistration(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationParams) {
+	var request CreatePasskeyRegistrationRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasskeyRegistration(ctx, request.(CreatePasskeyRegistrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasskeyRegistration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasskeyRegistrationResponseObject); ok {
+		if err := validResponse.VisitCreatePasskeyRegistrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePasskeyRegistrationConfirmation operation middleware
+func (sh *strictHandler) CreatePasskeyRegistrationConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasskeyRegistrationConfirmationParams) {
+	var request CreatePasskeyRegistrationConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreatePasskeyRegistrationConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasskeyRegistrationConfirmation(ctx, request.(CreatePasskeyRegistrationConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasskeyRegistrationConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasskeyRegistrationConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreatePasskeyRegistrationConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPasskeys operation middleware
+func (sh *strictHandler) ListPasskeys(w http.ResponseWriter, r *http.Request) {
+	var request ListPasskeysRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPasskeys(ctx, request.(ListPasskeysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPasskeys")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPasskeysResponseObject); ok {
+		if err := validResponse.VisitListPasskeysResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePasskey operation middleware
+func (sh *strictHandler) DeletePasskey(w http.ResponseWriter, r *http.Request, id string, params DeletePasskeyParams) {
+	var request DeletePasskeyRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePasskey(ctx, request.(DeletePasskeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePasskey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePasskeyResponseObject); ok {
+		if err := validResponse.VisitDeletePasskeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdatePasskey operation middleware
+func (sh *strictHandler) UpdatePasskey(w http.ResponseWriter, r *http.Request, id string, params UpdatePasskeyParams) {
+	var request UpdatePasskeyRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdatePasskeyJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdatePasskey(ctx, request.(UpdatePasskeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdatePasskey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdatePasskeyResponseObject); ok {
+		if err := validResponse.VisitUpdatePasskeyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
