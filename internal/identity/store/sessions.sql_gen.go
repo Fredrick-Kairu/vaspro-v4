@@ -190,6 +190,15 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 	return result.RowsAffected(), nil
 }
 
+const setSessionStepUp = `-- name: SetSessionStepUp :exec
+UPDATE identity.sessions SET step_up_at = now() WHERE id = $1
+`
+
+func (q *Queries) SetSessionStepUp(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, setSessionStepUp, id)
+	return err
+}
+
 const updateSessionLastSeenAt = `-- name: UpdateSessionLastSeenAt :exec
 UPDATE identity.sessions SET last_seen_at = now() WHERE id = $1
 `

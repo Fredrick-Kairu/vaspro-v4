@@ -13,6 +13,7 @@ import (
 const (
 	KindVerification  = "verification"
 	KindPasswordReset = "password_reset"
+	KindStepUp        = "step_up"
 )
 
 // Sent is one recorded call to Sender.
@@ -37,6 +38,11 @@ func (s *Sender) SendVerificationCode(_ context.Context, to, fullName, code stri
 
 func (s *Sender) SendPasswordResetCode(_ context.Context, to, fullName, code string) error {
 	s.record(Sent{Kind: KindPasswordReset, To: to, FullName: fullName, Code: code})
+	return nil
+}
+
+func (s *Sender) SendStepUpCode(_ context.Context, to, fullName, code string) error {
+	s.record(Sent{Kind: KindStepUp, To: to, FullName: fullName, Code: code})
 	return nil
 }
 

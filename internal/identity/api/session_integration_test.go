@@ -11,7 +11,7 @@ import (
 )
 
 func TestRequireSession_RejectsTotpEnrollmentWithoutBearer(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/totp-enrollments", nil)
 	req.Header.Set("Idempotency-Key", "test-key-1")
@@ -24,7 +24,7 @@ func TestRequireSession_RejectsTotpEnrollmentWithoutBearer(t *testing.T) {
 }
 
 func TestRequireSession_RejectsTotpEnrollmentWithGarbageBearer(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/totp-enrollments", nil)
 	req.Header.Set("Idempotency-Key", "test-key-2")
@@ -38,7 +38,7 @@ func TestRequireSession_RejectsTotpEnrollmentWithGarbageBearer(t *testing.T) {
 }
 
 func TestRequireSession_RejectsTotpEnrollmentConfirmationWithoutBearer(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	body, _ := json.Marshal(map[string]string{"code": "000000"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/totp-enrollments/confirmation", bytes.NewReader(body))
@@ -68,7 +68,7 @@ func TestRequireSession_RejectsPasskeyManagementRoutesWithoutBearer(t *testing.T
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newTestRouter(t)
+			r, _ := newTestRouter(t)
 
 			var body *bytes.Reader
 			if tc.body != nil {
@@ -105,7 +105,7 @@ func TestRequireSession_RejectsSessionManagementRoutesWithoutBearer(t *testing.T
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newTestRouter(t)
+			r, _ := newTestRouter(t)
 
 			var body *bytes.Reader
 			if tc.body != nil {
@@ -118,6 +118,41 @@ func TestRequireSession_RejectsSessionManagementRoutesWithoutBearer(t *testing.T
 			if tc.method != http.MethodGet {
 				req.Header.Set("Idempotency-Key", "test-key-"+tc.name)
 			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("got status %d, want 401 (body: %s)", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestRequireSession_RejectsStepUpRoutesWithoutBearer(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+	}{
+		{"createStepUpTotpVerification", http.MethodPost, "/v1/auth/step-up/totp", mustJSON(t, map[string]any{"code": "000000"})},
+		{"createStepUpEmail", http.MethodPost, "/v1/auth/step-up/email", nil},
+		{"createStepUpEmailConfirmation", http.MethodPost, "/v1/auth/step-up/email/confirmation", mustJSON(t, map[string]any{"code": "000000"})},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newTestRouter(t)
+
+			var body *bytes.Reader
+			if tc.body != nil {
+				body = bytes.NewReader(tc.body)
+			} else {
+				body = bytes.NewReader(nil)
+			}
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "test-key-"+tc.name)
 			rec := httptest.NewRecorder()
 			r.ServeHTTP(rec, req)
 
@@ -144,7 +179,7 @@ func mustJSON(t *testing.T, v any) []byte {
 // this one exercises a second anonymous route, password-resets, to
 // show the gating isn't accidentally specific to signups).
 func TestRequireSession_LeavesUnprotectedRoutesAlone(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	body, _ := json.Marshal(map[string]string{"email": "ada@example.com"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/password-resets", bytes.NewReader(body))

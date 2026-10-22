@@ -29,8 +29,10 @@ func randomBase64Key(t *testing.T) string {
 
 // newTestRouter builds a real identity.Service's router against a real
 // Postgres container. nil for the bus is safe here: Router() never
-// touches it, only Run() does.
-func newTestRouter(t *testing.T) http.Handler {
+// touches it, only Run() does. Returns the fake email sender too, so a
+// test that needs to read an emailed code (step-up, verification,
+// password reset) doesn't have to reach around the router for it.
+func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -48,15 +50,16 @@ func newTestRouter(t *testing.T) http.Handler {
 		WebAuthnOrigins:     []string{"https://localhost"},
 		RedisURL:            testkit.StartRedisURL(t),
 	}
-	svc, err := identity.New(cfg, pool, nil, &email.Sender{})
+	sender := &email.Sender{}
+	svc, err := identity.New(cfg, pool, nil, sender)
 	if err != nil {
 		t.Fatalf("building identity service: %v", err)
 	}
-	return svc.Router()
+	return svc.Router(), sender
 }
 
 func TestCreateSignup_MissingIdempotencyKey_Rejected(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	body, _ := json.Marshal(map[string]string{"email": "ada@example.com", "full_name": "Ada Lovelace"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/signups", bytes.NewReader(body))
@@ -70,7 +73,7 @@ func TestCreateSignup_MissingIdempotencyKey_Rejected(t *testing.T) {
 }
 
 func TestCreateSignup_WithIdempotencyKey_Returns202(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	body, _ := json.Marshal(map[string]string{"email": "ada@example.com", "full_name": "Ada Lovelace"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/signups", bytes.NewReader(body))
@@ -85,7 +88,7 @@ func TestCreateSignup_WithIdempotencyKey_Returns202(t *testing.T) {
 }
 
 func TestCreateSignup_MalformedEmail_ReturnsVAL4000ProblemJSON(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	body, _ := json.Marshal(map[string]string{"email": "not-an-email", "full_name": "Ada Lovelace"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/signups", bytes.NewReader(body))
@@ -113,7 +116,7 @@ func TestCreateSignup_MalformedEmail_ReturnsVAL4000ProblemJSON(t *testing.T) {
 }
 
 func TestHealthzAndReadyz(t *testing.T) {
-	r := newTestRouter(t)
+	r, _ := newTestRouter(t)
 
 	for _, path := range []string{"/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

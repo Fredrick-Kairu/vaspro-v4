@@ -44,6 +44,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4012
+    status: 401
+    title: Step-up verification required
+    cause: The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list).
+    fix: Complete a step-up verification (TOTP code, or an emailed one-time code) and retry.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service

@@ -104,6 +104,32 @@ func (h *Handlers) CreateTotpEnrollmentConfirmation(ctx context.Context, request
 	return CreateTotpEnrollmentConfirmation200JSONResponse{Status: &status}, nil
 }
 
+func (h *Handlers) CreateStepUpTotpVerification(ctx context.Context, request CreateStepUpTotpVerificationRequestObject) (CreateStepUpTotpVerificationResponseObject, error) {
+	body := request.Body
+	if err := h.app.VerifyStepUpTOTP(ctx, sessionUserIDFromContext(ctx), sessionIDFromContext(ctx), body.Code); err != nil {
+		return nil, toProblem(err)
+	}
+	status := "stepped_up"
+	return CreateStepUpTotpVerification200JSONResponse{Status: &status}, nil
+}
+
+func (h *Handlers) CreateStepUpEmail(ctx context.Context, request CreateStepUpEmailRequestObject) (CreateStepUpEmailResponseObject, error) {
+	if err := h.app.RequestStepUpEmail(ctx, sessionUserIDFromContext(ctx)); err != nil {
+		return nil, toProblem(err)
+	}
+	message := "Check the account's email for a step-up code."
+	return CreateStepUpEmail202JSONResponse{Message: &message}, nil
+}
+
+func (h *Handlers) CreateStepUpEmailConfirmation(ctx context.Context, request CreateStepUpEmailConfirmationRequestObject) (CreateStepUpEmailConfirmationResponseObject, error) {
+	body := request.Body
+	if err := h.app.ConfirmStepUpEmail(ctx, sessionUserIDFromContext(ctx), sessionIDFromContext(ctx), body.Code); err != nil {
+		return nil, toProblem(err)
+	}
+	status := "stepped_up"
+	return CreateStepUpEmailConfirmation200JSONResponse{Status: &status}, nil
+}
+
 func (h *Handlers) CreatePasskeyRegistration(ctx context.Context, request CreatePasskeyRegistrationRequestObject) (CreatePasskeyRegistrationResponseObject, error) {
 	reg, err := h.app.BeginPasskeyRegistration(ctx, sessionUserIDFromContext(ctx))
 	if err != nil {

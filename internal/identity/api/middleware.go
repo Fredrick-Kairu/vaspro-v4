@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
 )
 
 type clientInfo struct {
@@ -94,6 +96,9 @@ var requireSessionOperations = map[string]bool{
 	"ListSessions":                          true,
 	"DeleteSession":                         true,
 	"DeleteSessions":                        true,
+	"CreateStepUpTotpVerification":          true,
+	"CreateStepUpEmail":                     true,
+	"CreateStepUpEmailConfirmation":         true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves
@@ -122,6 +127,47 @@ func requireSession(lookup *SessionLookup) StrictMiddlewareFunc {
 			}
 			ctx = withSessionUserID(ctx, userID)
 			ctx = withSessionID(ctx, sessionID)
+			return f(ctx, w, r, request)
+		}
+	}
+}
+
+// requireStepUpOperations names the operations requireStepUp checks —
+// system design §3's "create or reveal credentials," limited to what's
+// actually built so far. Not their confirmation steps: gating those
+// too could fail an already-in-progress enrollment ceremony partway
+// through if the freshness window lapses mid-flow, which would be a
+// self-inflicted UX bug, not a security property. Not delete/revoke
+// actions either — destroying a credential isn't on system design's
+// list. Same Go-method-name-not-operationId caveat as
+// requireSessionOperations.
+var requireStepUpOperations = map[string]bool{
+	"CreateTotpEnrollment":      true,
+	"CreatePasskeyRegistration": true,
+}
+
+// requireStepUp rejects a request whose session hasn't proved MFA
+// fresh enough (app.Service.StepUpFresh, task 1.6) with AUTH-4012 —
+// distinct from requireSession's AUTH-4010, so a client can tell "ask
+// the user to step up" apart from "ask the user to sign in." Must run
+// after requireSession in the StrictMiddlewareFunc slice (routes.go)
+// so sessionIDFromContext has something to read; oapi-codegen's
+// generated strictHandler wraps the slice iteratively with the *last*
+// entry outermost/running first (1.2's own documented lesson about
+// this exact mechanic), so requireSession must be the later entry.
+func requireStepUp(a *app.Service) StrictMiddlewareFunc {
+	return func(f StrictHandlerFunc, operationID string) StrictHandlerFunc {
+		if !requireStepUpOperations[operationID] {
+			return f
+		}
+		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+			fresh, err := a.StepUpFresh(ctx, sessionIDFromContext(ctx))
+			if err != nil {
+				return nil, err
+			}
+			if !fresh {
+				return nil, problem.New(problem.AUTH4012, "step-up verification is required")
+			}
 			return f(ctx, w, r, request)
 		}
 	}

@@ -18,6 +18,10 @@ type EmailSender interface {
 	// invites clicking a verification flow and the other a password
 	// reset.
 	SendPasswordResetCode(ctx context.Context, to, fullName, code string) error
+	// SendStepUpCode sends code to to, addressed to fullName — a
+	// one-time code proving fresh account control for a sensitive
+	// action (task 1.6), not a sign-in or password flow.
+	SendStepUpCode(ctx context.Context, to, fullName, code string) error
 }
 
 // SMTPSender sends over plain SMTP — no auth, no TLS. That's exactly
@@ -53,6 +57,17 @@ func (s *SMTPSender) SendPasswordResetCode(_ context.Context, to, fullName, code
 	)
 	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
 		return fmt.Errorf("adapters: sending password reset email: %w", err)
+	}
+	return nil
+}
+
+func (s *SMTPSender) SendStepUpCode(_ context.Context, to, fullName, code string) error {
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: Your VASPRO verification code\r\n\r\nHi %s,\r\n\r\nYour code to confirm this sensitive action is: %s\r\n\r\nIt expires in 15 minutes. If you didn't request this, you can ignore this email.\r\n",
+		s.from, to, fullName, code,
+	)
+	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
+		return fmt.Errorf("adapters: sending step-up email: %w", err)
 	}
 	return nil
 }

@@ -147,6 +147,12 @@ type SignupRequest struct {
 	PhoneE164 *string `json:"phone_e164,omitempty"`
 }
 
+// StepUpEmailConfirmationRequest defines model for StepUpEmailConfirmationRequest.
+type StepUpEmailConfirmationRequest struct {
+	// Code The step-up code emailed by createStepUpEmail.
+	Code string `json:"code"`
+}
+
 // TotpChallengeVerificationRequest defines model for TotpChallengeVerificationRequest.
 type TotpChallengeVerificationRequest struct {
 	// Code A live 6-digit TOTP code, or an unused recovery code.
@@ -237,6 +243,24 @@ type CreateSignupParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateStepUpEmailParams defines parameters for CreateStepUpEmail.
+type CreateStepUpEmailParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStepUpEmailConfirmationParams defines parameters for CreateStepUpEmailConfirmation.
+type CreateStepUpEmailConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStepUpTotpVerificationParams defines parameters for CreateStepUpTotpVerification.
+type CreateStepUpTotpVerificationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateTotpEnrollmentParams defines parameters for CreateTotpEnrollment.
 type CreateTotpEnrollmentParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -275,6 +299,12 @@ type CreateSessionJSONRequestBody = SignInRequest
 
 // CreateSignupJSONRequestBody defines body for CreateSignup for application/json ContentType.
 type CreateSignupJSONRequestBody = SignupRequest
+
+// CreateStepUpEmailConfirmationJSONRequestBody defines body for CreateStepUpEmailConfirmation for application/json ContentType.
+type CreateStepUpEmailConfirmationJSONRequestBody = StepUpEmailConfirmationRequest
+
+// CreateStepUpTotpVerificationJSONRequestBody defines body for CreateStepUpTotpVerification for application/json ContentType.
+type CreateStepUpTotpVerificationJSONRequestBody = TotpChallengeVerificationRequest
 
 // CreateTotpChallengeVerificationJSONRequestBody defines body for CreateTotpChallengeVerification for application/json ContentType.
 type CreateTotpChallengeVerificationJSONRequestBody = TotpChallengeVerificationRequest
@@ -329,6 +359,15 @@ type ServerInterface interface {
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams)
+	// CreateStepUpEmail Request a step-up code by email
+	// (POST /v1/auth/step-up/email)
+	CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams)
+	// CreateStepUpEmailConfirmation Confirm a step-up email code
+	// (POST /v1/auth/step-up/email/confirmation)
+	CreateStepUpEmailConfirmation(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailConfirmationParams)
+	// CreateStepUpTotpVerification Step up with the account's existing TOTP code
+	// (POST /v1/auth/step-up/totp)
+	CreateStepUpTotpVerification(w http.ResponseWriter, r *http.Request, params CreateStepUpTotpVerificationParams)
 	// CreateTotpChallengeVerification Complete a sign-in TOTP challenge
 	// (POST /v1/auth/totp-challenges/{challenge}/verification)
 	CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string)
@@ -431,6 +470,24 @@ func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, id 
 // CreateSignup Start sign-up for an email address
 // (POST /v1/auth/signups)
 func (_ Unimplemented) CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStepUpEmail Request a step-up code by email
+// (POST /v1/auth/step-up/email)
+func (_ Unimplemented) CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStepUpEmailConfirmation Confirm a step-up email code
+// (POST /v1/auth/step-up/email/confirmation)
+func (_ Unimplemented) CreateStepUpEmailConfirmation(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailConfirmationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStepUpTotpVerification Step up with the account's existing TOTP code
+// (POST /v1/auth/step-up/totp)
+func (_ Unimplemented) CreateStepUpTotpVerification(w http.ResponseWriter, r *http.Request, params CreateStepUpTotpVerificationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1082,6 +1139,141 @@ func (siw *ServerInterfaceWrapper) CreateSignup(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// CreateStepUpEmail operation middleware
+func (siw *ServerInterfaceWrapper) CreateStepUpEmail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStepUpEmailParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStepUpEmail(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStepUpEmailConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreateStepUpEmailConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStepUpEmailConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStepUpEmailConfirmation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStepUpTotpVerification operation middleware
+func (siw *ServerInterfaceWrapper) CreateStepUpTotpVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStepUpTotpVerificationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStepUpTotpVerification(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateTotpChallengeVerification operation middleware
 func (siw *ServerInterfaceWrapper) CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request) {
 
@@ -1343,6 +1535,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/totp-enrollments/confirmation", wrapper.CreateTotpEnrollmentConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/step-up/totp", wrapper.CreateStepUpTotpVerification)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/step-up/email", wrapper.CreateStepUpEmail)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/step-up/email/confirmation", wrapper.CreateStepUpEmailConfirmation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/passkey-registrations", wrapper.CreatePasskeyRegistration)
@@ -2272,6 +2473,201 @@ func (response CreateSignupdefaultApplicationProblemPlusJSONResponse) VisitCreat
 	return err
 }
 
+type CreateStepUpEmailRequestObject struct {
+	Params CreateStepUpEmailParams
+}
+
+type CreateStepUpEmailResponseObject interface {
+	VisitCreateStepUpEmailResponse(w http.ResponseWriter) error
+}
+
+type CreateStepUpEmail202JSONResponse SignupAccepted
+
+func (response CreateStepUpEmail202JSONResponse) VisitCreateStepUpEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmail401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStepUpEmail401ApplicationProblemPlusJSONResponse) VisitCreateStepUpEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmaildefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStepUpEmaildefaultApplicationProblemPlusJSONResponse) VisitCreateStepUpEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmailConfirmationRequestObject struct {
+	Params CreateStepUpEmailConfirmationParams
+	Body   *CreateStepUpEmailConfirmationJSONRequestBody
+}
+
+type CreateStepUpEmailConfirmationResponseObject interface {
+	VisitCreateStepUpEmailConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreateStepUpEmailConfirmation200JSONResponse EmailVerificationResult
+
+func (response CreateStepUpEmailConfirmation200JSONResponse) VisitCreateStepUpEmailConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmailConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStepUpEmailConfirmation400ApplicationProblemPlusJSONResponse) VisitCreateStepUpEmailConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmailConfirmation401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStepUpEmailConfirmation401ApplicationProblemPlusJSONResponse) VisitCreateStepUpEmailConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpEmailConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStepUpEmailConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreateStepUpEmailConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpTotpVerificationRequestObject struct {
+	Params CreateStepUpTotpVerificationParams
+	Body   *CreateStepUpTotpVerificationJSONRequestBody
+}
+
+type CreateStepUpTotpVerificationResponseObject interface {
+	VisitCreateStepUpTotpVerificationResponse(w http.ResponseWriter) error
+}
+
+type CreateStepUpTotpVerification200JSONResponse EmailVerificationResult
+
+func (response CreateStepUpTotpVerification200JSONResponse) VisitCreateStepUpTotpVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpTotpVerification400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStepUpTotpVerification400ApplicationProblemPlusJSONResponse) VisitCreateStepUpTotpVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpTotpVerification401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStepUpTotpVerification401ApplicationProblemPlusJSONResponse) VisitCreateStepUpTotpVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStepUpTotpVerificationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStepUpTotpVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateStepUpTotpVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateTotpChallengeVerificationRequestObject struct {
 	Challenge string `json:"challenge"`
 	Body      *CreateTotpChallengeVerificationJSONRequestBody
@@ -2514,6 +2910,15 @@ type StrictServerInterface interface {
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(ctx context.Context, request CreateSignupRequestObject) (CreateSignupResponseObject, error)
+	// CreateStepUpEmail Request a step-up code by email
+	// (POST /v1/auth/step-up/email)
+	CreateStepUpEmail(ctx context.Context, request CreateStepUpEmailRequestObject) (CreateStepUpEmailResponseObject, error)
+	// CreateStepUpEmailConfirmation Confirm a step-up email code
+	// (POST /v1/auth/step-up/email/confirmation)
+	CreateStepUpEmailConfirmation(ctx context.Context, request CreateStepUpEmailConfirmationRequestObject) (CreateStepUpEmailConfirmationResponseObject, error)
+	// CreateStepUpTotpVerification Step up with the account's existing TOTP code
+	// (POST /v1/auth/step-up/totp)
+	CreateStepUpTotpVerification(ctx context.Context, request CreateStepUpTotpVerificationRequestObject) (CreateStepUpTotpVerificationResponseObject, error)
 	// CreateTotpChallengeVerification Complete a sign-in TOTP challenge
 	// (POST /v1/auth/totp-challenges/{challenge}/verification)
 	CreateTotpChallengeVerification(ctx context.Context, request CreateTotpChallengeVerificationRequestObject) (CreateTotpChallengeVerificationResponseObject, error)
@@ -3009,6 +3414,98 @@ func (sh *strictHandler) CreateSignup(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSignupResponseObject); ok {
 		if err := validResponse.VisitCreateSignupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStepUpEmail operation middleware
+func (sh *strictHandler) CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams) {
+	var request CreateStepUpEmailRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStepUpEmail(ctx, request.(CreateStepUpEmailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStepUpEmail")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStepUpEmailResponseObject); ok {
+		if err := validResponse.VisitCreateStepUpEmailResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStepUpEmailConfirmation operation middleware
+func (sh *strictHandler) CreateStepUpEmailConfirmation(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailConfirmationParams) {
+	var request CreateStepUpEmailConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreateStepUpEmailConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStepUpEmailConfirmation(ctx, request.(CreateStepUpEmailConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStepUpEmailConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStepUpEmailConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreateStepUpEmailConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStepUpTotpVerification operation middleware
+func (sh *strictHandler) CreateStepUpTotpVerification(w http.ResponseWriter, r *http.Request, params CreateStepUpTotpVerificationParams) {
+	var request CreateStepUpTotpVerificationRequestObject
+
+	request.Params = params
+
+	var body CreateStepUpTotpVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStepUpTotpVerification(ctx, request.(CreateStepUpTotpVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStepUpTotpVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStepUpTotpVerificationResponseObject); ok {
+		if err := validResponse.VisitCreateStepUpTotpVerificationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

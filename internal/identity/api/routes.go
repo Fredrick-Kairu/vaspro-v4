@@ -13,6 +13,8 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	vaslog "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/log"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
 )
 
 // idempotencyKeyTTL is how long a claimed Idempotency-Key is remembered
@@ -23,8 +25,9 @@ const idempotencyKeyTTL = 24 * time.Hour
 // Routes builds identity's HTTP handler: platform/httpx's standard
 // middlewares, health/readiness, and the operations generated from
 // docs/api/identity.yaml. lookup resolves the bearer session token
-// requireSession checks on the two TOTP-enrollment operations.
-func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore idempotency.Store, lookup *SessionLookup) http.Handler {
+// requireSession checks; a is requireStepUp's dependency
+// (app.Service.StepUpFresh, task 1.6).
+func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore idempotency.Store, lookup *SessionLookup, a *app.Service) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
@@ -35,7 +38,12 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz(ready...))
 
-	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{requireSession(lookup)}, StrictHTTPServerOptions{
+	// requireStepUp must run after requireSession (it reads the session
+	// ID requireSession resolves), and this slice wraps iteratively with
+	// the *last* entry outermost/running first (same mechanic as the
+	// ChiServerOptions.Middlewares lesson below) — requireSession is
+	// last here so it executes before requireStepUp.
+	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{requireStepUp(a), requireSession(lookup)}, StrictHTTPServerOptions{
 		ResponseErrorHandlerFunc: respondProblem,
 	})
 	HandlerWithOptions(strict, ChiServerOptions{

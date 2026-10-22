@@ -19,6 +19,7 @@ type entry struct {
 const (
 	AUTH4010 Code = "AUTH-4010"
 	AUTH4011 Code = "AUTH-4011"
+	AUTH4012 Code = "AUTH-4012"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -49,6 +50,14 @@ var registry = map[Code]entry{
 		Title:     "Two-factor code invalid or expired",
 		Cause:     "The TOTP code or recovery code submitted doesn't match, was already used, or the sign-in challenge it belongs to expired.",
 		Fix:       "Retry with a current code from the authenticator app, or an unused recovery code; if the challenge expired, sign in again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4012: {
+		Status:    401,
+		Title:     "Step-up verification required",
+		Cause:     "The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list).",
+		Fix:       "Complete a step-up verification (TOTP code, or an emailed one-time code) and retry.",
 		Retryable: false,
 		Billable:  false,
 	},

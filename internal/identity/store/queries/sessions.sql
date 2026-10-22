@@ -26,3 +26,6 @@ RETURNING id;
 
 -- name: UpdateSessionLastSeenAt :exec
 UPDATE identity.sessions SET last_seen_at = now() WHERE id = $1;
+
+-- name: SetSessionStepUp :exec
+UPDATE identity.sessions SET step_up_at = now() WHERE id = $1;

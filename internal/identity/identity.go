@@ -136,7 +136,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 	store := idempotency.NewPostgresStore(pool)
 	rtr := api.Routes(h, slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
-	}, store, api.NewSessionLookup(a))
+	}, store, api.NewSessionLookup(a), a)
 	return &Service{cfg: cfg, pool: pool, bus: b, app: a, rtr: rtr}, nil
 }
 
