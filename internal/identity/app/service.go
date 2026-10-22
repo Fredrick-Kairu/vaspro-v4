@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
@@ -98,6 +99,11 @@ type Service struct {
 	// Config fixes the relying party ID/display name/origins for
 	// every registration and sign-in ceremony.
 	webauthn *webauthn.WebAuthn
+
+	// cache is identity.sessions' Redis cache (1.5) — write-through on
+	// createSession, evicted on revoke, consulted first by
+	// ResolveSession (sessions.go) before falling back to Postgres.
+	cache *cache.Cache
 }
 
 // Deps is everything New needs. Grouped into a struct rather than
@@ -111,6 +117,7 @@ type Deps struct {
 	TOTPKeyID    string
 	ChallengeKey []byte
 	WebAuthn     *webauthn.WebAuthn
+	Cache        *cache.Cache
 }
 
 // New builds a Service.
@@ -123,6 +130,7 @@ func New(d Deps) *Service {
 		totpKeyID:    d.TOTPKeyID,
 		challengeKey: d.ChallengeKey,
 		webauthn:     d.WebAuthn,
+		cache:        d.Cache,
 	}
 }
 

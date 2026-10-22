@@ -46,6 +46,7 @@ func newTestRouter(t *testing.T) http.Handler {
 		ChallengeSigningKey: randomBase64Key(t),
 		WebAuthnRPID:        "localhost",
 		WebAuthnOrigins:     []string{"https://localhost"},
+		RedisURL:            testkit.StartRedisURL(t),
 	}
 	svc, err := identity.New(cfg, pool, nil, &email.Sender{})
 	if err != nil {

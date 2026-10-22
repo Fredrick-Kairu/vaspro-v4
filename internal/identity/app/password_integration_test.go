@@ -26,7 +26,7 @@ func signUpAndVerify(t *testing.T, ctx context.Context, svc *app.Service, sender
 
 func TestRequestPasswordReset_SetsFirstPassword(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	if err := svc.RequestPasswordReset(ctx, "ada@example.com"); err != nil {
@@ -60,7 +60,7 @@ func TestRequestPasswordReset_SetsFirstPassword(t *testing.T) {
 
 func TestRequestPasswordReset_UnknownEmail_StillSucceedsWithoutSendingMail(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 
 	if err := svc.RequestPasswordReset(ctx, "nobody@example.com"); err != nil {
 		t.Fatalf("expected no error for an unknown email (anti-enumeration), got %v", err)
@@ -72,7 +72,7 @@ func TestRequestPasswordReset_UnknownEmail_StillSucceedsWithoutSendingMail(t *te
 
 func TestConfirmPasswordReset_WrongCode_ReturnsInvalidOrExpired(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	if err := svc.RequestPasswordReset(ctx, "ada@example.com"); err != nil {
@@ -91,7 +91,7 @@ func TestConfirmPasswordReset_WrongCode_ReturnsInvalidOrExpired(t *testing.T) {
 
 func TestRequestPasswordReset_ReusedForForgotPassword(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	if err := svc.RequestPasswordReset(ctx, "ada@example.com"); err != nil {

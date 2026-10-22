@@ -18,6 +18,7 @@ type clientInfo struct {
 
 type clientInfoKey struct{}
 type sessionUserIDKey struct{}
+type sessionIDKey struct{}
 
 // withClientInfo stashes the caller's IP and User-Agent into context so
 // handlers.go's sign-in/TOTP-challenge methods — which, under
@@ -54,6 +55,18 @@ func sessionUserIDFromContext(ctx context.Context) uuid.UUID {
 	return userID
 }
 
+func withSessionID(ctx context.Context, sessionID uuid.UUID) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, sessionID)
+}
+
+// sessionIDFromContext returns the bearer session ID requireSession
+// resolved for this request — used only by listSessions, to flag which
+// row is the one the caller is using right now.
+func sessionIDFromContext(ctx context.Context) uuid.UUID {
+	sessionID, _ := ctx.Value(sessionIDKey{}).(uuid.UUID)
+	return sessionID
+}
+
 // requireSessionOperations names the only operations requireSession
 // checks — every other route passes through untouched. TOTP enrollment
 // is a dashboard security setting (system design §3), not part of
@@ -78,6 +91,9 @@ var requireSessionOperations = map[string]bool{
 	"ListPasskeys":                          true,
 	"UpdatePasskey":                         true,
 	"DeletePasskey":                         true,
+	"ListSessions":                          true,
+	"DeleteSession":                         true,
+	"DeleteSessions":                        true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves
@@ -104,7 +120,9 @@ func requireSession(lookup *SessionLookup) StrictMiddlewareFunc {
 			if err != nil {
 				return nil, problem.New(problem.AUTH4010, "a bearer session token is required")
 			}
-			return f(withSessionUserID(ctx, userID), w, r, request)
+			ctx = withSessionUserID(ctx, userID)
+			ctx = withSessionID(ctx, sessionID)
+			return f(ctx, w, r, request)
 		}
 	}
 }

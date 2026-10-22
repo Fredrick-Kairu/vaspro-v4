@@ -49,7 +49,7 @@ func totpSecretFromURL(t *testing.T, rawURL string) string {
 
 func TestSignIn_NoTOTP_ReturnsSession(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
 
 	result, err := svc.SignIn(ctx, "ada@example.com", "a-strong-password", nil, "test-agent")
@@ -66,7 +66,7 @@ func TestSignIn_NoTOTP_ReturnsSession(t *testing.T) {
 
 func TestSignIn_WrongPassword_RejectsWithGenericError(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
 
 	_, err := svc.SignIn(ctx, "ada@example.com", "wrong-password", nil, "test-agent")
@@ -77,7 +77,7 @@ func TestSignIn_WrongPassword_RejectsWithGenericError(t *testing.T) {
 
 func TestSignIn_UnknownEmail_RejectsWithSameGenericError(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 
 	_, err := svc.SignIn(ctx, "nobody@example.com", "whatever-password", nil, "test-agent")
 	if !errors.Is(err, app.ErrBadCredentials) {
@@ -87,7 +87,7 @@ func TestSignIn_UnknownEmail_RejectsWithSameGenericError(t *testing.T) {
 
 func TestSignIn_RepeatedWrongPassword_EventuallyLocksOutEvenTheRightPassword(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
 
 	for i := 0; i < 5; i++ {
@@ -103,7 +103,7 @@ func TestSignIn_RepeatedWrongPassword_EventuallyLocksOutEvenTheRightPassword(t *
 
 func TestSignIn_WithTOTP_ChallengeThenComplete_ReturnsSession(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, clk := newTestService(t)
+	svc, pool, sender, clk, _ := newTestService(t)
 	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
 
 	q := store.New(pool)
@@ -151,7 +151,7 @@ func TestSignIn_WithTOTP_ChallengeThenComplete_ReturnsSession(t *testing.T) {
 
 func TestCompleteTOTPChallenge_RecoveryCode_ConsumesExactlyOnce(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, clk := newTestService(t)
+	svc, pool, sender, clk, _ := newTestService(t)
 	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
 
 	q := store.New(pool)

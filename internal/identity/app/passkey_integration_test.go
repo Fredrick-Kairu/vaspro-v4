@@ -29,7 +29,7 @@ func marshalOptions(t *testing.T, v any) string {
 
 func TestPasskey_RegisterThenSignIn_CreatesSessionWithoutPasswordOrTOTP(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
@@ -90,7 +90,7 @@ func TestPasskey_RegisterThenSignIn_CreatesSessionWithoutPasswordOrTOTP(t *testi
 // the very first post-registration login.
 func TestPasskey_BackupEligibleAuthenticator_SignsInTwice(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
 	if err != nil {
@@ -136,7 +136,7 @@ func TestPasskey_BackupEligibleAuthenticator_SignsInTwice(t *testing.T) {
 
 func TestPasskey_BeginLogin_UnknownEmail_StillReturnsAChallenge(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 
 	challenge, err := svc.BeginPasskeyLogin(ctx, "nobody@example.com")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestPasskey_BeginLogin_UnknownEmail_StillReturnsAChallenge(t *testing.T) {
 
 func TestPasskey_BeginLogin_AccountWithNoPasskeys_StillReturnsAChallenge(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	challenge, err := svc.BeginPasskeyLogin(ctx, "ada@example.com")
@@ -163,7 +163,7 @@ func TestPasskey_BeginLogin_AccountWithNoPasskeys_StillReturnsAChallenge(t *test
 
 func TestPasskey_ListRenameDelete(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
 	if err != nil {
@@ -230,7 +230,7 @@ func TestPasskey_ListRenameDelete(t *testing.T) {
 
 func TestRenamePasskey_NotOwned_ReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 	signUpAndVerify(t, ctx, svc, sender, "bob@example.com")
 	ada, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
@@ -270,7 +270,7 @@ func TestRenamePasskey_NotOwned_ReturnsNotFound(t *testing.T) {
 
 func TestCompletePasskeyLogin_SignCounterGoesBackward_Rejected(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
 	if err != nil {

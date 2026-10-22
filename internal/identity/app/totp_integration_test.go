@@ -15,7 +15,7 @@ import (
 
 func TestEnrollTOTP_ReturnsScannableURLAndEightRecoveryCodes(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
@@ -37,7 +37,7 @@ func TestEnrollTOTP_ReturnsScannableURLAndEightRecoveryCodes(t *testing.T) {
 
 func TestConfirmTOTPEnrollment_WrongCode_ReturnsTwoFactorInvalid(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")
@@ -55,7 +55,7 @@ func TestConfirmTOTPEnrollment_WrongCode_ReturnsTwoFactorInvalid(t *testing.T) {
 
 func TestEnrollTOTP_ReplacesAnUnconfirmedPriorEnrollment(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, clk := newTestService(t)
+	svc, pool, sender, clk, _ := newTestService(t)
 	signUpAndVerify(t, ctx, svc, sender, "ada@example.com")
 
 	user, err := store.New(pool).GetUserByEmail(ctx, "ada@example.com")

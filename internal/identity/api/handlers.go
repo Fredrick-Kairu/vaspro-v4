@@ -193,6 +193,56 @@ func (h *Handlers) CreatePasskeyChallengeVerification(ctx context.Context, reque
 	return CreatePasskeyChallengeVerification200JSONResponse(signInResult(&app.SignInResult{Session: session})), nil
 }
 
+func (h *Handlers) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
+	sessions, err := h.app.ListSessions(ctx, sessionUserIDFromContext(ctx), sessionIDFromContext(ctx))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	summaries := make([]SessionSummary, len(sessions))
+	for i, s := range sessions {
+		summaries[i] = sessionSummaryResponse(&s)
+	}
+	return ListSessions200JSONResponse{Sessions: &summaries}, nil
+}
+
+func (h *Handlers) DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
+	sessionID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.RevokeSession(ctx, sessionUserIDFromContext(ctx), sessionID); err != nil {
+		return nil, toProblem(err)
+	}
+	return DeleteSession204Response{}, nil
+}
+
+func (h *Handlers) DeleteSessions(ctx context.Context, request DeleteSessionsRequestObject) (DeleteSessionsResponseObject, error) {
+	if _, err := h.app.SignOutEverywhere(ctx, sessionUserIDFromContext(ctx)); err != nil {
+		return nil, toProblem(err)
+	}
+	return DeleteSessions204Response{}, nil
+}
+
+// sessionSummaryResponse renders an app.SessionSummary as the API's
+// SessionSummary shape.
+func sessionSummaryResponse(s *app.SessionSummary) SessionSummary {
+	id := s.ID.String()
+	summary := SessionSummary{
+		Id:         &id,
+		CreatedAt:  &s.CreatedAt,
+		LastSeenAt: &s.LastSeenAt,
+		ExpiresAt:  &s.ExpiresAt,
+		Current:    &s.Current,
+	}
+	if s.IP != "" {
+		summary.Ip = &s.IP
+	}
+	if s.UserAgent != "" {
+		summary.UserAgent = &s.UserAgent
+	}
+	return summary
+}
+
 // toOptionsMap re-marshals v (a go-webauthn protocol.CredentialCreation
 // or protocol.CredentialAssertion) into the generic
 // map[string]interface{} shape PasskeyCeremonyOptions.Options carries —

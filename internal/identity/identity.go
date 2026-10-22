@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
 	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
@@ -72,6 +74,10 @@ type Config struct {
 	// ceremony response is allowed to have been collected at.
 	// Comma-separated.
 	WebAuthnOrigins []string `env:"IDENTITY_WEBAUTHN_ORIGINS,required"`
+
+	// RedisURL caches identity.sessions (1.5) — ResolveSession's
+	// per-request check tries it before Postgres.
+	RedisURL string `env:"IDENTITY_REDIS_URL,required"`
 }
 
 // Service wires identity's dependencies together and runs them.
@@ -110,6 +116,12 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		return nil, fmt.Errorf("identity: building webauthn config: %w", err)
 	}
 
+	redisOpts, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("identity: parsing IDENTITY_REDIS_URL: %w", err)
+	}
+	c := cache.New(redisOpts)
+
 	a := app.New(app.Deps{
 		Pool:         pool,
 		Email:        email,
@@ -118,12 +130,13 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		TOTPKeyID:    totpKMSKeyID,
 		ChallengeKey: challengeKey,
 		WebAuthn:     wa,
+		Cache:        c,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)
 	rtr := api.Routes(h, slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
-	}, store, api.NewSessionLookup(pool, clock.Real{}))
+	}, store, api.NewSessionLookup(a))
 	return &Service{cfg: cfg, pool: pool, bus: b, app: a, rtr: rtr}, nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
 	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
@@ -53,9 +54,11 @@ func randomKey(t *testing.T) []byte {
 
 var sixDigitCode = regexp.MustCompile(`^[0-9]{6}$`)
 
-func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock) {
+func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock, *cache.Cache) {
 	t.Helper()
 	ctx := context.Background()
+
+	c := testkit.StartRedis(t)
 
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/identity"))
 	pool, err := vasdb.NewPool(ctx, pg.DSN()+"&search_path=identity,public")
@@ -95,8 +98,9 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 		TOTPKeyID:    testTOTPKeyID,
 		ChallengeKey: randomKey(t),
 		WebAuthn:     wa,
+		Cache:        c,
 	})
-	return svc, pool, sender, clk
+	return svc, pool, sender, clk, c
 }
 
 func outboxEventTypes(t *testing.T, ctx context.Context, pool *vasdb.Pool) []string {
@@ -168,7 +172,7 @@ func assertEventPayloadValid(t *testing.T, ctx context.Context, pool *vasdb.Pool
 
 func TestSignUp_NewEmail_CreatesUserAndSendsCode(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "Ada@Example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("SignUp: %v", err)
@@ -202,7 +206,7 @@ func TestSignUp_NewEmail_CreatesUserAndSendsCode(t *testing.T) {
 
 func TestSignUp_RepeatOnPendingEmail_ReissuesCodeWithoutRepublishing(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "ada@example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("first SignUp: %v", err)
@@ -238,7 +242,7 @@ func TestSignUp_RepeatOnPendingEmail_ReissuesCodeWithoutRepublishing(t *testing.
 
 func TestSignUp_AlreadyVerifiedEmail_SendsNothing(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "ada@example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("SignUp: %v", err)
@@ -259,7 +263,7 @@ func TestSignUp_AlreadyVerifiedEmail_SendsNothing(t *testing.T) {
 
 func TestVerifyEmail_HappyPath_MarksVerifiedAndPublishes(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "ada@example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("SignUp: %v", err)
@@ -284,7 +288,7 @@ func TestVerifyEmail_HappyPath_MarksVerifiedAndPublishes(t *testing.T) {
 
 func TestVerifyEmail_WrongCode_IncrementsAttemptsWithoutVerifying(t *testing.T) {
 	ctx := context.Background()
-	svc, pool, sender, _ := newTestService(t)
+	svc, pool, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "ada@example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("SignUp: %v", err)
@@ -312,7 +316,7 @@ func TestVerifyEmail_WrongCode_IncrementsAttemptsWithoutVerifying(t *testing.T) 
 
 func TestVerifyEmail_TooManyAttempts_InvalidatesEvenTheCorrectCode(t *testing.T) {
 	ctx := context.Background()
-	svc, _, sender, _ := newTestService(t)
+	svc, _, sender, _, _ := newTestService(t)
 
 	if err := svc.SignUp(ctx, "ada@example.com", "Ada Lovelace", nil); err != nil {
 		t.Fatalf("SignUp: %v", err)

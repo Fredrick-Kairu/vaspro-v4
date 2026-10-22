@@ -166,6 +166,65 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSessions
+      summary: List the signed-in account's active sessions
+      description: >
+        Active sessions only (revoked or expired ones aren't shown) —
+        this is a device-management view, not a history log.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's active sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteSessions
+      summary: Sign out everywhere
+      description: >
+        Revokes every one of the account's active sessions, including
+        the one making this request — the caller must sign in again
+        afterward.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Signed out everywhere.
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/sessions/{id}:
+    delete:
+      operationId: deleteSession
+      summary: Revoke a session
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/auth/totp-challenges/{challenge}/verification:
     post:
       operationId: createTotpChallengeVerification
@@ -617,6 +676,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PasskeySummary'
+    SessionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        ip:
+          type: string
+        user_agent:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+          description: True for the session bound to the bearer token used on this request.
+    SessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSummary'
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]
