@@ -134,6 +134,63 @@ type EmailVerificationResult struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// JwkKey defines model for JwkKey.
+type JwkKey struct {
+	// Alg "EdDSA".
+	Alg string `json:"alg"`
+
+	// Crv "Ed25519".
+	Crv string `json:"crv"`
+	Kid string `json:"kid"`
+
+	// Kty "OKP" for Ed25519 (RFC 8037).
+	Kty string `json:"kty"`
+
+	// Use "sig".
+	Use string `json:"use"`
+
+	// X Base64url-encoded public key.
+	X string `json:"x"`
+}
+
+// Jwks defines model for Jwks.
+type Jwks struct {
+	Keys []JwkKey `json:"keys"`
+}
+
+// OAuthError defines model for OAuthError.
+type OAuthError struct {
+	// Error RFC 6749 §5.2 — e.g. invalid_request, invalid_client, unsupported_grant_type, invalid_scope.
+	Error            string  `json:"error"`
+	ErrorDescription *string `json:"error_description,omitempty"`
+}
+
+// OAuthTokenRequest defines model for OAuthTokenRequest.
+type OAuthTokenRequest struct {
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+
+	// GrantType Must be "client_credentials" — the only grant this endpoint supports.
+	GrantType string `json:"grant_type"`
+
+	// Scope Space-separated (RFC 6749). Omit to receive every scope the client has.
+	Scope *string `json:"scope,omitempty"`
+}
+
+// OAuthTokenResponse defines model for OAuthTokenResponse.
+type OAuthTokenResponse struct {
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Seconds until expiry (1 hour).
+	ExpiresIn int `json:"expires_in"`
+
+	// Scope Space-separated, the scopes actually granted.
+	Scope string `json:"scope"`
+
+	// TokenType Always "Bearer".
+	TokenType string `json:"token_type"`
+}
+
 // PasskeyCeremonyOptions defines model for PasskeyCeremonyOptions.
 type PasskeyCeremonyOptions struct {
 	// Options go-webauthn's own CredentialCreation (registration) or CredentialAssertion (sign-in) JSON, passed verbatim to navigator.credentials.create()/get(). Not modelled field by field here — it's the library's wire format, not ours.
@@ -446,8 +503,14 @@ type CreateTotpChallengeVerificationJSONRequestBody = TotpChallengeVerificationR
 // CreateTotpEnrollmentConfirmationJSONRequestBody defines body for CreateTotpEnrollmentConfirmation for application/json ContentType.
 type CreateTotpEnrollmentConfirmationJSONRequestBody = TotpChallengeVerificationRequest
 
+// CreateOAuthTokenFormdataRequestBody defines body for CreateOAuthToken for application/x-www-form-urlencoded ContentType.
+type CreateOAuthTokenFormdataRequestBody = OAuthTokenRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetJwks Publish identity's current signing keys as a JWKS
+	// (GET /.well-known/jwks.json)
+	GetJwks(w http.ResponseWriter, r *http.Request)
 	// ListApiClients List the signed-in account's API clients
 	// (GET /v1/auth/api-clients)
 	ListApiClients(w http.ResponseWriter, r *http.Request)
@@ -529,11 +592,20 @@ type ServerInterface interface {
 	// CreateTotpEnrollmentConfirmation Confirm TOTP enrollment
 	// (POST /v1/auth/totp-enrollments/confirmation)
 	CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentConfirmationParams)
+	// CreateOAuthToken Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
+	// (POST /v1/oauth/token)
+	CreateOAuthToken(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// GetJwks Publish identity's current signing keys as a JWKS
+// (GET /.well-known/jwks.json)
+func (_ Unimplemented) GetJwks(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // ListApiClients List the signed-in account's API clients
 // (GET /v1/auth/api-clients)
@@ -697,6 +769,12 @@ func (_ Unimplemented) CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CreateOAuthToken Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
+// (POST /v1/oauth/token)
+func (_ Unimplemented) CreateOAuthToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -705,6 +783,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetJwks operation middleware
+func (siw *ServerInterfaceWrapper) GetJwks(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJwks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListApiClients operation middleware
 func (siw *ServerInterfaceWrapper) ListApiClients(w http.ResponseWriter, r *http.Request) {
@@ -1834,6 +1926,20 @@ func (siw *ServerInterfaceWrapper) CreateTotpEnrollmentConfirmation(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
+// CreateOAuthToken operation middleware
+func (siw *ServerInterfaceWrapper) CreateOAuthToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOAuthToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2028,11 +2134,38 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/v1/auth/api-clients/{id}/secrets/{secretId}", wrapper.RevokeApiClientSecret)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/oauth/token", wrapper.CreateOAuthToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/.well-known/jwks.json", wrapper.GetJwks)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type GetJwksRequestObject struct {
+}
+
+type GetJwksResponseObject interface {
+	VisitGetJwksResponse(w http.ResponseWriter) error
+}
+
+type GetJwks200JSONResponse Jwks
+
+func (response GetJwks200JSONResponse) VisitGetJwksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListApiClientsRequestObject struct {
 }
@@ -3731,8 +3864,61 @@ func (response CreateTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSON
 	return err
 }
 
+type CreateOAuthTokenRequestObject struct {
+	Body *CreateOAuthTokenFormdataRequestBody
+}
+
+type CreateOAuthTokenResponseObject interface {
+	VisitCreateOAuthTokenResponse(w http.ResponseWriter) error
+}
+
+type CreateOAuthToken200JSONResponse OAuthTokenResponse
+
+func (response CreateOAuthToken200JSONResponse) VisitCreateOAuthTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOAuthToken400JSONResponse OAuthError
+
+func (response CreateOAuthToken400JSONResponse) VisitCreateOAuthTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOAuthToken401JSONResponse OAuthError
+
+func (response CreateOAuthToken401JSONResponse) VisitCreateOAuthTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetJwks Publish identity's current signing keys as a JWKS
+	// (GET /.well-known/jwks.json)
+	GetJwks(ctx context.Context, request GetJwksRequestObject) (GetJwksResponseObject, error)
 	// ListApiClients List the signed-in account's API clients
 	// (GET /v1/auth/api-clients)
 	ListApiClients(ctx context.Context, request ListApiClientsRequestObject) (ListApiClientsResponseObject, error)
@@ -3814,6 +4000,9 @@ type StrictServerInterface interface {
 	// CreateTotpEnrollmentConfirmation Confirm TOTP enrollment
 	// (POST /v1/auth/totp-enrollments/confirmation)
 	CreateTotpEnrollmentConfirmation(ctx context.Context, request CreateTotpEnrollmentConfirmationRequestObject) (CreateTotpEnrollmentConfirmationResponseObject, error)
+	// CreateOAuthToken Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
+	// (POST /v1/oauth/token)
+	CreateOAuthToken(ctx context.Context, request CreateOAuthTokenRequestObject) (CreateOAuthTokenResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -3853,6 +4042,30 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetJwks operation middleware
+func (sh *strictHandler) GetJwks(w http.ResponseWriter, r *http.Request) {
+	var request GetJwksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetJwks(ctx, request.(GetJwksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetJwks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetJwksResponseObject); ok {
+		if err := validResponse.VisitGetJwksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListApiClients operation middleware
@@ -4649,6 +4862,41 @@ func (sh *strictHandler) CreateTotpEnrollmentConfirmation(w http.ResponseWriter,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTotpEnrollmentConfirmationResponseObject); ok {
 		if err := validResponse.VisitCreateTotpEnrollmentConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateOAuthToken operation middleware
+func (sh *strictHandler) CreateOAuthToken(w http.ResponseWriter, r *http.Request) {
+	var request CreateOAuthTokenRequestObject
+
+	if err := r.ParseForm(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode formdata: %w", err))
+		return
+	}
+	var body CreateOAuthTokenFormdataRequestBody
+	if err := runtime.BindForm(&body, r.Form, nil, nil); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't bind formdata: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateOAuthToken(ctx, request.(CreateOAuthTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateOAuthToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateOAuthTokenResponseObject); ok {
+		if err := validResponse.VisitCreateOAuthTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

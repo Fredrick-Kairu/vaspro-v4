@@ -1,6 +1,6 @@
-// Command vaspro is VASPRO's operational CLI. Today it has one
-// subcommand (packs validate); more are expected to join it over time,
-// hence the plain dispatch below rather than a one-subcommand framework.
+// Command vaspro is VASPRO's operational CLI: packs validate and
+// identity rotate-signing-key today, more expected to join over time —
+// hence the plain dispatch below rather than a framework.
 package main
 
 import (
@@ -21,6 +21,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "packs":
 		return runPacks(args[1:])
+	case "identity":
+		return runIdentity(args[1:])
 	default:
 		usage()
 		return 2
@@ -29,6 +31,7 @@ func run(args []string) int {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: vaspro packs validate [pack.yaml ...]")
+	fmt.Fprintln(os.Stderr, "       vaspro identity rotate-signing-key")
 }
 
 func runPacks(args []string) int {

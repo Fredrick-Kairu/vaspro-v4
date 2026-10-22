@@ -35,6 +35,12 @@ import (
 // coupling anyway).
 const testTOTPKeyID = "test-totp"
 
+// testSigningKeysKeyID is the LocalKMS key ID newTestService's
+// Envelope seals JWT signing keys' private material under (task
+// 1.8) — matches identity.go's own signingKeysKMSKeyID in spirit,
+// same independence reasoning as testTOTPKeyID above.
+const testSigningKeysKeyID = "test-signing-keys"
+
 // testRPID/testRPOrigin fix the WebAuthn relying party every passkey
 // test (1.4) registers and signs in against — passkey_integration_test.go's
 // virtualwebauthn.RelyingParty must use these exact same values.
@@ -76,7 +82,10 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 	// database, which already happened once while writing this test.
 	clk := testkit.NewClock(time.Now().UTC())
 
-	kms, err := vascrypto.NewLocalKMS(map[string][]byte{testTOTPKeyID: randomKey(t)})
+	kms, err := vascrypto.NewLocalKMS(map[string][]byte{
+		testTOTPKeyID:        randomKey(t),
+		testSigningKeysKeyID: randomKey(t),
+	})
 	if err != nil {
 		t.Fatalf("building LocalKMS: %v", err)
 	}
@@ -91,14 +100,15 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 	}
 
 	svc := app.New(app.Deps{
-		Pool:         pool,
-		Email:        sender,
-		Clock:        clk,
-		Envelope:     vascrypto.NewEnvelope(kms),
-		TOTPKeyID:    testTOTPKeyID,
-		ChallengeKey: randomKey(t),
-		WebAuthn:     wa,
-		Cache:        c,
+		Pool:             pool,
+		Email:            sender,
+		Clock:            clk,
+		Envelope:         vascrypto.NewEnvelope(kms),
+		TOTPKeyID:        testTOTPKeyID,
+		SigningKeysKeyID: testSigningKeysKeyID,
+		ChallengeKey:     randomKey(t),
+		WebAuthn:         wa,
+		Cache:            c,
 	})
 	return svc, pool, sender, clk, c
 }

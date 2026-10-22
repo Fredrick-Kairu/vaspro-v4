@@ -779,6 +779,74 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/oauth/token:
+    post:
+      operationId: createOAuthToken
+      summary: Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
+      description: >
+        No Authorization header and no Idempotency-Key — a deliberate,
+        narrow exception to this API's usual conventions (api.md),
+        so that an off-the-shelf OAuth2 client library can call this
+        endpoint unmodified. Request and error shapes follow RFC 6749
+        exactly (form-encoded request, {"error": "..."} on failure),
+        not this API's usual JSON/problem+json conventions. Looks up
+        the client via a narrow, SELECT-only role
+        (identity_token_exchange, migration 20261022223744), since
+        there is no session/tenant context yet to check ownership
+        against. Does not enforce scopes, IP allowlist or spend cap —
+        nothing in Phase 1 does (same boundary task 1.7 already
+        documented); only validates the credentials, that the client
+        isn't revoked/expired, and that any requested scope is one the
+        client actually has. Revoking a client or secret does not
+        recall an already-issued token before its own 1-hour expiry.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthTokenRequest'
+      responses:
+        "200":
+          description: Access token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthTokenResponse'
+              example:
+                access_token: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImtpZC0xIn0..."
+                token_type: "Bearer"
+                expires_in: 3600
+                scope: "reports:read"
+        "400":
+          description: Malformed request, unsupported grant type, or a requested scope the client doesn't have.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        "401":
+          description: Unknown client, wrong secret, or a revoked/expired client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      summary: Publish identity's current signing keys as a JWKS
+      description: >
+        The one deliberate exception to this API's /v1/... versioning
+        (RFC 8414/OIDC discovery convention — this path is
+        unversioned and root-level on purpose). Publishes active and
+        retiring keys (retiring so a token signed just before a
+        rotation still verifies until it naturally expires); never a
+        retired key, never any private material.
+      responses:
+        "200":
+          description: The current JSON Web Key Set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
 components:
   securitySchemes:
     sessionBearer:
@@ -1098,6 +1166,73 @@ components:
           properties:
             secret:
               $ref: '#/components/schemas/ApiClientSecretResult'
+    OAuthTokenRequest:
+      type: object
+      required: [grant_type, client_id, client_secret]
+      properties:
+        grant_type:
+          type: string
+          description: Must be "client_credentials" — the only grant this endpoint supports.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        scope:
+          type: string
+          description: Space-separated (RFC 6749). Omit to receive every scope the client has.
+    OAuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          description: Always "Bearer".
+        expires_in:
+          type: integer
+          description: Seconds until expiry (1 hour).
+        scope:
+          type: string
+          description: Space-separated, the scopes actually granted.
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: RFC 6749 §5.2 — e.g. invalid_request, invalid_client, unsupported_grant_type, invalid_scope.
+        error_description:
+          type: string
+    JwkKey:
+      type: object
+      required: [kty, crv, x, kid, alg, use]
+      properties:
+        kty:
+          type: string
+          description: "\"OKP\" for Ed25519 (RFC 8037)."
+        crv:
+          type: string
+          description: "\"Ed25519\"."
+        x:
+          type: string
+          description: Base64url-encoded public key.
+        kid:
+          type: string
+        alg:
+          type: string
+          description: "\"EdDSA\"."
+        use:
+          type: string
+          description: "\"sig\"."
+    Jwks:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JwkKey'
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

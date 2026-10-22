@@ -193,6 +193,104 @@ func TestWithTenantTx_WriteIsolation(t *testing.T) {
 	})
 }
 
+// elevatedRoleDSN mirrors appRoleDSN's shape but adds a second,
+// NOLOGIN role that can see a table app_role itself has no grant on
+// at all — standing in for identity_token_exchange's real shape (1.8):
+// a narrow, elevated-but-not-superuser role reached only via SET
+// LOCAL ROLE from an already-authenticated connection, never its own
+// login credential.
+func elevatedRoleDSN(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+
+	pg := testkit.StartPostgres(t)
+
+	const setup = `
+		CREATE TABLE restricted (
+			value text NOT NULL
+		);
+		INSERT INTO restricted (value) VALUES ('secret-row');
+
+		CREATE ROLE app_role LOGIN PASSWORD 'app_role';
+		CREATE ROLE elevated_role NOLOGIN;
+		GRANT SELECT ON restricted TO elevated_role;
+		-- WITH INHERIT FALSE matters: a default (inheriting) GRANT would
+		-- make elevated_role's SELECT ambiently active on every query
+		-- app_role's connection ever runs, not just inside WithRoleTx —
+		-- found by testing this exact migration pattern against
+		-- identity.api_clients (store_integration_test.go).
+		GRANT elevated_role TO app_role WITH INHERIT FALSE;
+	`
+	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
+		t.Fatalf("failed to set up restricted table and roles: %v", err)
+	}
+
+	return pg.RoleDSN("app_role", "app_role")
+}
+
+func TestWithRoleTx_GrantsAndRevertsElevatedAccess(t *testing.T) {
+	ctx := context.Background()
+	pool, err := vasdb.NewPool(ctx, elevatedRoleDSN(t))
+	if err != nil {
+		t.Fatalf("failed to connect as app_role: %v", err)
+	}
+	defer pool.Close()
+
+	t.Run("plain app_role cannot see the restricted table", func(t *testing.T) {
+		rows, err := pool.Query(ctx, "SELECT value FROM restricted")
+		if err == nil {
+			for rows.Next() {
+			}
+			err = rows.Err()
+			rows.Close()
+		}
+		if err == nil {
+			t.Fatal("expected a permission error querying restricted as app_role")
+		}
+	})
+
+	t.Run("WithRoleTx grants access for the one transaction", func(t *testing.T) {
+		var seen []string
+		err := pool.WithRoleTx(ctx, "elevated_role", func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, "SELECT value FROM restricted")
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var v string
+				if err := rows.Scan(&v); err != nil {
+					return err
+				}
+				seen = append(seen, v)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			t.Fatalf("unexpected error inside WithRoleTx: %v", err)
+		}
+		if len(seen) != 1 || seen[0] != "secret-row" {
+			t.Fatalf("got %v, want [secret-row]", seen)
+		}
+	})
+
+	t.Run("the role reverts once the transaction ends", func(t *testing.T) {
+		// Pool-level, not tx-level: proves SET LOCAL's effect didn't
+		// leak onto a reused pooled connection after the transaction
+		// above committed.
+		rows, err := pool.Query(ctx, "SELECT value FROM restricted")
+		if err == nil {
+			for rows.Next() {
+			}
+			err = rows.Err()
+			rows.Close()
+		}
+		if err == nil {
+			t.Fatal("expected app_role to have lost elevated access after WithRoleTx returned")
+		}
+	})
+}
+
 func TestWithoutTenantTx_FailsClosedToNoRows(t *testing.T) {
 	ctx := context.Background()
 	pool, err := vasdb.NewPool(ctx, appRoleDSN(t))

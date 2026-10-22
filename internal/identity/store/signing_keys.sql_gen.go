@@ -7,12 +7,13 @@ package store
 
 import (
 	"context"
+	"time"
 )
 
 const createSigningKey = `-- name: CreateSigningKey :one
 INSERT INTO identity.signing_keys (kid, algorithm, public_key, private_ref, status)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING kid, algorithm, public_key, private_ref, status, created_at
+RETURNING kid, algorithm, public_key, private_ref, status, created_at, retiring_since
 `
 
 type CreateSigningKeyParams struct {
@@ -39,12 +40,51 @@ func (q *Queries) CreateSigningKey(ctx context.Context, arg CreateSigningKeyPara
 		&i.PrivateRef,
 		&i.Status,
 		&i.CreatedAt,
+		&i.RetiringSince,
+	)
+	return i, err
+}
+
+const demoteSigningKeyToRetiring = `-- name: DemoteSigningKeyToRetiring :exec
+UPDATE identity.signing_keys
+SET status = 'retiring', retiring_since = $1::timestamptz
+WHERE kid = $2 AND status = 'active'
+`
+
+type DemoteSigningKeyToRetiringParams struct {
+	Now time.Time `json:"now"`
+	Kid string    `json:"kid"`
+}
+
+func (q *Queries) DemoteSigningKeyToRetiring(ctx context.Context, arg DemoteSigningKeyToRetiringParams) error {
+	_, err := q.db.Exec(ctx, demoteSigningKeyToRetiring, arg.Now, arg.Kid)
+	return err
+}
+
+const getActiveSigningKey = `-- name: GetActiveSigningKey :one
+SELECT kid, algorithm, public_key, private_ref, status, created_at, retiring_since FROM identity.signing_keys WHERE status = 'active'
+`
+
+// RotateSigningKey/the token endpoint both need exactly the one
+// current signing key; the rotation logic guarantees at most one row
+// ever has status = 'active'.
+func (q *Queries) GetActiveSigningKey(ctx context.Context) (IdentitySigningKey, error) {
+	row := q.db.QueryRow(ctx, getActiveSigningKey)
+	var i IdentitySigningKey
+	err := row.Scan(
+		&i.Kid,
+		&i.Algorithm,
+		&i.PublicKey,
+		&i.PrivateRef,
+		&i.Status,
+		&i.CreatedAt,
+		&i.RetiringSince,
 	)
 	return i, err
 }
 
 const listActiveSigningKeys = `-- name: ListActiveSigningKeys :many
-SELECT kid, algorithm, public_key, private_ref, status, created_at FROM identity.signing_keys WHERE status = 'active' ORDER BY created_at
+SELECT kid, algorithm, public_key, private_ref, status, created_at, retiring_since FROM identity.signing_keys WHERE status = 'active' ORDER BY created_at
 `
 
 func (q *Queries) ListActiveSigningKeys(ctx context.Context) ([]IdentitySigningKey, error) {
@@ -63,6 +103,7 @@ func (q *Queries) ListActiveSigningKeys(ctx context.Context) ([]IdentitySigningK
 			&i.PrivateRef,
 			&i.Status,
 			&i.CreatedAt,
+			&i.RetiringSince,
 		); err != nil {
 			return nil, err
 		}
@@ -72,4 +113,57 @@ func (q *Queries) ListActiveSigningKeys(ctx context.Context) ([]IdentitySigningK
 		return nil, err
 	}
 	return items, nil
+}
+
+const listPublishableSigningKeys = `-- name: ListPublishableSigningKeys :many
+SELECT kid, algorithm, public_key, private_ref, status, created_at, retiring_since FROM identity.signing_keys WHERE status IN ('active', 'retiring') ORDER BY created_at
+`
+
+// The JWKS endpoint publishes active and retiring keys — retiring so a
+// token signed just before rotation still verifies until it expires —
+// never retired, and never any private material (public_key only is
+// used by the caller; private_ref stays in the row but unused here).
+func (q *Queries) ListPublishableSigningKeys(ctx context.Context) ([]IdentitySigningKey, error) {
+	rows, err := q.db.Query(ctx, listPublishableSigningKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentitySigningKey
+	for rows.Next() {
+		var i IdentitySigningKey
+		if err := rows.Scan(
+			&i.Kid,
+			&i.Algorithm,
+			&i.PublicKey,
+			&i.PrivateRef,
+			&i.Status,
+			&i.CreatedAt,
+			&i.RetiringSince,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const retireStaleSigningKeys = `-- name: RetireStaleSigningKeys :execrows
+UPDATE identity.signing_keys
+SET status = 'retired'
+WHERE status = 'retiring' AND retiring_since < $1::timestamptz
+`
+
+// The "sweep on rotate" — called every time RotateSigningKey runs,
+// rather than a separate scheduler, so no new background-job
+// infrastructure is needed for this.
+func (q *Queries) RetireStaleSigningKeys(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, retireStaleSigningKeys, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

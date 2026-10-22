@@ -421,7 +421,7 @@ Pin every version in `go.mod`, `package.json` and the `Makefile`. Upgrade on pur
 | IDs | `google/uuid` (UUIDv7) |
 | Decimals (tokens) | `shopspring/decimal` |
 | Phone numbers | `nyaruka/phonenumbers` |
-| Auth | `go-webauthn/webauthn`, `pquerna/otp`, `golang.org/x/crypto/argon2` and `bcrypt` (v3 import), `lestrrat-go/jwx/v2` |
+| Auth | `go-webauthn/webauthn`, `pquerna/otp`, `golang.org/x/crypto/argon2` and `bcrypt` (v3 import), `lestrrat-go/jwx/v3` (task 1.8: `v2` was deprecated upstream by the time this table's pin was first exercised, with nothing else in the repo yet depending on its API; `v4` was tried first but unconditionally imports Go's still-experimental `encoding/json/v2`/`jsontext` — gated behind `GOEXPERIMENT=jsonv2`, not enabled on this toolchain — so landed on `v3`, the more conservative maintained major with no such dependency) |
 | Config | `caarlos0/env` |
 | Observability | OpenTelemetry SDK; Prometheus metrics; locally the `grafana/otel-lgtm` container |
 | Testing | `testing`, `stretchr/testify`, `testcontainers-go`, `pgregory.net/rapid` (property tests), Go native fuzzing, k6 |
@@ -723,7 +723,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.5 Sessions in PostgreSQL with a Redis cache; list and revoke sessions; sign out everywhere.
 - [x] 1.6 Step-up MFA for sensitive actions, as listed in system design §3.
 - [x] 1.7 API clients: create, rotate (two active secrets), revoke; scopes, IP allowlist, expiry, spend cap; the secret is shown once and stored hashed.
-- [ ] 1.8 OAuth2 client-credentials token endpoint; JWT signing keys with rotation; JWKS endpoint.
+- [x] 1.8 OAuth2 client-credentials token endpoint; JWT signing keys with rotation; JWKS endpoint.
 - [ ] 1.9 HMAC request signing for high-value calls: signature over method, path, body and timestamp, valid for 5 minutes, with replay protection.
 - [ ] 1.10 SMPP accounts for the existing SMPP front end (system design §3, §5.2).
 - [ ] 1.11 Gateway: routing, JWT checks, scopes, Redis rate limits with `Retry-After`, IP allowlists, sandbox or live environment taken from the credential, idempotency on writes, OpenAPI request validation, audit events.

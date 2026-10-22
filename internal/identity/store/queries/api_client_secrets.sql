@@ -17,6 +17,19 @@ WHERE s.api_client_id = @api_client_id
   AND (s.expires_at IS NULL OR s.expires_at > @now::timestamptz)
 ORDER BY s.created_at;
 
+-- name: ListActiveApiClientSecretsByClientIDAnyTenant :many
+-- "AnyTenant": api_client_secrets has no RLS of its own (OQ-01) and no
+-- tenant_id column to join through for this read — the api_clients
+-- row itself was already fetched via GetApiClientByIDAnyTenant inside
+-- the same WithRoleTx, which is what actually gated this lookup to
+-- the one client the caller presented a client_id for. Only task
+-- 1.8's OAuth2 token exchange calls this.
+SELECT * FROM identity.api_client_secrets
+WHERE api_client_id = @api_client_id
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > @now::timestamptz)
+ORDER BY created_at;
+
 -- name: ExpireApiClientSecretForRotation :exec
 -- Sets the previous active secret's expires_at to the rotation
 -- overlap's end — it keeps working until then, rather than being

@@ -35,6 +35,13 @@ import (
 // rotation story yet.
 const totpKMSKeyID = "identity-totp"
 
+// signingKeysKMSKeyID names the LocalKMS master key JWT signing keys'
+// private material is sealed under (task 1.8) — a separate key from
+// totpKMSKeyID's, wrapped by the same Envelope instance (0.11:
+// Envelope/LocalKMS take a keyID per call, one KMS can hold several
+// master keys).
+const signingKeysKMSKeyID = "identity-signing-keys"
+
 // Config is identity's process configuration (platform/config.Load).
 // DatabaseURL's connection must resolve unqualified table names to the
 // identity schema — either the connecting role's default search_path
@@ -54,6 +61,12 @@ type Config struct {
 	// own note); LocalKMS is what the tech stack table names for
 	// development.
 	TOTPKMSKey string `env:"IDENTITY_TOTP_KMS_KEY,required"`
+	// SigningKeysKMSKey is LocalKMS's master key, base64-encoded,
+	// exactly 32 bytes once decoded (AES-256) — encrypts
+	// signing_keys.private_ref (task 1.8), the JWT signing keys'
+	// private material. A separate key from TOTPKMSKey's, same
+	// reasoning: different purpose, shouldn't share material.
+	SigningKeysKMSKey string `env:"IDENTITY_SIGNING_KEYS_KMS_KEY,required"`
 	// ChallengeSigningKey (base64) signs every short-lived, stateless
 	// challenge token this service issues — the TOTP sign-in
 	// challenge and the WebAuthn ceremony session token
@@ -94,13 +107,20 @@ type Service struct {
 // Service against testkit's containers (and a fake email sender)
 // without going through it.
 func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Service, error) {
-	kmsKey, err := base64.StdEncoding.DecodeString(cfg.TOTPKMSKey)
+	totpKMSKey, err := base64.StdEncoding.DecodeString(cfg.TOTPKMSKey)
 	if err != nil {
 		return nil, fmt.Errorf("identity: decoding IDENTITY_TOTP_KMS_KEY: %w", err)
 	}
-	kms, err := vascrypto.NewLocalKMS(map[string][]byte{totpKMSKeyID: kmsKey})
+	signingKeysKMSKey, err := base64.StdEncoding.DecodeString(cfg.SigningKeysKMSKey)
 	if err != nil {
-		return nil, fmt.Errorf("identity: building TOTP KMS: %w", err)
+		return nil, fmt.Errorf("identity: decoding IDENTITY_SIGNING_KEYS_KMS_KEY: %w", err)
+	}
+	kms, err := vascrypto.NewLocalKMS(map[string][]byte{
+		totpKMSKeyID:        totpKMSKey,
+		signingKeysKMSKeyID: signingKeysKMSKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("identity: building KMS: %w", err)
 	}
 	challengeKey, err := base64.StdEncoding.DecodeString(cfg.ChallengeSigningKey)
 	if err != nil {
@@ -123,14 +143,15 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 	c := cache.New(redisOpts)
 
 	a := app.New(app.Deps{
-		Pool:         pool,
-		Email:        email,
-		Clock:        clock.Real{},
-		Envelope:     vascrypto.NewEnvelope(kms),
-		TOTPKeyID:    totpKMSKeyID,
-		ChallengeKey: challengeKey,
-		WebAuthn:     wa,
-		Cache:        c,
+		Pool:             pool,
+		Email:            email,
+		Clock:            clock.Real{},
+		Envelope:         vascrypto.NewEnvelope(kms),
+		TOTPKeyID:        totpKMSKeyID,
+		SigningKeysKeyID: signingKeysKMSKeyID,
+		ChallengeKey:     challengeKey,
+		WebAuthn:         wa,
+		Cache:            c,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)
@@ -162,6 +183,13 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 // with httptest without a real listener.
 func (s *Service) Router() http.Handler { return s.rtr }
 
+// EnsureActiveSigningKey delegates to app.Service.EnsureActiveSigningKey
+// — exported so Run() and a test building a Service via New() directly
+// (never calling Run()) can both bootstrap the first signing key.
+func (s *Service) EnsureActiveSigningKey(ctx context.Context) error {
+	return s.app.EnsureActiveSigningKey(ctx)
+}
+
 func (s *Service) relaySubject(eventType string) string { return "identity." + eventType }
 
 // Run starts identity's HTTP server and outbox relay loop, and blocks
@@ -172,6 +200,13 @@ func (s *Service) relaySubject(eventType string) string { return "identity." + e
 func (s *Service) Run(ctx context.Context) error {
 	if err := s.bus.EnsureStream(ctx, "IDENTITY_EVENTS", []string{"identity.>"}); err != nil {
 		return fmt.Errorf("identity: ensuring stream: %w", err)
+	}
+
+	// Bootstraps the first signing key on a brand new database — a
+	// test building a Service via New() directly (not Run()) must call
+	// this itself; see EnsureActiveSigningKey's own doc.
+	if err := s.EnsureActiveSigningKey(ctx); err != nil {
+		return fmt.Errorf("identity: ensuring an active signing key: %w", err)
 	}
 
 	relay := outbox.NewRelay(s.pool, s.bus, s.relaySubject)

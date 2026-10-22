@@ -57,3 +57,34 @@ func (p *Pool) WithTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(ctx
 	}
 	return nil
 }
+
+// WithRoleTx runs fn inside a transaction with the current role
+// switched to role for that transaction only (SET LOCAL ROLE), reverting
+// automatically at commit or rollback. Unlike WithTenantTx's
+// set_config, Postgres's SET statement can't take ROLE as a bind
+// parameter at all — role must always be a hardcoded Go constant at
+// the call site, never request data, so pgx.Identifier's quoting below
+// is defensive, not a substitute for that rule. The connecting role
+// must already have been GRANTed membership in role (a migration's
+// job, not this function's) or SET LOCAL ROLE fails.
+func (p *Pool) WithRoleTx(ctx context.Context, role string, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("db: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed; rollback failing after a commit isn't actionable here
+
+	stmt := "SET LOCAL ROLE " + pgx.Identifier{role}.Sanitize()
+	if _, err := tx.Exec(ctx, stmt); err != nil {
+		return fmt.Errorf("db: setting role: %w", err)
+	}
+
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("db: commit: %w", err)
+	}
+	return nil
+}

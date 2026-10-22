@@ -224,12 +224,13 @@ type IdentitySession struct {
 }
 
 type IdentitySigningKey struct {
-	Kid        string    `json:"kid"`
-	Algorithm  string    `json:"algorithm"`
-	PublicKey  []byte    `json:"public_key"`
-	PrivateRef string    `json:"private_ref"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"created_at"`
+	Kid           string             `json:"kid"`
+	Algorithm     string             `json:"algorithm"`
+	PublicKey     []byte             `json:"public_key"`
+	PrivateRef    string             `json:"private_ref"`
+	Status        string             `json:"status"`
+	CreatedAt     time.Time          `json:"created_at"`
+	RetiringSince pgtype.Timestamptz `json:"retiring_since"`
 }
 
 type IdentitySmppAccount struct {

@@ -45,6 +45,7 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 
 	cfg := identity.Config{
 		TOTPKMSKey:          randomBase64Key(t),
+		SigningKeysKMSKey:   randomBase64Key(t),
 		ChallengeSigningKey: randomBase64Key(t),
 		WebAuthnRPID:        "localhost",
 		WebAuthnOrigins:     []string{"https://localhost"},
@@ -54,6 +55,12 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 	svc, err := identity.New(cfg, pool, nil, sender)
 	if err != nil {
 		t.Fatalf("building identity service: %v", err)
+	}
+	// newTestRouter never calls Run(), which is where this normally
+	// happens at startup — the OAuth2 token endpoint and JWKS tests
+	// both need a real active key to exist.
+	if err := svc.EnsureActiveSigningKey(ctx); err != nil {
+		t.Fatalf("ensuring an active signing key: %v", err)
 	}
 	return svc.Router(), sender
 }

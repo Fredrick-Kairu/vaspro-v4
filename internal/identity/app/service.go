@@ -87,6 +87,12 @@ type Service struct {
 	envelope  *vascrypto.Envelope
 	totpKeyID string
 
+	// signingKeysKeyID is the Envelope/LocalKMS master key JWT signing
+	// keys' private material is sealed under (task 1.8) — a different
+	// key from totpKeyID's (different purpose, shouldn't share
+	// material), wrapped by the same Envelope instance.
+	signingKeysKeyID string
+
 	// challengeKey signs every short-lived, stateless challenge token
 	// this service issues — the TOTP sign-in challenge
 	// (issueChallenge/verifyChallenge) and the WebAuthn ceremony
@@ -110,27 +116,29 @@ type Service struct {
 // growing New's positional parameter list indefinitely as each task
 // adds its own dependencies on top of the last.
 type Deps struct {
-	Pool         *db.Pool
-	Email        adapters.EmailSender
-	Clock        clock.Clock
-	Envelope     *vascrypto.Envelope
-	TOTPKeyID    string
-	ChallengeKey []byte
-	WebAuthn     *webauthn.WebAuthn
-	Cache        *cache.Cache
+	Pool             *db.Pool
+	Email            adapters.EmailSender
+	Clock            clock.Clock
+	Envelope         *vascrypto.Envelope
+	TOTPKeyID        string
+	SigningKeysKeyID string
+	ChallengeKey     []byte
+	WebAuthn         *webauthn.WebAuthn
+	Cache            *cache.Cache
 }
 
 // New builds a Service.
 func New(d Deps) *Service {
 	return &Service{
-		pool:         d.Pool,
-		email:        d.Email,
-		clk:          d.Clock,
-		envelope:     d.Envelope,
-		totpKeyID:    d.TOTPKeyID,
-		challengeKey: d.ChallengeKey,
-		webauthn:     d.WebAuthn,
-		cache:        d.Cache,
+		pool:             d.Pool,
+		email:            d.Email,
+		clk:              d.Clock,
+		envelope:         d.Envelope,
+		totpKeyID:        d.TOTPKeyID,
+		signingKeysKeyID: d.SigningKeysKeyID,
+		challengeKey:     d.ChallengeKey,
+		webauthn:         d.WebAuthn,
+		cache:            d.Cache,
 	}
 }
 

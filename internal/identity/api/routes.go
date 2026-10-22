@@ -59,12 +59,39 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		// reverse order produced "no tenant in request context" on
 		// every request).
 		Middlewares: []MiddlewareFunc{
-			idempotency.Middleware(idemStore, idempotencyKeyTTL),
+			skipIdempotencyFor(idempotencyExemptPaths, idempotency.Middleware(idemStore, idempotencyKeyTTL)),
 			withAnonymousTenant,
 		},
 	})
 
 	return r
+}
+
+// idempotencyExemptPaths holds the one deliberate exception to
+// api.md's "every write needs an Idempotency-Key" rule: RFC 6749's
+// client-credentials grant (task 1.8) has to work with off-the-shelf
+// OAuth2 client libraries, none of which send custom headers. Minting
+// a token twice has no side effect worth deduplicating, so there's
+// nothing lost by skipping it here.
+var idempotencyExemptPaths = map[string]bool{
+	"/v1/oauth/token": true,
+}
+
+// skipIdempotencyFor lets mw (idempotency.Middleware itself, untouched
+// — platform/idempotency has no notion of paths or exemptions) run
+// for every request except those in paths, which skip straight
+// through to the real handler.
+func skipIdempotencyFor(paths map[string]bool, mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if paths[r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
 }
 
 // withAnonymousTenant sets a sentinel "no tenant" value

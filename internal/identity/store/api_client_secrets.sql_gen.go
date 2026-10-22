@@ -118,6 +118,53 @@ func (q *Queries) ListActiveApiClientSecretsByClientID(ctx context.Context, arg 
 	return items, nil
 }
 
+const listActiveApiClientSecretsByClientIDAnyTenant = `-- name: ListActiveApiClientSecretsByClientIDAnyTenant :many
+SELECT id, api_client_id, secret_hash, last4, created_at, expires_at, revoked_at FROM identity.api_client_secrets
+WHERE api_client_id = $1
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > $2::timestamptz)
+ORDER BY created_at
+`
+
+type ListActiveApiClientSecretsByClientIDAnyTenantParams struct {
+	ApiClientID uuid.UUID `json:"api_client_id"`
+	Now         time.Time `json:"now"`
+}
+
+// "AnyTenant": api_client_secrets has no RLS of its own (OQ-01) and no
+// tenant_id column to join through for this read — the api_clients
+// row itself was already fetched via GetApiClientByIDAnyTenant inside
+// the same WithRoleTx, which is what actually gated this lookup to
+// the one client the caller presented a client_id for. Only task
+// 1.8's OAuth2 token exchange calls this.
+func (q *Queries) ListActiveApiClientSecretsByClientIDAnyTenant(ctx context.Context, arg ListActiveApiClientSecretsByClientIDAnyTenantParams) ([]IdentityApiClientSecret, error) {
+	rows, err := q.db.Query(ctx, listActiveApiClientSecretsByClientIDAnyTenant, arg.ApiClientID, arg.Now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentityApiClientSecret
+	for rows.Next() {
+		var i IdentityApiClientSecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.ApiClientID,
+			&i.SecretHash,
+			&i.Last4,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeApiClientSecret = `-- name: RevokeApiClientSecret :execrows
 UPDATE identity.api_client_secrets s
 SET revoked_at = now()
