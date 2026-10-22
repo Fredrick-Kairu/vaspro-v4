@@ -18,6 +18,7 @@ type entry struct {
 
 const (
 	AUTH4010 Code = "AUTH-4010"
+	AUTH4011 Code = "AUTH-4011"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -39,6 +40,14 @@ var registry = map[Code]entry{
 		Title:     "Invalid or missing credentials",
 		Cause:     "The request's bearer token or API credentials are missing, expired, or don't match any account.",
 		Fix:       "Sign in again or mint a fresh token; if the credential was revoked, issue a new one.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4011: {
+		Status:    401,
+		Title:     "Two-factor code invalid or expired",
+		Cause:     "The TOTP code or recovery code submitted doesn't match, was already used, or the sign-in challenge it belongs to expired.",
+		Fix:       "Retry with a current code from the authenticator app, or an unused recovery code; if the challenge expired, sign in again.",
 		Retryable: false,
 		Billable:  false,
 	},

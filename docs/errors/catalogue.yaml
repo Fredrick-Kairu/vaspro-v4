@@ -36,6 +36,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4011
+    status: 401
+    title: Two-factor code invalid or expired
+    cause: The TOTP code or recovery code submitted doesn't match, was already used, or the sign-in challenge it belongs to expired.
+    fix: Retry with a current code from the authenticator app, or an unused recovery code; if the challenge expired, sign in again.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service

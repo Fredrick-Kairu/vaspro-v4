@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
@@ -26,6 +27,19 @@ type EmailVerificationResult struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// PasswordResetConfirmationRequest defines model for PasswordResetConfirmationRequest.
+type PasswordResetConfirmationRequest struct {
+	// Code The reset code emailed by createPasswordReset.
+	Code        string `json:"code"`
+	Email       string `json:"email"`
+	NewPassword string `json:"new_password"`
+}
+
+// PasswordResetRequest defines model for PasswordResetRequest.
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code      string  `json:"code"`
@@ -35,6 +49,22 @@ type Problem struct {
 	Status    int     `json:"status"`
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
+}
+
+// SignInRequest defines model for SignInRequest.
+type SignInRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// SignInResult defines model for SignInResult.
+type SignInResult struct {
+	// Challenge Set when the account has TOTP enrolled — complete it via createTotpChallengeVerification.
+	Challenge *string    `json:"challenge,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// SessionId Set when sign-in completed without a TOTP step.
+	SessionId *string `json:"session_id,omitempty"`
 }
 
 // SignupAccepted defines model for SignupAccepted.
@@ -51,11 +81,44 @@ type SignupRequest struct {
 	PhoneE164 *string `json:"phone_e164,omitempty"`
 }
 
+// TotpChallengeVerificationRequest defines model for TotpChallengeVerificationRequest.
+type TotpChallengeVerificationRequest struct {
+	// Code A live 6-digit TOTP code, or an unused recovery code.
+	Code string `json:"code"`
+}
+
+// TotpEnrollmentResult defines model for TotpEnrollmentResult.
+type TotpEnrollmentResult struct {
+	// RecoveryCodes Shown exactly once — store them somewhere safe.
+	RecoveryCodes *[]string `json:"recovery_codes,omitempty"`
+
+	// Url otpauth:// URL for an authenticator app to scan.
+	Url *string `json:"url,omitempty"`
+}
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
 // CreateEmailVerificationParams defines parameters for CreateEmailVerification.
 type CreateEmailVerificationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreatePasswordResetConfirmationParams defines parameters for CreatePasswordResetConfirmation.
+type CreatePasswordResetConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreatePasswordResetParams defines parameters for CreatePasswordReset.
+type CreatePasswordResetParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateSessionParams defines parameters for CreateSession.
+type CreateSessionParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -66,20 +129,65 @@ type CreateSignupParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateTotpEnrollmentParams defines parameters for CreateTotpEnrollment.
+type CreateTotpEnrollmentParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateTotpEnrollmentConfirmationParams defines parameters for CreateTotpEnrollmentConfirmation.
+type CreateTotpEnrollmentConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateEmailVerificationJSONRequestBody defines body for CreateEmailVerification for application/json ContentType.
 type CreateEmailVerificationJSONRequestBody = EmailVerificationRequest
 
+// CreatePasswordResetConfirmationJSONRequestBody defines body for CreatePasswordResetConfirmation for application/json ContentType.
+type CreatePasswordResetConfirmationJSONRequestBody = PasswordResetConfirmationRequest
+
+// CreatePasswordResetJSONRequestBody defines body for CreatePasswordReset for application/json ContentType.
+type CreatePasswordResetJSONRequestBody = PasswordResetRequest
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = SignInRequest
+
 // CreateSignupJSONRequestBody defines body for CreateSignup for application/json ContentType.
 type CreateSignupJSONRequestBody = SignupRequest
+
+// CreateTotpChallengeVerificationJSONRequestBody defines body for CreateTotpChallengeVerification for application/json ContentType.
+type CreateTotpChallengeVerificationJSONRequestBody = TotpChallengeVerificationRequest
+
+// CreateTotpEnrollmentConfirmationJSONRequestBody defines body for CreateTotpEnrollmentConfirmation for application/json ContentType.
+type CreateTotpEnrollmentConfirmationJSONRequestBody = TotpChallengeVerificationRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams)
+	// CreatePasswordResetConfirmation Confirm a password reset code and set a new password
+	// (POST /v1/auth/password-reset-confirmations)
+	CreatePasswordResetConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasswordResetConfirmationParams)
+	// CreatePasswordReset Request a password-set-or-reset code
+	// (POST /v1/auth/password-resets)
+	CreatePasswordReset(w http.ResponseWriter, r *http.Request, params CreatePasswordResetParams)
+	// CreateSession Sign in with email and password
+	// (POST /v1/auth/sessions)
+	CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams)
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams)
+	// CreateTotpChallengeVerification Complete a sign-in TOTP challenge
+	// (POST /v1/auth/totp-challenges/{challenge}/verification)
+	CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string)
+	// CreateTotpEnrollment Start TOTP enrollment for the signed-in account
+	// (POST /v1/auth/totp-enrollments)
+	CreateTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentParams)
+	// CreateTotpEnrollmentConfirmation Confirm TOTP enrollment
+	// (POST /v1/auth/totp-enrollments/confirmation)
+	CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentConfirmationParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -92,9 +200,45 @@ func (_ Unimplemented) CreateEmailVerification(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CreatePasswordResetConfirmation Confirm a password reset code and set a new password
+// (POST /v1/auth/password-reset-confirmations)
+func (_ Unimplemented) CreatePasswordResetConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasswordResetConfirmationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreatePasswordReset Request a password-set-or-reset code
+// (POST /v1/auth/password-resets)
+func (_ Unimplemented) CreatePasswordReset(w http.ResponseWriter, r *http.Request, params CreatePasswordResetParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSession Sign in with email and password
+// (POST /v1/auth/sessions)
+func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // CreateSignup Start sign-up for an email address
 // (POST /v1/auth/signups)
 func (_ Unimplemented) CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateTotpChallengeVerification Complete a sign-in TOTP challenge
+// (POST /v1/auth/totp-challenges/{challenge}/verification)
+func (_ Unimplemented) CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateTotpEnrollment Start TOTP enrollment for the signed-in account
+// (POST /v1/auth/totp-enrollments)
+func (_ Unimplemented) CreateTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateTotpEnrollmentConfirmation Confirm TOTP enrollment
+// (POST /v1/auth/totp-enrollments/confirmation)
+func (_ Unimplemented) CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentConfirmationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -152,6 +296,141 @@ func (siw *ServerInterfaceWrapper) CreateEmailVerification(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// CreatePasswordResetConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasswordResetConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePasswordResetConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasswordResetConfirmation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) CreatePasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePasswordResetParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePasswordReset(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSessionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSession(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateSignup operation middleware
 func (siw *ServerInterfaceWrapper) CreateSignup(w http.ResponseWriter, r *http.Request) {
 
@@ -188,6 +467,122 @@ func (siw *ServerInterfaceWrapper) CreateSignup(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateSignup(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTotpChallengeVerification operation middleware
+func (siw *ServerInterfaceWrapper) CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "challenge" -------------
+	var challenge string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "challenge", chi.URLParam(r, "challenge"), &challenge, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "challenge", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTotpChallengeVerification(w, r, challenge)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTotpEnrollment operation middleware
+func (siw *ServerInterfaceWrapper) CreateTotpEnrollment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTotpEnrollmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTotpEnrollment(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTotpEnrollmentConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTotpEnrollmentConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTotpEnrollmentConfirmation(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -316,6 +711,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/email-verifications", wrapper.CreateEmailVerification)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/password-resets", wrapper.CreatePasswordReset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/password-reset-confirmations", wrapper.CreatePasswordResetConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/sessions", wrapper.CreateSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/totp-challenges/{challenge}/verification", wrapper.CreateTotpChallengeVerification)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/totp-enrollments", wrapper.CreateTotpEnrollment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/totp-enrollments/confirmation", wrapper.CreateTotpEnrollmentConfirmation)
+	})
 
 	return r
 }
@@ -367,6 +780,188 @@ type CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateEmailVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordResetConfirmationRequestObject struct {
+	Params CreatePasswordResetConfirmationParams
+	Body   *CreatePasswordResetConfirmationJSONRequestBody
+}
+
+type CreatePasswordResetConfirmationResponseObject interface {
+	VisitCreatePasswordResetConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreatePasswordResetConfirmation200JSONResponse EmailVerificationResult
+
+func (response CreatePasswordResetConfirmation200JSONResponse) VisitCreatePasswordResetConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordResetConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasswordResetConfirmation400ApplicationProblemPlusJSONResponse) VisitCreatePasswordResetConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordResetConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasswordResetConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreatePasswordResetConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordResetRequestObject struct {
+	Params CreatePasswordResetParams
+	Body   *CreatePasswordResetJSONRequestBody
+}
+
+type CreatePasswordResetResponseObject interface {
+	VisitCreatePasswordResetResponse(w http.ResponseWriter) error
+}
+
+type CreatePasswordReset202JSONResponse SignupAccepted
+
+func (response CreatePasswordReset202JSONResponse) VisitCreatePasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordReset400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePasswordReset400ApplicationProblemPlusJSONResponse) VisitCreatePasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePasswordResetdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreatePasswordResetdefaultApplicationProblemPlusJSONResponse) VisitCreatePasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessionRequestObject struct {
+	Params CreateSessionParams
+	Body   *CreateSessionJSONRequestBody
+}
+
+type CreateSessionResponseObject interface {
+	VisitCreateSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateSession200JSONResponse SignInResult
+
+func (response CreateSession200JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSession400ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSession401ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateSessiondefaultApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -434,14 +1029,227 @@ func (response CreateSignupdefaultApplicationProblemPlusJSONResponse) VisitCreat
 	return err
 }
 
+type CreateTotpChallengeVerificationRequestObject struct {
+	Challenge string `json:"challenge"`
+	Body      *CreateTotpChallengeVerificationJSONRequestBody
+}
+
+type CreateTotpChallengeVerificationResponseObject interface {
+	VisitCreateTotpChallengeVerificationResponse(w http.ResponseWriter) error
+}
+
+type CreateTotpChallengeVerification200JSONResponse SignInResult
+
+func (response CreateTotpChallengeVerification200JSONResponse) VisitCreateTotpChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpChallengeVerification400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTotpChallengeVerification400ApplicationProblemPlusJSONResponse) VisitCreateTotpChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpChallengeVerification401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTotpChallengeVerification401ApplicationProblemPlusJSONResponse) VisitCreateTotpChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpChallengeVerificationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTotpChallengeVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateTotpChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentRequestObject struct {
+	Params CreateTotpEnrollmentParams
+}
+
+type CreateTotpEnrollmentResponseObject interface {
+	VisitCreateTotpEnrollmentResponse(w http.ResponseWriter) error
+}
+
+type CreateTotpEnrollment200JSONResponse TotpEnrollmentResult
+
+func (response CreateTotpEnrollment200JSONResponse) VisitCreateTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollment401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTotpEnrollment401ApplicationProblemPlusJSONResponse) VisitCreateTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTotpEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitCreateTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentConfirmationRequestObject struct {
+	Params CreateTotpEnrollmentConfirmationParams
+	Body   *CreateTotpEnrollmentConfirmationJSONRequestBody
+}
+
+type CreateTotpEnrollmentConfirmationResponseObject interface {
+	VisitCreateTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreateTotpEnrollmentConfirmation200JSONResponse EmailVerificationResult
+
+func (response CreateTotpEnrollmentConfirmation200JSONResponse) VisitCreateTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTotpEnrollmentConfirmation400ApplicationProblemPlusJSONResponse) VisitCreateTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentConfirmation401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTotpEnrollmentConfirmation401ApplicationProblemPlusJSONResponse) VisitCreateTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreateTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(ctx context.Context, request CreateEmailVerificationRequestObject) (CreateEmailVerificationResponseObject, error)
+	// CreatePasswordResetConfirmation Confirm a password reset code and set a new password
+	// (POST /v1/auth/password-reset-confirmations)
+	CreatePasswordResetConfirmation(ctx context.Context, request CreatePasswordResetConfirmationRequestObject) (CreatePasswordResetConfirmationResponseObject, error)
+	// CreatePasswordReset Request a password-set-or-reset code
+	// (POST /v1/auth/password-resets)
+	CreatePasswordReset(ctx context.Context, request CreatePasswordResetRequestObject) (CreatePasswordResetResponseObject, error)
+	// CreateSession Sign in with email and password
+	// (POST /v1/auth/sessions)
+	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(ctx context.Context, request CreateSignupRequestObject) (CreateSignupResponseObject, error)
+	// CreateTotpChallengeVerification Complete a sign-in TOTP challenge
+	// (POST /v1/auth/totp-challenges/{challenge}/verification)
+	CreateTotpChallengeVerification(ctx context.Context, request CreateTotpChallengeVerificationRequestObject) (CreateTotpChallengeVerificationResponseObject, error)
+	// CreateTotpEnrollment Start TOTP enrollment for the signed-in account
+	// (POST /v1/auth/totp-enrollments)
+	CreateTotpEnrollment(ctx context.Context, request CreateTotpEnrollmentRequestObject) (CreateTotpEnrollmentResponseObject, error)
+	// CreateTotpEnrollmentConfirmation Confirm TOTP enrollment
+	// (POST /v1/auth/totp-enrollments/confirmation)
+	CreateTotpEnrollmentConfirmation(ctx context.Context, request CreateTotpEnrollmentConfirmationRequestObject) (CreateTotpEnrollmentConfirmationResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -516,6 +1324,105 @@ func (sh *strictHandler) CreateEmailVerification(w http.ResponseWriter, r *http.
 	}
 }
 
+// CreatePasswordResetConfirmation operation middleware
+func (sh *strictHandler) CreatePasswordResetConfirmation(w http.ResponseWriter, r *http.Request, params CreatePasswordResetConfirmationParams) {
+	var request CreatePasswordResetConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreatePasswordResetConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasswordResetConfirmation(ctx, request.(CreatePasswordResetConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasswordResetConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasswordResetConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreatePasswordResetConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePasswordReset operation middleware
+func (sh *strictHandler) CreatePasswordReset(w http.ResponseWriter, r *http.Request, params CreatePasswordResetParams) {
+	var request CreatePasswordResetRequestObject
+
+	request.Params = params
+
+	var body CreatePasswordResetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePasswordReset(ctx, request.(CreatePasswordResetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePasswordReset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePasswordResetResponseObject); ok {
+		if err := validResponse.VisitCreatePasswordResetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSession operation middleware
+func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams) {
+	var request CreateSessionRequestObject
+
+	request.Params = params
+
+	var body CreateSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSession(ctx, request.(CreateSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
+		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateSignup operation middleware
 func (sh *strictHandler) CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams) {
 	var request CreateSignupRequestObject
@@ -542,6 +1449,98 @@ func (sh *strictHandler) CreateSignup(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSignupResponseObject); ok {
 		if err := validResponse.VisitCreateSignupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTotpChallengeVerification operation middleware
+func (sh *strictHandler) CreateTotpChallengeVerification(w http.ResponseWriter, r *http.Request, challenge string) {
+	var request CreateTotpChallengeVerificationRequestObject
+
+	request.Challenge = challenge
+
+	var body CreateTotpChallengeVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTotpChallengeVerification(ctx, request.(CreateTotpChallengeVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTotpChallengeVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTotpChallengeVerificationResponseObject); ok {
+		if err := validResponse.VisitCreateTotpChallengeVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTotpEnrollment operation middleware
+func (sh *strictHandler) CreateTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentParams) {
+	var request CreateTotpEnrollmentRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTotpEnrollment(ctx, request.(CreateTotpEnrollmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTotpEnrollment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTotpEnrollmentResponseObject); ok {
+		if err := validResponse.VisitCreateTotpEnrollmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTotpEnrollmentConfirmation operation middleware
+func (sh *strictHandler) CreateTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateTotpEnrollmentConfirmationParams) {
+	var request CreateTotpEnrollmentConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreateTotpEnrollmentConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTotpEnrollmentConfirmation(ctx, request.(CreateTotpEnrollmentConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTotpEnrollmentConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTotpEnrollmentConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreateTotpEnrollmentConfirmationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

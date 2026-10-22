@@ -4,58 +4,22 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
-	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
 
-	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 )
-
-// ErrValidation wraps every input-shape rejection (bad email, empty
-// name, bad phone) — api/ maps it to VAL-4000.
-var ErrValidation = errors.New("app: validation failed")
-
-// ErrInvalidOrExpiredCode covers a wrong code, an expired or already-
-// used token, and attempts exhausted alike — deliberately not
-// distinguished, so a caller can't tell which happened. api/ maps it to
-// VAL-4002.
-var ErrInvalidOrExpiredCode = errors.New("app: verification code invalid or expired")
-
-const (
-	verificationTTL         = 15 * time.Minute
-	maxVerificationAttempts = 5
-)
-
-// Service holds identity's sign-up and email-verification use cases.
-// Its tables (users, verification_tokens, outbox_events) have no
-// tenant_id at all — identity is global, not a tenant resource (1.1's
-// own finding) — so every transaction here is a plain pgx.BeginFunc,
-// never pool.WithTenantTx.
-type Service struct {
-	pool  *db.Pool
-	email adapters.EmailSender
-	clk   clock.Clock
-}
-
-// New builds a Service.
-func New(pool *db.Pool, email adapters.EmailSender, clk clock.Clock) *Service {
-	return &Service{pool: pool, email: email, clk: clk}
-}
 
 // SignUp starts (or restarts) sign-up for rawEmail. It always succeeds
 // from the caller's point of view unless the input itself is invalid —
@@ -260,13 +224,4 @@ func (s *Service) VerifyEmail(ctx context.Context, rawEmail, code string) error 
 		return ErrInvalidOrExpiredCode
 	}
 	return nil
-}
-
-// hashVerificationCode hashes target+purpose+code together, not the
-// bare code: verification_tokens.token_hash is globally UNIQUE (data
-// model §3), and a 6-digit code only has ~1M possibilities — hashing it
-// alone risks a collision across two different users' codes.
-func hashVerificationCode(target string, purpose store.IdentityTokenPurpose, code string) []byte {
-	sum := sha256.Sum256([]byte(target + ":" + string(purpose) + ":" + code))
-	return sum[:]
 }

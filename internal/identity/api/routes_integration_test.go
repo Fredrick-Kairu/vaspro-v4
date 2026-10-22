@@ -4,6 +4,8 @@ package api_test
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,15 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
 )
+
+func randomBase64Key(t *testing.T) string {
+	t.Helper()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generating random key: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(key)
+}
 
 // newTestRouter builds a real identity.Service's router against a real
 // Postgres container. nil for the bus is safe here: Router() never
@@ -30,7 +41,14 @@ func newTestRouter(t *testing.T) http.Handler {
 	}
 	t.Cleanup(pool.Close)
 
-	svc := identity.New(identity.Config{}, pool, nil, &email.Sender{})
+	cfg := identity.Config{
+		TOTPKMSKey:          randomBase64Key(t),
+		ChallengeSigningKey: randomBase64Key(t),
+	}
+	svc, err := identity.New(cfg, pool, nil, &email.Sender{})
+	if err != nil {
+		t.Fatalf("building identity service: %v", err)
+	}
 	return svc.Router()
 }
 

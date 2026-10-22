@@ -8,10 +8,31 @@ package store
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const countRecentSignInFailures = `-- name: CountRecentSignInFailures :one
+SELECT count(*) FROM identity.security_events
+WHERE user_id = $1 AND type = 'sign_in_failed' AND occurred_at > $2
+`
+
+type CountRecentSignInFailuresParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	OccurredAt time.Time   `json:"occurred_at"`
+}
+
+// Drives sign-in lockout as a rolling window, not a persisted "locked"
+// state: once a failure ages out of the window, the count — and the
+// lockout — drops on its own ("unlock by time" for free).
+func (q *Queries) CountRecentSignInFailures(ctx context.Context, arg CountRecentSignInFailuresParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentSignInFailures, arg.UserID, arg.OccurredAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createSecurityEvent = `-- name: CreateSecurityEvent :one
 INSERT INTO identity.security_events (id, user_id, tenant_id, type, ip, detail)

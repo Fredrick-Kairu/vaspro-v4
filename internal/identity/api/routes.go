@@ -21,19 +21,21 @@ import (
 const idempotencyKeyTTL = 24 * time.Hour
 
 // Routes builds identity's HTTP handler: platform/httpx's standard
-// middlewares, health/readiness, and the two sign-up operations
-// generated from docs/api/identity.yaml.
-func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore idempotency.Store) http.Handler {
+// middlewares, health/readiness, and the operations generated from
+// docs/api/identity.yaml. lookup resolves the bearer session token
+// requireSession checks on the two TOTP-enrollment operations.
+func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore idempotency.Store, lookup *SessionLookup) http.Handler {
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))
 	r.Use(httpx.BodyLimit(1 << 20))
+	r.Use(withClientInfo)
 
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz(ready...))
 
-	strict := NewStrictHandlerWithOptions(h, nil, StrictHTTPServerOptions{
+	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{requireSession(lookup)}, StrictHTTPServerOptions{
 		ResponseErrorHandlerFunc: respondProblem,
 	})
 	HandlerWithOptions(strict, ChiServerOptions{

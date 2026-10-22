@@ -12,6 +12,12 @@ import (
 type EmailSender interface {
 	// SendVerificationCode sends code to to, addressed to fullName.
 	SendVerificationCode(ctx context.Context, to, fullName, code string) error
+	// SendPasswordResetCode sends code to to, addressed to fullName. A
+	// separate method from SendVerificationCode so the two can never be
+	// confused — the two emails must say different things, since one
+	// invites clicking a verification flow and the other a password
+	// reset.
+	SendPasswordResetCode(ctx context.Context, to, fullName, code string) error
 }
 
 // SMTPSender sends over plain SMTP — no auth, no TLS. That's exactly
@@ -36,6 +42,17 @@ func (s *SMTPSender) SendVerificationCode(_ context.Context, to, fullName, code 
 	)
 	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
 		return fmt.Errorf("adapters: sending verification email: %w", err)
+	}
+	return nil
+}
+
+func (s *SMTPSender) SendPasswordResetCode(_ context.Context, to, fullName, code string) error {
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: Your VASPRO password reset code\r\n\r\nHi %s,\r\n\r\nYour password reset code is: %s\r\n\r\nIt expires in 15 minutes. If you didn't ask to reset your password, ignore this email.\r\n",
+		s.from, to, fullName, code,
+	)
+	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
+		return fmt.Errorf("adapters: sending password reset email: %w", err)
 	}
 	return nil
 }

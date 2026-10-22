@@ -5,3 +5,7 @@ RETURNING *;
 
 -- name: GetSessionByID :one
 SELECT * FROM identity.sessions WHERE id = $1;
+
+-- name: GetActiveSessionByID :one
+SELECT * FROM identity.sessions
+WHERE id = $1 AND revoked_at IS NULL AND expires_at > @now::timestamptz;

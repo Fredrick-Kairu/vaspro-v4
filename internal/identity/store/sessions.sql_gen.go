@@ -54,6 +54,34 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (I
 	return i, err
 }
 
+const getActiveSessionByID = `-- name: GetActiveSessionByID :one
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at FROM identity.sessions
+WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
+`
+
+type GetActiveSessionByIDParams struct {
+	ID  uuid.UUID `json:"id"`
+	Now time.Time `json:"now"`
+}
+
+func (q *Queries) GetActiveSessionByID(ctx context.Context, arg GetActiveSessionByIDParams) (IdentitySession, error) {
+	row := q.db.QueryRow(ctx, getActiveSessionByID, arg.ID, arg.Now)
+	var i IdentitySession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TenantID,
+		&i.Ip,
+		&i.UserAgent,
+		&i.StepUpAt,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const getSessionByID = `-- name: GetSessionByID :one
 SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at FROM identity.sessions WHERE id = $1
 `

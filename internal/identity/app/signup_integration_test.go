@@ -5,6 +5,7 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
+	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
@@ -22,6 +24,23 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
 )
+
+// testTOTPKeyID is the LocalKMS key ID newTestService's Envelope
+// encrypts TOTP secrets under — matches identity.go's own
+// totpKMSKeyID in spirit, kept independent so this test doesn't import
+// the identity package (internal/<a> mustn't import internal/<b>, and
+// a test importing its own service's root package back is a pointless
+// coupling anyway).
+const testTOTPKeyID = "test-totp"
+
+func randomKey(t *testing.T) []byte {
+	t.Helper()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generating random key: %v", err)
+	}
+	return key
+}
 
 var sixDigitCode = regexp.MustCompile(`^[0-9]{6}$`)
 
@@ -44,7 +63,21 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 	// or future date would make every token look pre-expired to the
 	// database, which already happened once while writing this test.
 	clk := testkit.NewClock(time.Now().UTC())
-	return app.New(pool, sender, clk), pool, sender, clk
+
+	kms, err := vascrypto.NewLocalKMS(map[string][]byte{testTOTPKeyID: randomKey(t)})
+	if err != nil {
+		t.Fatalf("building LocalKMS: %v", err)
+	}
+
+	svc := app.New(app.Deps{
+		Pool:         pool,
+		Email:        sender,
+		Clock:        clk,
+		Envelope:     vascrypto.NewEnvelope(kms),
+		TOTPKeyID:    testTOTPKeyID,
+		ChallengeKey: randomKey(t),
+	})
+	return svc, pool, sender, clk
 }
 
 func outboxEventTypes(t *testing.T, ctx context.Context, pool *vasdb.Pool) []string {

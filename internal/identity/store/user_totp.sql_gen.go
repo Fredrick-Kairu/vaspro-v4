@@ -11,6 +11,43 @@ import (
 	"github.com/google/uuid"
 )
 
+const confirmUserTOTP = `-- name: ConfirmUserTOTP :exec
+UPDATE identity.user_totp SET confirmed_at = now() WHERE user_id = $1
+`
+
+func (q *Queries) ConfirmUserTOTP(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, confirmUserTOTP, userID)
+	return err
+}
+
+const consumeRecoveryCode = `-- name: ConsumeRecoveryCode :one
+UPDATE identity.user_totp
+SET recovery_code_hashes = array_remove(recovery_code_hashes, $1::text)
+WHERE user_id = $2 AND $1::text = ANY(recovery_code_hashes)
+RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes
+`
+
+type ConsumeRecoveryCodeParams struct {
+	CodeHash string    `json:"code_hash"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+// Atomic single-use: only removes (and returns a row) if codeHash was
+// actually present, so a race between two concurrent uses of the same
+// code can't both succeed. recovery_code_hashes is text[] (data model
+// §3) — hashes are stored hex-encoded, not raw bytea.
+func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (IdentityUserTotp, error) {
+	row := q.db.QueryRow(ctx, consumeRecoveryCode, arg.CodeHash, arg.UserID)
+	var i IdentityUserTotp
+	err := row.Scan(
+		&i.UserID,
+		&i.SecretCiphertext,
+		&i.ConfirmedAt,
+		&i.RecoveryCodeHashes,
+	)
+	return i, err
+}
+
 const createUserTOTP = `-- name: CreateUserTOTP :one
 INSERT INTO identity.user_totp (user_id, secret_ciphertext)
 VALUES ($1, $2)
@@ -40,6 +77,37 @@ SELECT user_id, secret_ciphertext, confirmed_at, recovery_code_hashes FROM ident
 
 func (q *Queries) GetUserTOTP(ctx context.Context, userID uuid.UUID) (IdentityUserTotp, error) {
 	row := q.db.QueryRow(ctx, getUserTOTP, userID)
+	var i IdentityUserTotp
+	err := row.Scan(
+		&i.UserID,
+		&i.SecretCiphertext,
+		&i.ConfirmedAt,
+		&i.RecoveryCodeHashes,
+	)
+	return i, err
+}
+
+const upsertUserTOTP = `-- name: UpsertUserTOTP :one
+INSERT INTO identity.user_totp (user_id, secret_ciphertext, recovery_code_hashes)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET
+  secret_ciphertext = EXCLUDED.secret_ciphertext,
+  confirmed_at = NULL,
+  recovery_code_hashes = EXCLUDED.recovery_code_hashes
+RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes
+`
+
+type UpsertUserTOTPParams struct {
+	UserID             uuid.UUID `json:"user_id"`
+	SecretCiphertext   []byte    `json:"secret_ciphertext"`
+	RecoveryCodeHashes []string  `json:"recovery_code_hashes"`
+}
+
+// Re-enrolling (scanning a fresh QR code) replaces any pending secret
+// and resets confirmed_at — a half-finished enrollment must not leave a
+// stale secret that could confirm later by accident.
+func (q *Queries) UpsertUserTOTP(ctx context.Context, arg UpsertUserTOTPParams) (IdentityUserTotp, error) {
+	row := q.db.QueryRow(ctx, upsertUserTOTP, arg.UserID, arg.SecretCiphertext, arg.RecoveryCodeHashes)
 	var i IdentityUserTotp
 	err := row.Scan(
 		&i.UserID,

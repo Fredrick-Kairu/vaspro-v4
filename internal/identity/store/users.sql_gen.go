@@ -76,11 +76,50 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (IdentityUse
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at FROM identity.users WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (IdentityUser, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i IdentityUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+		&i.PhoneE164,
+		&i.PhoneVerifiedAt,
+		&i.PasswordHash,
+		&i.Status,
+		&i.Locale,
+		&i.LastSignInAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE identity.users SET email_verified_at = now(), updated_at = now() WHERE id = $1
 `
 
 func (q *Queries) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markEmailVerified, id)
+	return err
+}
+
+const setPasswordHash = `-- name: SetPasswordHash :exec
+UPDATE identity.users SET password_hash = $2, updated_at = now() WHERE id = $1
+`
+
+type SetPasswordHashParams struct {
+	ID           uuid.UUID   `json:"id"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+func (q *Queries) SetPasswordHash(ctx context.Context, arg SetPasswordHashParams) error {
+	_, err := q.db.Exec(ctx, setPasswordHash, arg.ID, arg.PasswordHash)
 	return err
 }

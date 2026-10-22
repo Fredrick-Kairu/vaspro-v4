@@ -3,11 +3,13 @@ info:
   title: VASPRO identity API
   version: "1"
   description: >
-    Sign-up and email verification (ROADMAP task 1.2). Both operations
-    are anonymous — there's no gateway or auth context yet (Phase 1
-    task 1.11) — and both return the same shape regardless of outcome
-    where leaking the outcome would let a caller enumerate registered
-    emails.
+    Sign-up, email verification (task 1.2), password sign-in, TOTP and
+    recovery codes (task 1.3). Every operation here is anonymous or
+    uses identity's own temporary session-bearer check — there's no
+    real gateway/JWT auth yet (tasks 1.8/1.11). Anonymous write
+    operations that touch an email address return the same shape
+    regardless of outcome where leaking the outcome would let a caller
+    enumerate registered emails.
 servers:
   - url: /
 paths:
@@ -73,7 +75,200 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/password-resets:
+    post:
+      operationId: createPasswordReset
+      summary: Request a password-set-or-reset code
+      description: >
+        Always returns 202 regardless of whether the email exists or
+        already has a password — the same mechanism covers "set your
+        first password" and "I forgot it" (proving you control the
+        email is the same bar either way).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+            example:
+              email: "ada@example.com"
+      responses:
+        "202":
+          description: Accepted — check the email for a code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupAccepted'
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/password-reset-confirmations:
+    post:
+      operationId: createPasswordResetConfirmation
+      summary: Confirm a password reset code and set a new password
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmationRequest'
+            example:
+              email: "ada@example.com"
+              code: "042918"
+              new_password: "a-strong-password"
+      responses:
+        "200":
+          description: Password set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "password_set"
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/sessions:
+    post:
+      operationId: createSession
+      summary: Sign in with email and password
+      description: >
+        Returns either a session (no TOTP enrolled) or a short-lived
+        challenge (TOTP enrolled) — complete it via
+        /v1/auth/totp-challenges/{challenge}/verification.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+            example:
+              email: "ada@example.com"
+              password: "a-strong-password"
+      responses:
+        "200":
+          description: Signed in, or a TOTP challenge issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-challenges/{challenge}/verification:
+    post:
+      operationId: createTotpChallengeVerification
+      summary: Complete a sign-in TOTP challenge
+      description: >
+        code may be a live 6-digit TOTP code or an unused recovery
+        code. The challenge token itself (not a header) is the proof
+        the password step already passed, so this route carries no
+        Idempotency-Key — it isn't a resource-creating write in its
+        own right the way the other operations here are, and the
+        challenge is already single-purpose and short-lived.
+      parameters:
+        - name: challenge
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpChallengeVerificationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-enrollments:
+    post:
+      operationId: createTotpEnrollment
+      summary: Start TOTP enrollment for the signed-in account
+      description: >
+        Requires Authorization: Bearer <session_id> — identity's own
+        temporary stand-in for a real gateway/JWT (tasks 1.8/1.11).
+        Returns the enrollment URL and recovery codes exactly once;
+        the account isn't required to use TOTP at sign-in until
+        /v1/auth/totp-enrollments/confirmation succeeds.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Enrollment started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollmentResult'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-enrollments/confirmation:
+    post:
+      operationId: createTotpEnrollmentConfirmation
+      summary: Confirm TOTP enrollment
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpChallengeVerificationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: TOTP confirmed — sign-in now requires it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "confirmed"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        identity's own temporary session-bearer check, not a real JWT
+        — Authorization: Bearer <session_id>. Replaced by the real
+        gateway/JWT auth in tasks 1.8/1.11.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -120,6 +315,61 @@ components:
       properties:
         status:
           type: string
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+    PasswordResetConfirmationRequest:
+      type: object
+      required: [email, code, new_password]
+      properties:
+        email:
+          type: string
+        code:
+          type: string
+          description: The reset code emailed by createPasswordReset.
+        new_password:
+          type: string
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    SignInResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Set when sign-in completed without a TOTP step.
+        expires_at:
+          type: string
+          format: date-time
+        challenge:
+          type: string
+          description: Set when the account has TOTP enrolled — complete it via createTotpChallengeVerification.
+    TotpChallengeVerificationRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: A live 6-digit TOTP code, or an unused recovery code.
+    TotpEnrollmentResult:
+      type: object
+      properties:
+        url:
+          type: string
+          description: otpauth:// URL for an authenticator app to scan.
+        recovery_codes:
+          type: array
+          items:
+            type: string
+          description: Shown exactly once — store them somewhere safe.
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]
