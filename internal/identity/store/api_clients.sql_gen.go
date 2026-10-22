@@ -7,33 +7,46 @@ package store
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createAPIClient = `-- name: CreateAPIClient :one
-INSERT INTO identity.api_clients (id, tenant_id, name, environment, scopes, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, tenant_id, name, environment, scopes, ip_allowlist, expires_at, created_by, created_at, revoked_at
+const createApiClient = `-- name: CreateApiClient :one
+INSERT INTO identity.api_clients (
+  id, tenant_id, name, environment, scopes, ip_allowlist, expires_at,
+  created_by, spend_cap_minor, spend_cap_currency
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, tenant_id, name, environment, scopes, ip_allowlist, expires_at, created_by, created_at, revoked_at, spend_cap_minor, spend_cap_currency
 `
 
-type CreateAPIClientParams struct {
-	ID          uuid.UUID           `json:"id"`
-	TenantID    uuid.UUID           `json:"tenant_id"`
-	Name        string              `json:"name"`
-	Environment IdentityEnvironment `json:"environment"`
-	Scopes      []string            `json:"scopes"`
-	CreatedBy   uuid.UUID           `json:"created_by"`
+type CreateApiClientParams struct {
+	ID               uuid.UUID           `json:"id"`
+	TenantID         uuid.UUID           `json:"tenant_id"`
+	Name             string              `json:"name"`
+	Environment      IdentityEnvironment `json:"environment"`
+	Scopes           []string            `json:"scopes"`
+	IpAllowlist      []netip.Prefix      `json:"ip_allowlist"`
+	ExpiresAt        pgtype.Timestamptz  `json:"expires_at"`
+	CreatedBy        uuid.UUID           `json:"created_by"`
+	SpendCapMinor    pgtype.Int8         `json:"spend_cap_minor"`
+	SpendCapCurrency pgtype.Text         `json:"spend_cap_currency"`
 }
 
-func (q *Queries) CreateAPIClient(ctx context.Context, arg CreateAPIClientParams) (IdentityApiClient, error) {
-	row := q.db.QueryRow(ctx, createAPIClient,
+func (q *Queries) CreateApiClient(ctx context.Context, arg CreateApiClientParams) (IdentityApiClient, error) {
+	row := q.db.QueryRow(ctx, createApiClient,
 		arg.ID,
 		arg.TenantID,
 		arg.Name,
 		arg.Environment,
 		arg.Scopes,
+		arg.IpAllowlist,
+		arg.ExpiresAt,
 		arg.CreatedBy,
+		arg.SpendCapMinor,
+		arg.SpendCapCurrency,
 	)
 	var i IdentityApiClient
 	err := row.Scan(
@@ -47,16 +60,25 @@ func (q *Queries) CreateAPIClient(ctx context.Context, arg CreateAPIClientParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.SpendCapMinor,
+		&i.SpendCapCurrency,
 	)
 	return i, err
 }
 
-const getAPIClientByID = `-- name: GetAPIClientByID :one
-SELECT id, tenant_id, name, environment, scopes, ip_allowlist, expires_at, created_by, created_at, revoked_at FROM identity.api_clients WHERE id = $1
+const getApiClientByID = `-- name: GetApiClientByID :one
+SELECT id, tenant_id, name, environment, scopes, ip_allowlist, expires_at, created_by, created_at, revoked_at, spend_cap_minor, spend_cap_currency FROM identity.api_clients WHERE id = $1 AND tenant_id = $2
 `
 
-func (q *Queries) GetAPIClientByID(ctx context.Context, id uuid.UUID) (IdentityApiClient, error) {
-	row := q.db.QueryRow(ctx, getAPIClientByID, id)
+type GetApiClientByIDParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// Ownership-checked in the query itself, not just trusted to RLS —
+// same "belt and suspenders" style already used for passkeys/sessions.
+func (q *Queries) GetApiClientByID(ctx context.Context, arg GetApiClientByIDParams) (IdentityApiClient, error) {
+	row := q.db.QueryRow(ctx, getApiClientByID, arg.ID, arg.TenantID)
 	var i IdentityApiClient
 	err := row.Scan(
 		&i.ID,
@@ -69,6 +91,63 @@ func (q *Queries) GetAPIClientByID(ctx context.Context, id uuid.UUID) (IdentityA
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.SpendCapMinor,
+		&i.SpendCapCurrency,
 	)
 	return i, err
+}
+
+const listApiClientsByTenant = `-- name: ListApiClientsByTenant :many
+SELECT id, tenant_id, name, environment, scopes, ip_allowlist, expires_at, created_by, created_at, revoked_at, spend_cap_minor, spend_cap_currency FROM identity.api_clients WHERE tenant_id = $1 ORDER BY created_at DESC
+`
+
+func (q *Queries) ListApiClientsByTenant(ctx context.Context, tenantID uuid.UUID) ([]IdentityApiClient, error) {
+	rows, err := q.db.Query(ctx, listApiClientsByTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentityApiClient
+	for rows.Next() {
+		var i IdentityApiClient
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.Environment,
+			&i.Scopes,
+			&i.IpAllowlist,
+			&i.ExpiresAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.RevokedAt,
+			&i.SpendCapMinor,
+			&i.SpendCapCurrency,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeApiClient = `-- name: RevokeApiClient :execrows
+UPDATE identity.api_clients SET revoked_at = now()
+WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeApiClientParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+func (q *Queries) RevokeApiClient(ctx context.Context, arg RevokeApiClientParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeApiClient, arg.ID, arg.TenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

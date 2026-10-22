@@ -128,6 +128,46 @@ func TestRequireSession_RejectsSessionManagementRoutesWithoutBearer(t *testing.T
 	}
 }
 
+func TestRequireSession_RejectsApiClientRoutesWithoutBearer(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+	}{
+		{"createApiClient", http.MethodPost, "/v1/auth/api-clients", mustJSON(t, map[string]any{"name": "x", "environment": "sandbox", "scopes": []string{"sms:send"}})},
+		{"listApiClients", http.MethodGet, "/v1/auth/api-clients", nil},
+		{"getApiClient", http.MethodGet, "/v1/auth/api-clients/00000000-0000-0000-0000-000000000000", nil},
+		{"revokeApiClient", http.MethodDelete, "/v1/auth/api-clients/00000000-0000-0000-0000-000000000000", nil},
+		{"createApiClientSecret", http.MethodPost, "/v1/auth/api-clients/00000000-0000-0000-0000-000000000000/secrets", nil},
+		{"revokeApiClientSecret", http.MethodDelete, "/v1/auth/api-clients/00000000-0000-0000-0000-000000000000/secrets/00000000-0000-0000-0000-000000000000", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newTestRouter(t)
+
+			var body *bytes.Reader
+			if tc.body != nil {
+				body = bytes.NewReader(tc.body)
+			} else {
+				body = bytes.NewReader(nil)
+			}
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.Header.Set("Content-Type", "application/json")
+			if tc.method != http.MethodGet {
+				req.Header.Set("Idempotency-Key", "test-key-"+tc.name)
+			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("got status %d, want 401 (body: %s)", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestRequireSession_RejectsStepUpRoutesWithoutBearer(t *testing.T) {
 	cases := []struct {
 		name   string

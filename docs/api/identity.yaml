@@ -602,6 +602,183 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients:
+    post:
+      operationId: createApiClient
+      summary: Create an API client
+      description: >
+        Requires Authorization: Bearer <session_id> and step-up MFA
+        proved within the last 5 minutes (task 1.6; AUTH-4012 if not)
+        — creating a credential is on system design §3's step-up
+        list. Scopes, IP allowlist, expiry and spend cap are stored
+        as configuration; nothing in Phase 1 enforces them yet (no
+        gateway, no billing). The secret is returned exactly once.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiClientCreateRequest'
+            example:
+              name: "Reporting integration"
+              environment: "sandbox"
+              scopes: ["reports:read"]
+              ip_allowlist: ["203.0.113.0/24"]
+      responses:
+        "200":
+          description: Client created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientWithSecret'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listApiClients
+      summary: List the signed-in account's API clients
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's API clients.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}:
+    get:
+      operationId: getApiClient
+      summary: Get one API client, including its active secrets' metadata
+      description: >
+        Secret metadata only (id, last4, created_at, expires_at) —
+        never the secret itself, which is only ever returned once, at
+        creation or rotation time.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientDetail'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: revokeApiClient
+      summary: Revoke an API client
+      description: >
+        Revokes the whole client — every secret it has stops working,
+        independent of each secret's own state. Destroying a
+        credential isn't on system design §3's step-up list, so this
+        doesn't require step-up.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Client revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}/secrets:
+    post:
+      operationId: createApiClientSecret
+      summary: Rotate an API client's secret
+      description: >
+        Requires step-up MFA proved within the last 5 minutes (task
+        1.6; AUTH-4012 if not) — same reasoning as createApiClient.
+        Issues a new secret; the previous active one keeps working for
+        a 7-day overlap rather than being revoked immediately. Fails
+        with VAL-4000 if the client already has 2 active secrets —
+        revoke one first.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Secret rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientSecretResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}/secrets/{secretId}:
+    delete:
+      operationId: revokeApiClientSecret
+      summary: Revoke one of an API client's secrets
+      description: >
+        Revokes a single secret without touching the client or its
+        other secrets — e.g. to end a rotation overlap early, or
+        respond to a suspected leak. Doesn't require step-up (same
+        reasoning as revokeApiClient).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Secret revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -812,6 +989,115 @@ components:
         code:
           type: string
           description: The step-up code emailed by createStepUpEmail.
+    ApiClientCreateRequest:
+      type: object
+      required: [name, environment, scopes]
+      properties:
+        name:
+          type: string
+        environment:
+          type: string
+          enum: [sandbox, live]
+        scopes:
+          type: array
+          items:
+            type: string
+          description: e.g. ["sms:send", "reports:read"].
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+          description: Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP address.
+        expires_at:
+          type: string
+          format: date-time
+        spend_cap_minor:
+          type: integer
+          format: int64
+          description: Minor units of spend_cap_currency; stored as configuration only — not enforced in Phase 1.
+        spend_cap_currency:
+          type: string
+          description: Required if spend_cap_minor is set.
+    ApiClientSecretSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        last4:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    ApiClientSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        environment:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        spend_cap_minor:
+          type: integer
+          format: int64
+        spend_cap_currency:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    ApiClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/ApiClientSummary'
+        - type: object
+          properties:
+            secrets:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiClientSecretSummary'
+    ApiClientList:
+      type: object
+      properties:
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiClientSummary'
+    ApiClientSecretResult:
+      type: object
+      properties:
+        id:
+          type: string
+        secret:
+          type: string
+          description: Shown exactly once — store it somewhere safe.
+        last4:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    ApiClientWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/ApiClientSummary'
+        - type: object
+          properties:
+            secret:
+              $ref: '#/components/schemas/ApiClientSecretResult'
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

@@ -7,32 +7,32 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createAPIClientSecret = `-- name: CreateAPIClientSecret :one
-INSERT INTO identity.api_client_secrets (id, api_client_id, secret_hash, last4, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+const createApiClientSecret = `-- name: CreateApiClientSecret :one
+INSERT INTO identity.api_client_secrets (id, api_client_id, secret_hash, last4)
+VALUES ($1, $2, $3, $4)
 RETURNING id, api_client_id, secret_hash, last4, created_at, expires_at, revoked_at
 `
 
-type CreateAPIClientSecretParams struct {
-	ID          uuid.UUID          `json:"id"`
-	ApiClientID uuid.UUID          `json:"api_client_id"`
-	SecretHash  string             `json:"secret_hash"`
-	Last4       string             `json:"last4"`
-	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+type CreateApiClientSecretParams struct {
+	ID          uuid.UUID `json:"id"`
+	ApiClientID uuid.UUID `json:"api_client_id"`
+	SecretHash  string    `json:"secret_hash"`
+	Last4       string    `json:"last4"`
 }
 
-func (q *Queries) CreateAPIClientSecret(ctx context.Context, arg CreateAPIClientSecretParams) (IdentityApiClientSecret, error) {
-	row := q.db.QueryRow(ctx, createAPIClientSecret,
+// api_client_id is trusted here — every caller first resolves it
+// through GetApiClientByID (tenant-checked) before ever calling this.
+func (q *Queries) CreateApiClientSecret(ctx context.Context, arg CreateApiClientSecretParams) (IdentityApiClientSecret, error) {
+	row := q.db.QueryRow(ctx, createApiClientSecret,
 		arg.ID,
 		arg.ApiClientID,
 		arg.SecretHash,
 		arg.Last4,
-		arg.ExpiresAt,
 	)
 	var i IdentityApiClientSecret
 	err := row.Scan(
@@ -47,13 +47,51 @@ func (q *Queries) CreateAPIClientSecret(ctx context.Context, arg CreateAPIClient
 	return i, err
 }
 
-const listActiveSecretsByClient = `-- name: ListActiveSecretsByClient :many
-SELECT id, api_client_id, secret_hash, last4, created_at, expires_at, revoked_at FROM identity.api_client_secrets
-WHERE api_client_id = $1 AND revoked_at IS NULL
+const expireApiClientSecretForRotation = `-- name: ExpireApiClientSecretForRotation :exec
+UPDATE identity.api_client_secrets s
+SET expires_at = $1::timestamptz
+WHERE s.id = $2
+  AND EXISTS (
+    SELECT 1 FROM identity.api_clients c
+    WHERE c.id = s.api_client_id AND c.tenant_id = $3
+  )
 `
 
-func (q *Queries) ListActiveSecretsByClient(ctx context.Context, apiClientID uuid.UUID) ([]IdentityApiClientSecret, error) {
-	rows, err := q.db.Query(ctx, listActiveSecretsByClient, apiClientID)
+type ExpireApiClientSecretForRotationParams struct {
+	ExpiresAt time.Time `json:"expires_at"`
+	ID        uuid.UUID `json:"id"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+}
+
+// Sets the previous active secret's expires_at to the rotation
+// overlap's end — it keeps working until then, rather than being
+// revoked immediately.
+func (q *Queries) ExpireApiClientSecretForRotation(ctx context.Context, arg ExpireApiClientSecretForRotationParams) error {
+	_, err := q.db.Exec(ctx, expireApiClientSecretForRotation, arg.ExpiresAt, arg.ID, arg.TenantID)
+	return err
+}
+
+const listActiveApiClientSecretsByClientID = `-- name: ListActiveApiClientSecretsByClientID :many
+SELECT s.id, s.api_client_id, s.secret_hash, s.last4, s.created_at, s.expires_at, s.revoked_at FROM identity.api_client_secrets s
+JOIN identity.api_clients c ON c.id = s.api_client_id
+WHERE s.api_client_id = $1
+  AND c.tenant_id = $2
+  AND s.revoked_at IS NULL
+  AND (s.expires_at IS NULL OR s.expires_at > $3::timestamptz)
+ORDER BY s.created_at
+`
+
+type ListActiveApiClientSecretsByClientIDParams struct {
+	ApiClientID uuid.UUID `json:"api_client_id"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+	Now         time.Time `json:"now"`
+}
+
+// OQ-01: api_client_secrets has no tenant_id of its own, so every
+// query against it joins through api_clients to scope by tenant —
+// nothing ever queries it standalone.
+func (q *Queries) ListActiveApiClientSecretsByClientID(ctx context.Context, arg ListActiveApiClientSecretsByClientIDParams) ([]IdentityApiClientSecret, error) {
+	rows, err := q.db.Query(ctx, listActiveApiClientSecretsByClientID, arg.ApiClientID, arg.TenantID, arg.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -78,4 +116,30 @@ func (q *Queries) ListActiveSecretsByClient(ctx context.Context, apiClientID uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const revokeApiClientSecret = `-- name: RevokeApiClientSecret :execrows
+UPDATE identity.api_client_secrets s
+SET revoked_at = now()
+WHERE s.id = $1
+  AND s.api_client_id = $2
+  AND s.revoked_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM identity.api_clients c
+    WHERE c.id = s.api_client_id AND c.tenant_id = $3
+  )
+`
+
+type RevokeApiClientSecretParams struct {
+	ID          uuid.UUID `json:"id"`
+	ApiClientID uuid.UUID `json:"api_client_id"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+}
+
+func (q *Queries) RevokeApiClientSecret(ctx context.Context, arg RevokeApiClientSecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeApiClientSecret, arg.ID, arg.ApiClientID, arg.TenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

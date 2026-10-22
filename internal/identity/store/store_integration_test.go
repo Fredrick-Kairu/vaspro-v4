@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -154,12 +155,13 @@ func TestAssertRowLevelSecurity_OnAPIClients(t *testing.T) {
 
 	createdBy := uuid.New()
 	insert := func(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) error {
-		_, err := store.New(tx).CreateAPIClient(ctx, store.CreateAPIClientParams{
+		_, err := store.New(tx).CreateApiClient(ctx, store.CreateApiClientParams{
 			ID:          uuid.New(),
 			TenantID:    tenantID,
 			Name:        "test client",
 			Environment: "sandbox",
 			Scopes:      []string{"sms:send"},
+			IpAllowlist: []netip.Prefix{},
 			CreatedBy:   createdBy,
 		})
 		return err

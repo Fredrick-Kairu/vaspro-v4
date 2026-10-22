@@ -145,16 +145,18 @@ func (ns NullIdentityUserStatus) Value() (driver.Value, error) {
 }
 
 type IdentityApiClient struct {
-	ID          uuid.UUID           `json:"id"`
-	TenantID    uuid.UUID           `json:"tenant_id"`
-	Name        string              `json:"name"`
-	Environment IdentityEnvironment `json:"environment"`
-	Scopes      []string            `json:"scopes"`
-	IpAllowlist []netip.Prefix      `json:"ip_allowlist"`
-	ExpiresAt   pgtype.Timestamptz  `json:"expires_at"`
-	CreatedBy   uuid.UUID           `json:"created_by"`
-	CreatedAt   time.Time           `json:"created_at"`
-	RevokedAt   pgtype.Timestamptz  `json:"revoked_at"`
+	ID               uuid.UUID           `json:"id"`
+	TenantID         uuid.UUID           `json:"tenant_id"`
+	Name             string              `json:"name"`
+	Environment      IdentityEnvironment `json:"environment"`
+	Scopes           []string            `json:"scopes"`
+	IpAllowlist      []netip.Prefix      `json:"ip_allowlist"`
+	ExpiresAt        pgtype.Timestamptz  `json:"expires_at"`
+	CreatedBy        uuid.UUID           `json:"created_by"`
+	CreatedAt        time.Time           `json:"created_at"`
+	RevokedAt        pgtype.Timestamptz  `json:"revoked_at"`
+	SpendCapMinor    pgtype.Int8         `json:"spend_cap_minor"`
+	SpendCapCurrency pgtype.Text         `json:"spend_cap_currency"`
 }
 
 type IdentityApiClientSecret struct {

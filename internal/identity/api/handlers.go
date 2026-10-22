@@ -249,6 +249,148 @@ func (h *Handlers) DeleteSessions(ctx context.Context, request DeleteSessionsReq
 	return DeleteSessions204Response{}, nil
 }
 
+func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientRequestObject) (CreateApiClientResponseObject, error) {
+	body := request.Body
+	var ipAllowlist []string
+	if body.IpAllowlist != nil {
+		ipAllowlist = *body.IpAllowlist
+	}
+	var spendCapCurrency *string
+	if body.SpendCapCurrency != nil {
+		spendCapCurrency = body.SpendCapCurrency
+	}
+	result, err := h.app.CreateApiClient(
+		ctx,
+		sessionUserIDFromContext(ctx),
+		body.Name,
+		string(body.Environment),
+		body.Scopes,
+		ipAllowlist,
+		body.ExpiresAt,
+		body.SpendCapMinor,
+		spendCapCurrency,
+	)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	summary := apiClientSummaryResponse(&result.ApiClientSummary)
+	return CreateApiClient200JSONResponse(apiClientWithSecretResponse(summary, &result.Secret)), nil
+}
+
+func (h *Handlers) ListApiClients(ctx context.Context, request ListApiClientsRequestObject) (ListApiClientsResponseObject, error) {
+	clients, err := h.app.ListApiClients(ctx, sessionUserIDFromContext(ctx))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	summaries := make([]ApiClientSummary, len(clients))
+	for i, c := range clients {
+		summaries[i] = apiClientSummaryResponse(&c)
+	}
+	return ListApiClients200JSONResponse{Clients: &summaries}, nil
+}
+
+func (h *Handlers) GetApiClient(ctx context.Context, request GetApiClientRequestObject) (GetApiClientResponseObject, error) {
+	clientID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	detail, err := h.app.GetApiClient(ctx, sessionUserIDFromContext(ctx), clientID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	summary := apiClientSummaryResponse(&detail.ApiClientSummary)
+	secrets := make([]ApiClientSecretSummary, len(detail.Secrets))
+	for i, sec := range detail.Secrets {
+		secrets[i] = apiClientSecretSummaryResponse(&sec)
+	}
+	result := ApiClientDetail{
+		Id: summary.Id, Name: summary.Name, Environment: summary.Environment,
+		Scopes: summary.Scopes, IpAllowlist: summary.IpAllowlist, ExpiresAt: summary.ExpiresAt,
+		SpendCapMinor: summary.SpendCapMinor, SpendCapCurrency: summary.SpendCapCurrency,
+		CreatedAt: summary.CreatedAt, RevokedAt: summary.RevokedAt,
+		Secrets: &secrets,
+	}
+	return GetApiClient200JSONResponse(result), nil
+}
+
+func (h *Handlers) RevokeApiClient(ctx context.Context, request RevokeApiClientRequestObject) (RevokeApiClientResponseObject, error) {
+	clientID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.RevokeApiClient(ctx, sessionUserIDFromContext(ctx), clientID); err != nil {
+		return nil, toProblem(err)
+	}
+	return RevokeApiClient204Response{}, nil
+}
+
+func (h *Handlers) CreateApiClientSecret(ctx context.Context, request CreateApiClientSecretRequestObject) (CreateApiClientSecretResponseObject, error) {
+	clientID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	secret, err := h.app.RotateApiClientSecret(ctx, sessionUserIDFromContext(ctx), clientID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateApiClientSecret200JSONResponse(apiClientSecretResultResponse(secret)), nil
+}
+
+func (h *Handlers) RevokeApiClientSecret(ctx context.Context, request RevokeApiClientSecretRequestObject) (RevokeApiClientSecretResponseObject, error) {
+	clientID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	secretID, err := uuid.Parse(request.SecretId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.RevokeApiClientSecret(ctx, sessionUserIDFromContext(ctx), clientID, secretID); err != nil {
+		return nil, toProblem(err)
+	}
+	return RevokeApiClientSecret204Response{}, nil
+}
+
+// apiClientSummaryResponse renders an app.ApiClientSummary as the
+// API's ApiClientSummary shape.
+func apiClientSummaryResponse(c *app.ApiClientSummary) ApiClientSummary {
+	id := c.ID.String()
+	summary := ApiClientSummary{
+		Id:               &id,
+		Name:             &c.Name,
+		Environment:      &c.Environment,
+		Scopes:           &c.Scopes,
+		IpAllowlist:      &c.IPAllowlist,
+		ExpiresAt:        c.ExpiresAt,
+		SpendCapMinor:    c.SpendCapMinor,
+		SpendCapCurrency: c.SpendCapCurrency,
+		CreatedAt:        &c.CreatedAt,
+		RevokedAt:        c.RevokedAt,
+	}
+	return summary
+}
+
+func apiClientSecretSummaryResponse(s *app.ApiClientSecretSummary) ApiClientSecretSummary {
+	id := s.ID.String()
+	return ApiClientSecretSummary{Id: &id, Last4: &s.Last4, CreatedAt: &s.CreatedAt, ExpiresAt: s.ExpiresAt}
+}
+
+func apiClientSecretResultResponse(s *app.ApiClientSecretResult) ApiClientSecretResult {
+	id := s.ID.String()
+	return ApiClientSecretResult{Id: &id, Secret: &s.Secret, Last4: &s.Last4, ExpiresAt: s.ExpiresAt}
+}
+
+func apiClientWithSecretResponse(summary ApiClientSummary, secret *app.ApiClientSecretResult) ApiClientWithSecret {
+	secretResult := apiClientSecretResultResponse(secret)
+	return ApiClientWithSecret{
+		Id: summary.Id, Name: summary.Name, Environment: summary.Environment,
+		Scopes: summary.Scopes, IpAllowlist: summary.IpAllowlist, ExpiresAt: summary.ExpiresAt,
+		SpendCapMinor: summary.SpendCapMinor, SpendCapCurrency: summary.SpendCapCurrency,
+		CreatedAt: summary.CreatedAt, RevokedAt: summary.RevokedAt,
+		Secret: &secretResult,
+	}
+}
+
 // sessionSummaryResponse renders an app.SessionSummary as the API's
 // SessionSummary shape.
 func sessionSummaryResponse(s *app.SessionSummary) SessionSummary {

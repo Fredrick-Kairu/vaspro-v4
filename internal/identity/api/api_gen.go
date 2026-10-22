@@ -15,6 +15,113 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ApiClientCreateRequestEnvironment.
+const (
+	Live    ApiClientCreateRequestEnvironment = "live"
+	Sandbox ApiClientCreateRequestEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the ApiClientCreateRequestEnvironment enum.
+func (e ApiClientCreateRequestEnvironment) Valid() bool {
+	switch e {
+	case Live:
+		return true
+	case Sandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// ApiClientCreateRequest defines model for ApiClientCreateRequest.
+type ApiClientCreateRequest struct {
+	Environment ApiClientCreateRequestEnvironment `json:"environment"`
+	ExpiresAt   *time.Time                        `json:"expires_at,omitempty"`
+
+	// IpAllowlist Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP address.
+	IpAllowlist *[]string `json:"ip_allowlist,omitempty"`
+	Name        string    `json:"name"`
+
+	// Scopes e.g. ["sms:send", "reports:read"].
+	Scopes []string `json:"scopes"`
+
+	// SpendCapCurrency Required if spend_cap_minor is set.
+	SpendCapCurrency *string `json:"spend_cap_currency,omitempty"`
+
+	// SpendCapMinor Minor units of spend_cap_currency; stored as configuration only — not enforced in Phase 1.
+	SpendCapMinor *int64 `json:"spend_cap_minor,omitempty"`
+}
+
+// ApiClientCreateRequestEnvironment defines model for ApiClientCreateRequest.Environment.
+type ApiClientCreateRequestEnvironment string
+
+// ApiClientDetail defines model for ApiClientDetail.
+type ApiClientDetail struct {
+	CreatedAt        *time.Time                `json:"created_at,omitempty"`
+	Environment      *string                   `json:"environment,omitempty"`
+	ExpiresAt        *time.Time                `json:"expires_at,omitempty"`
+	Id               *string                   `json:"id,omitempty"`
+	IpAllowlist      *[]string                 `json:"ip_allowlist,omitempty"`
+	Name             *string                   `json:"name,omitempty"`
+	RevokedAt        *time.Time                `json:"revoked_at,omitempty"`
+	Scopes           *[]string                 `json:"scopes,omitempty"`
+	Secrets          *[]ApiClientSecretSummary `json:"secrets,omitempty"`
+	SpendCapCurrency *string                   `json:"spend_cap_currency,omitempty"`
+	SpendCapMinor    *int64                    `json:"spend_cap_minor,omitempty"`
+}
+
+// ApiClientList defines model for ApiClientList.
+type ApiClientList struct {
+	Clients *[]ApiClientSummary `json:"clients,omitempty"`
+}
+
+// ApiClientSecretResult defines model for ApiClientSecretResult.
+type ApiClientSecretResult struct {
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	Last4     *string    `json:"last4,omitempty"`
+
+	// Secret Shown exactly once — store it somewhere safe.
+	Secret *string `json:"secret,omitempty"`
+}
+
+// ApiClientSecretSummary defines model for ApiClientSecretSummary.
+type ApiClientSecretSummary struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	Last4     *string    `json:"last4,omitempty"`
+}
+
+// ApiClientSummary defines model for ApiClientSummary.
+type ApiClientSummary struct {
+	CreatedAt        *time.Time `json:"created_at,omitempty"`
+	Environment      *string    `json:"environment,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Id               *string    `json:"id,omitempty"`
+	IpAllowlist      *[]string  `json:"ip_allowlist,omitempty"`
+	Name             *string    `json:"name,omitempty"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	Scopes           *[]string  `json:"scopes,omitempty"`
+	SpendCapCurrency *string    `json:"spend_cap_currency,omitempty"`
+	SpendCapMinor    *int64     `json:"spend_cap_minor,omitempty"`
+}
+
+// ApiClientWithSecret defines model for ApiClientWithSecret.
+type ApiClientWithSecret struct {
+	CreatedAt        *time.Time             `json:"created_at,omitempty"`
+	Environment      *string                `json:"environment,omitempty"`
+	ExpiresAt        *time.Time             `json:"expires_at,omitempty"`
+	Id               *string                `json:"id,omitempty"`
+	IpAllowlist      *[]string              `json:"ip_allowlist,omitempty"`
+	Name             *string                `json:"name,omitempty"`
+	RevokedAt        *time.Time             `json:"revoked_at,omitempty"`
+	Scopes           *[]string              `json:"scopes,omitempty"`
+	Secret           *ApiClientSecretResult `json:"secret,omitempty"`
+	SpendCapCurrency *string                `json:"spend_cap_currency,omitempty"`
+	SpendCapMinor    *int64                 `json:"spend_cap_minor,omitempty"`
+}
+
 // EmailVerificationRequest defines model for EmailVerificationRequest.
 type EmailVerificationRequest struct {
 	// Code The 6-digit code emailed at sign-up.
@@ -171,6 +278,30 @@ type TotpEnrollmentResult struct {
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
+// CreateApiClientParams defines parameters for CreateApiClient.
+type CreateApiClientParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RevokeApiClientParams defines parameters for RevokeApiClient.
+type RevokeApiClientParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateApiClientSecretParams defines parameters for CreateApiClientSecret.
+type CreateApiClientSecretParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RevokeApiClientSecretParams defines parameters for RevokeApiClientSecret.
+type RevokeApiClientSecretParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateEmailVerificationParams defines parameters for CreateEmailVerification.
 type CreateEmailVerificationParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -273,6 +404,9 @@ type CreateTotpEnrollmentConfirmationParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateApiClientJSONRequestBody defines body for CreateApiClient for application/json ContentType.
+type CreateApiClientJSONRequestBody = ApiClientCreateRequest
+
 // CreateEmailVerificationJSONRequestBody defines body for CreateEmailVerification for application/json ContentType.
 type CreateEmailVerificationJSONRequestBody = EmailVerificationRequest
 
@@ -314,6 +448,24 @@ type CreateTotpEnrollmentConfirmationJSONRequestBody = TotpChallengeVerification
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListApiClients List the signed-in account's API clients
+	// (GET /v1/auth/api-clients)
+	ListApiClients(w http.ResponseWriter, r *http.Request)
+	// CreateApiClient Create an API client
+	// (POST /v1/auth/api-clients)
+	CreateApiClient(w http.ResponseWriter, r *http.Request, params CreateApiClientParams)
+	// RevokeApiClient Revoke an API client
+	// (DELETE /v1/auth/api-clients/{id})
+	RevokeApiClient(w http.ResponseWriter, r *http.Request, id string, params RevokeApiClientParams)
+	// GetApiClient Get one API client, including its active secrets' metadata
+	// (GET /v1/auth/api-clients/{id})
+	GetApiClient(w http.ResponseWriter, r *http.Request, id string)
+	// CreateApiClientSecret Rotate an API client's secret
+	// (POST /v1/auth/api-clients/{id}/secrets)
+	CreateApiClientSecret(w http.ResponseWriter, r *http.Request, id string, params CreateApiClientSecretParams)
+	// RevokeApiClientSecret Revoke one of an API client's secrets
+	// (DELETE /v1/auth/api-clients/{id}/secrets/{secretId})
+	RevokeApiClientSecret(w http.ResponseWriter, r *http.Request, id string, secretId string, params RevokeApiClientSecretParams)
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams)
@@ -382,6 +534,42 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ListApiClients List the signed-in account's API clients
+// (GET /v1/auth/api-clients)
+func (_ Unimplemented) ListApiClients(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateApiClient Create an API client
+// (POST /v1/auth/api-clients)
+func (_ Unimplemented) CreateApiClient(w http.ResponseWriter, r *http.Request, params CreateApiClientParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RevokeApiClient Revoke an API client
+// (DELETE /v1/auth/api-clients/{id})
+func (_ Unimplemented) RevokeApiClient(w http.ResponseWriter, r *http.Request, id string, params RevokeApiClientParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetApiClient Get one API client, including its active secrets' metadata
+// (GET /v1/auth/api-clients/{id})
+func (_ Unimplemented) GetApiClient(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateApiClientSecret Rotate an API client's secret
+// (POST /v1/auth/api-clients/{id}/secrets)
+func (_ Unimplemented) CreateApiClientSecret(w http.ResponseWriter, r *http.Request, id string, params CreateApiClientSecretParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RevokeApiClientSecret Revoke one of an API client's secrets
+// (DELETE /v1/auth/api-clients/{id}/secrets/{secretId})
+func (_ Unimplemented) RevokeApiClientSecret(w http.ResponseWriter, r *http.Request, id string, secretId string, params RevokeApiClientSecretParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // CreateEmailVerification Verify an email address with its code
 // (POST /v1/auth/email-verifications)
@@ -517,6 +705,262 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListApiClients operation middleware
+func (siw *ServerInterfaceWrapper) ListApiClients(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApiClients(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApiClient operation middleware
+func (siw *ServerInterfaceWrapper) CreateApiClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateApiClientParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApiClient(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeApiClient operation middleware
+func (siw *ServerInterfaceWrapper) RevokeApiClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeApiClientParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeApiClient(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApiClient operation middleware
+func (siw *ServerInterfaceWrapper) GetApiClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApiClient(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApiClientSecret operation middleware
+func (siw *ServerInterfaceWrapper) CreateApiClientSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateApiClientSecretParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApiClientSecret(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeApiClientSecret operation middleware
+func (siw *ServerInterfaceWrapper) RevokeApiClientSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "secretId" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secretId", chi.URLParam(r, "secretId"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secretId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeApiClientSecretParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeApiClientSecret(w, r, id, secretId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // CreateEmailVerification operation middleware
 func (siw *ServerInterfaceWrapper) CreateEmailVerification(w http.ResponseWriter, r *http.Request) {
@@ -1566,11 +2010,435 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/passkey-challenges/{challenge}/verification", wrapper.CreatePasskeyChallengeVerification)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/api-clients", wrapper.ListApiClients)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/api-clients", wrapper.CreateApiClient)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/auth/api-clients/{id}", wrapper.RevokeApiClient)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/api-clients/{id}", wrapper.GetApiClient)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/api-clients/{id}/secrets", wrapper.CreateApiClientSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/auth/api-clients/{id}/secrets/{secretId}", wrapper.RevokeApiClientSecret)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ListApiClientsRequestObject struct {
+}
+
+type ListApiClientsResponseObject interface {
+	VisitListApiClientsResponse(w http.ResponseWriter) error
+}
+
+type ListApiClients200JSONResponse ApiClientList
+
+func (response ListApiClients200JSONResponse) VisitListApiClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApiClients401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListApiClients401ApplicationProblemPlusJSONResponse) VisitListApiClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApiClientsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListApiClientsdefaultApplicationProblemPlusJSONResponse) VisitListApiClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientRequestObject struct {
+	Params CreateApiClientParams
+	Body   *CreateApiClientJSONRequestBody
+}
+
+type CreateApiClientResponseObject interface {
+	VisitCreateApiClientResponse(w http.ResponseWriter) error
+}
+
+type CreateApiClient200JSONResponse ApiClientWithSecret
+
+func (response CreateApiClient200JSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClient400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateApiClient400ApplicationProblemPlusJSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClient401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClient401ApplicationProblemPlusJSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateApiClientdefaultApplicationProblemPlusJSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientRequestObject struct {
+	Id     string `json:"id"`
+	Params RevokeApiClientParams
+}
+
+type RevokeApiClientResponseObject interface {
+	VisitRevokeApiClientResponse(w http.ResponseWriter) error
+}
+
+type RevokeApiClient204Response struct {
+}
+
+func (response RevokeApiClient204Response) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeApiClient401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeApiClient401ApplicationProblemPlusJSONResponse) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClient404ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClient404ApplicationProblemPlusJSONResponse) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RevokeApiClientdefaultApplicationProblemPlusJSONResponse) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClientRequestObject struct {
+	Id string `json:"id"`
+}
+
+type GetApiClientResponseObject interface {
+	VisitGetApiClientResponse(w http.ResponseWriter) error
+}
+
+type GetApiClient200JSONResponse ApiClientDetail
+
+func (response GetApiClient200JSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClient401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetApiClient401ApplicationProblemPlusJSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClient404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetApiClient404ApplicationProblemPlusJSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetApiClientdefaultApplicationProblemPlusJSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientSecretRequestObject struct {
+	Id     string `json:"id"`
+	Params CreateApiClientSecretParams
+}
+
+type CreateApiClientSecretResponseObject interface {
+	VisitCreateApiClientSecretResponse(w http.ResponseWriter) error
+}
+
+type CreateApiClientSecret200JSONResponse ApiClientSecretResult
+
+func (response CreateApiClientSecret200JSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientSecret400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateApiClientSecret400ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientSecret401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClientSecret401ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientSecret404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClientSecret404ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiClientSecretdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateApiClientSecretdefaultApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientSecretRequestObject struct {
+	Id       string `json:"id"`
+	SecretId string `json:"secretId"`
+	Params   RevokeApiClientSecretParams
+}
+
+type RevokeApiClientSecretResponseObject interface {
+	VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error
+}
+
+type RevokeApiClientSecret204Response struct {
+}
+
+func (response RevokeApiClientSecret204Response) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeApiClientSecret401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeApiClientSecret401ApplicationProblemPlusJSONResponse) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientSecret404ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClientSecret404ApplicationProblemPlusJSONResponse) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientSecretdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RevokeApiClientSecretdefaultApplicationProblemPlusJSONResponse) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type CreateEmailVerificationRequestObject struct {
 	Params CreateEmailVerificationParams
@@ -2865,6 +3733,24 @@ func (response CreateTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSON
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListApiClients List the signed-in account's API clients
+	// (GET /v1/auth/api-clients)
+	ListApiClients(ctx context.Context, request ListApiClientsRequestObject) (ListApiClientsResponseObject, error)
+	// CreateApiClient Create an API client
+	// (POST /v1/auth/api-clients)
+	CreateApiClient(ctx context.Context, request CreateApiClientRequestObject) (CreateApiClientResponseObject, error)
+	// RevokeApiClient Revoke an API client
+	// (DELETE /v1/auth/api-clients/{id})
+	RevokeApiClient(ctx context.Context, request RevokeApiClientRequestObject) (RevokeApiClientResponseObject, error)
+	// GetApiClient Get one API client, including its active secrets' metadata
+	// (GET /v1/auth/api-clients/{id})
+	GetApiClient(ctx context.Context, request GetApiClientRequestObject) (GetApiClientResponseObject, error)
+	// CreateApiClientSecret Rotate an API client's secret
+	// (POST /v1/auth/api-clients/{id}/secrets)
+	CreateApiClientSecret(ctx context.Context, request CreateApiClientSecretRequestObject) (CreateApiClientSecretResponseObject, error)
+	// RevokeApiClientSecret Revoke one of an API client's secrets
+	// (DELETE /v1/auth/api-clients/{id}/secrets/{secretId})
+	RevokeApiClientSecret(ctx context.Context, request RevokeApiClientSecretRequestObject) (RevokeApiClientSecretResponseObject, error)
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(ctx context.Context, request CreateEmailVerificationRequestObject) (CreateEmailVerificationResponseObject, error)
@@ -2967,6 +3853,171 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListApiClients operation middleware
+func (sh *strictHandler) ListApiClients(w http.ResponseWriter, r *http.Request) {
+	var request ListApiClientsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApiClients(ctx, request.(ListApiClientsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApiClients")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListApiClientsResponseObject); ok {
+		if err := validResponse.VisitListApiClientsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApiClient operation middleware
+func (sh *strictHandler) CreateApiClient(w http.ResponseWriter, r *http.Request, params CreateApiClientParams) {
+	var request CreateApiClientRequestObject
+
+	request.Params = params
+
+	var body CreateApiClientJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApiClient(ctx, request.(CreateApiClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApiClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApiClientResponseObject); ok {
+		if err := validResponse.VisitCreateApiClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeApiClient operation middleware
+func (sh *strictHandler) RevokeApiClient(w http.ResponseWriter, r *http.Request, id string, params RevokeApiClientParams) {
+	var request RevokeApiClientRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeApiClient(ctx, request.(RevokeApiClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeApiClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeApiClientResponseObject); ok {
+		if err := validResponse.VisitRevokeApiClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetApiClient operation middleware
+func (sh *strictHandler) GetApiClient(w http.ResponseWriter, r *http.Request, id string) {
+	var request GetApiClientRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApiClient(ctx, request.(GetApiClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApiClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetApiClientResponseObject); ok {
+		if err := validResponse.VisitGetApiClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApiClientSecret operation middleware
+func (sh *strictHandler) CreateApiClientSecret(w http.ResponseWriter, r *http.Request, id string, params CreateApiClientSecretParams) {
+	var request CreateApiClientSecretRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApiClientSecret(ctx, request.(CreateApiClientSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApiClientSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApiClientSecretResponseObject); ok {
+		if err := validResponse.VisitCreateApiClientSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeApiClientSecret operation middleware
+func (sh *strictHandler) RevokeApiClientSecret(w http.ResponseWriter, r *http.Request, id string, secretId string, params RevokeApiClientSecretParams) {
+	var request RevokeApiClientSecretRequestObject
+
+	request.Id = id
+	request.SecretId = secretId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeApiClientSecret(ctx, request.(RevokeApiClientSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeApiClientSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeApiClientSecretResponseObject); ok {
+		if err := validResponse.VisitRevokeApiClientSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // CreateEmailVerification operation middleware

@@ -99,6 +99,12 @@ var requireSessionOperations = map[string]bool{
 	"CreateStepUpTotpVerification":          true,
 	"CreateStepUpEmail":                     true,
 	"CreateStepUpEmailConfirmation":         true,
+	"CreateApiClient":                       true,
+	"ListApiClients":                        true,
+	"GetApiClient":                          true,
+	"RevokeApiClient":                       true,
+	"CreateApiClientSecret":                 true,
+	"RevokeApiClientSecret":                 true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves
@@ -144,6 +150,8 @@ func requireSession(lookup *SessionLookup) StrictMiddlewareFunc {
 var requireStepUpOperations = map[string]bool{
 	"CreateTotpEnrollment":      true,
 	"CreatePasskeyRegistration": true,
+	"CreateApiClient":           true,
+	"CreateApiClientSecret":     true,
 }
 
 // requireStepUp rejects a request whose session hasn't proved MFA
