@@ -21,6 +21,9 @@ const (
 	AUTH4011 Code = "AUTH-4011"
 	AUTH4012 Code = "AUTH-4012"
 	AUTH4013 Code = "AUTH-4013"
+	AUTH4014 Code = "AUTH-4014"
+	AUTH4015 Code = "AUTH-4015"
+	AUTH4016 Code = "AUTH-4016"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -67,6 +70,30 @@ var registry = map[Code]entry{
 		Title:     "HMAC signature invalid or request expired",
 		Cause:     "The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response.",
 		Fix:       "Recompute the signature over the exact request as sent, with a fresh timestamp and a fresh nonce, and retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4014: {
+		Status:    403,
+		Title:     "Required scope missing",
+		Cause:     "The credential's token doesn't include a scope this route requires.",
+		Fix:       "Request a token with the needed scope, or use a different credential that has it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4015: {
+		Status:    403,
+		Title:     "IP address not allowed",
+		Cause:     "The caller's IP address isn't on this credential's ip_allowlist.",
+		Fix:       "Call from an allowed IP, or add the caller's IP to the credential's ip_allowlist.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4016: {
+		Status:    403,
+		Title:     "Credential environment mismatch",
+		Cause:     "A sandbox credential's token was used to call a route that only live credentials may reach.",
+		Fix:       "Use a live credential, or call the route from a sandbox-eligible context.",
 		Retryable: false,
 		Billable:  false,
 	},

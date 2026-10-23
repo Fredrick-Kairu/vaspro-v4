@@ -15,6 +15,8 @@ linters:
           files:
             - "**/internal/platform/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/platform must not import a service package; share code through internal/platform only"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/platform must not import a service package; share code through internal/platform only"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -49,6 +51,8 @@ linters:
           files:
             - "**/internal/identity/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/identity must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
               desc: "internal/identity must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger"
@@ -81,6 +85,8 @@ linters:
           files:
             - "**/internal/accounts/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/accounts must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/accounts must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger"
@@ -113,6 +119,8 @@ linters:
           files:
             - "**/internal/ledger/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/ledger must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/ledger must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -145,6 +153,8 @@ linters:
           files:
             - "**/internal/payments/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/payments must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/payments must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -177,6 +187,8 @@ linters:
           files:
             - "**/internal/billing/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/billing must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/billing must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -209,6 +221,8 @@ linters:
           files:
             - "**/internal/messaging/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/messaging must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/messaging must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -241,6 +255,8 @@ linters:
           files:
             - "**/internal/ussd/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/ussd must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/ussd must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -273,6 +289,8 @@ linters:
           files:
             - "**/internal/contacts/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/contacts must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/contacts must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -305,6 +323,8 @@ linters:
           files:
             - "**/internal/applications/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/applications must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/applications must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -337,6 +357,8 @@ linters:
           files:
             - "**/internal/verify/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/verify must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/verify must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -369,6 +391,8 @@ linters:
           files:
             - "**/internal/journeys/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/journeys must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/journeys must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -401,6 +425,8 @@ linters:
           files:
             - "**/internal/surveys/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/surveys must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/surveys must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -433,6 +459,8 @@ linters:
           files:
             - "**/internal/webhooks/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/webhooks must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/webhooks must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -465,6 +493,8 @@ linters:
           files:
             - "**/internal/monitoring/**"
           deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
+              desc: "internal/monitoring must not import the gateway; it is reached over HTTP, never imported"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
               desc: "internal/monitoring must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
@@ -491,3 +521,40 @@ linters:
               desc: "internal/monitoring must not import another service; share code only through internal/platform"
             - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/webhooks"
               desc: "internal/monitoring must not import another service; share code only through internal/platform"
+
+        # The gateway (CLAUDE.md: "14 services ... plus the gateway")
+        # owns no schema and must reach every service over HTTP only —
+        # never by importing it.
+        gateway:
+          list-mode: lax
+          files:
+            - "**/internal/gateway/**"
+          deny:
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/payments"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/billing"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/messaging"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/ussd"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/contacts"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/applications"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/verify"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/journeys"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/surveys"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/webhooks"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"
+            - pkg: "github.com/Fredrick-Kairu/vaspro-v4/internal/monitoring"
+              desc: "internal/gateway must not import a service package; it reaches every service over HTTP only"

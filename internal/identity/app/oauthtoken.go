@@ -129,6 +129,19 @@ func (s *Service) ExchangeClientCredentials(ctx context.Context, clientID, clien
 
 	now := s.clk.Now()
 	scope := strings.Join(granted, " ")
+
+	// ip_allowlist is space-separated, same shape as scope — the
+	// gateway (task 1.11) checks a caller's IP against this claim
+	// directly, since it has no Postgres connection of its own and
+	// must never read identity's schema (CLAUDE.md's service
+	// boundary). This is a point-in-time snapshot, same staleness
+	// already accepted for scope/env/tid: a client's allowlist change
+	// takes effect on the next token mint, not instantly.
+	ipAllowlist := make([]string, len(client.IpAllowlist))
+	for i, p := range client.IpAllowlist {
+		ipAllowlist[i] = p.String()
+	}
+
 	token, err := jwt.NewBuilder().
 		Issuer(oauthIssuer).
 		Subject(client.ID.String()).
@@ -139,6 +152,7 @@ func (s *Service) ExchangeClientCredentials(ctx context.Context, clientID, clien
 		Claim("tid", client.TenantID.String()).
 		Claim("env", string(client.Environment)).
 		Claim("scope", scope).
+		Claim("ip_allowlist", strings.Join(ipAllowlist, " ")).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app: building token claims: %w", err)

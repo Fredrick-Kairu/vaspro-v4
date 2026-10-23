@@ -39,7 +39,13 @@ func TestExchangeClientCredentials_HappyPath(t *testing.T) {
 		t.Fatalf("EnsureActiveSigningKey: %v", err)
 	}
 
-	client, tenantID := createTestApiClient(t, ctx, svc, sender, "oauth-happy@example.com", []string{"sms:send", "reports:read"})
+	userID := signedInUserID(t, ctx, svc, sender, "oauth-happy@example.com")
+	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox",
+		[]string{"sms:send", "reports:read"}, []string{"203.0.113.0/24"}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateApiClient: %v", err)
+	}
+	tenantID := userID
 
 	token, err := svc.ExchangeClientCredentials(ctx, client.ID.String(), client.Secret.Secret, "")
 	if err != nil {
@@ -101,6 +107,13 @@ func TestExchangeClientCredentials_HappyPath(t *testing.T) {
 	var kycTier string
 	if err := parsed.Get("kyc_tier", &kycTier); err == nil {
 		t.Fatal("expected no kyc_tier claim (Phase 2 concept, not faked in Phase 1)")
+	}
+	var ipAllowlist string
+	if err := parsed.Get("ip_allowlist", &ipAllowlist); err != nil {
+		t.Fatalf("getting ip_allowlist claim: %v", err)
+	}
+	if ipAllowlist != "203.0.113.0/24" {
+		t.Fatalf("got ip_allowlist claim %q, want %q", ipAllowlist, "203.0.113.0/24")
 	}
 }
 

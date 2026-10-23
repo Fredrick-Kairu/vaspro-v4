@@ -60,6 +60,30 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4014
+    status: 403
+    title: Required scope missing
+    cause: The credential's token doesn't include a scope this route requires.
+    fix: Request a token with the needed scope, or use a different credential that has it.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4015
+    status: 403
+    title: IP address not allowed
+    cause: The caller's IP address isn't on this credential's ip_allowlist.
+    fix: Call from an allowed IP, or add the caller's IP to the credential's ip_allowlist.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4016
+    status: 403
+    title: Credential environment mismatch
+    cause: A sandbox credential's token was used to call a route that only live credentials may reach.
+    fix: Use a live credential, or call the route from a sandbox-eligible context.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
