@@ -1,0 +1,4 @@
+id,email_address,full_names,password
+1,ada@example.com,Ada Lovelace,$2a$10$examplebcrypthashnotrealaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+2,,No Email,$2a$10$examplebcrypthashnotrealaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+3,bob@example.com,Bob Builder,$2a$10$examplebcrypthashnotrealaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

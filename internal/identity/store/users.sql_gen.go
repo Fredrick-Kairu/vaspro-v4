@@ -51,6 +51,55 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Identit
 	return i, err
 }
 
+const createV3ImportedUser = `-- name: CreateV3ImportedUser :one
+INSERT INTO identity.users (id, email, full_name, phone_e164, password_hash, email_verified_at)
+VALUES ($1, $2, $3, $4, $5, now())
+ON CONFLICT (email) DO NOTHING
+RETURNING id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at
+`
+
+type CreateV3ImportedUserParams struct {
+	ID           uuid.UUID   `json:"id"`
+	Email        string      `json:"email"`
+	FullName     string      `json:"full_name"`
+	PhoneE164    pgtype.Text `json:"phone_e164"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+// task 1.13: a v3 account already proved control of its email by
+// using it in v3, so email_verified_at is set immediately rather
+// than sending a fresh verification code. ON CONFLICT (email) DO
+// NOTHING, with no RETURNING match on conflict, is this query's own
+// idempotency: a re-run of the importer (or a row already imported
+// in an earlier batch) comes back as pgx.ErrNoRows, which the caller
+// treats as "already imported," not an error.
+func (q *Queries) CreateV3ImportedUser(ctx context.Context, arg CreateV3ImportedUserParams) (IdentityUser, error) {
+	row := q.db.QueryRow(ctx, createV3ImportedUser,
+		arg.ID,
+		arg.Email,
+		arg.FullName,
+		arg.PhoneE164,
+		arg.PasswordHash,
+	)
+	var i IdentityUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+		&i.PhoneE164,
+		&i.PhoneVerifiedAt,
+		&i.PasswordHash,
+		&i.Status,
+		&i.Locale,
+		&i.LastSignInAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at FROM identity.users WHERE email = $1
 `

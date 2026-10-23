@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 
@@ -64,12 +65,22 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 		}
 
 		validPassword := user.PasswordHash.Valid
+		isLegacyHash := validPassword && vascrypto.IsBcryptHash(user.PasswordHash.String)
 		if validPassword {
-			ok, err := vascrypto.Argon2Verify(user.PasswordHash.String, password)
-			if err != nil {
-				return fmt.Errorf("app: verifying password: %w", err)
+			if isLegacyHash {
+				// task 1.13: a v3-imported account's password_hash is
+				// still v3's own bcrypt(md5(...)) scheme — verified
+				// this one way, then upgraded below so every sign-in
+				// after this one goes through Argon2Verify like any
+				// native v4 account.
+				validPassword = vascrypto.BcryptMD5Verify([]byte(user.PasswordHash.String), password)
+			} else {
+				ok, err := vascrypto.Argon2Verify(user.PasswordHash.String, password)
+				if err != nil {
+					return fmt.Errorf("app: verifying password: %w", err)
+				}
+				validPassword = ok
 			}
-			validPassword = ok
 		}
 		if !validPassword {
 			if err := s.recordSignInFailure(ctx, q, user.ID, ip); err != nil {
@@ -77,6 +88,16 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 			}
 			failed = true
 			return nil
+		}
+
+		if isLegacyHash {
+			upgraded, err := vascrypto.Argon2Hash(password)
+			if err != nil {
+				return fmt.Errorf("app: re-hashing v3-imported password: %w", err)
+			}
+			if err := q.SetPasswordHash(ctx, store.SetPasswordHashParams{ID: user.ID, PasswordHash: pgtype.Text{String: upgraded, Valid: true}}); err != nil {
+				return fmt.Errorf("app: upgrading v3-imported password hash: %w", err)
+			}
 		}
 
 		totpRow, err := q.GetUserTOTP(ctx, user.ID)
