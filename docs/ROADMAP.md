@@ -59,6 +59,7 @@ These rules apply to every session. `CLAUDE.md` repeats the short version.
 | `[~]` | In progress |
 | `[x]` | Done |
 | `[!]` | Blocked: the reason goes in `docs/STATUS.md` |
+| `[>]` | Deferred: moved to the later task named on the line |
 | **Exit gate** | Conditions that must all hold before the next phase starts |
 | **Kickoff prompt** | Text to paste into Claude Code to start the phase |
 
@@ -730,7 +731,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.12 Security events log; login alerts by email.
 - [x] 1.13 v3 importer: users and profiles. v3 passwords are bcrypt of MD5: verify that way once, then re-hash with Argon2id. Users without a usable email are flagged.
 - [x] 1.14 Design (not enable) the v3 token compatibility route (OD-16).
-- [ ] 1.15 OIDC single sign-on for clients who used Okta in v3, if time allows; otherwise in Phase 20.
+- [>] 1.15 OIDC single sign-on for clients who used Okta in v3, if time allows; otherwise in Phase 20. **Deferred to 20.8** (2026-10-23): the design leaves domain verification, tenant binding, account linking and IdP secret storage open, see OQ-03.
 
 **Tests specific to this phase**
 
@@ -1407,7 +1408,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [ ] 20.5 MCP server for clients' AI agents.
 - [ ] 20.6 Integrations: Shopify, WooCommerce, HubSpot, Salesforce, Zoho, Google Sheets, Zapier.
 - [ ] 20.7 White-label reseller portal.
-- [ ] 20.8 Enterprise SSO (SAML and OIDC), if not done in Phase 1.
+- [ ] 20.8 Enterprise SSO (SAML and OIDC), if not done in Phase 1. Phase 1 deferred it (1.15); start from OQ-03 in `docs/decisions/open-questions.md`.
 
 **Exit gate**: each feature has a design note, tests and monitoring before release.
 
