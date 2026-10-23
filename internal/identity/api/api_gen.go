@@ -17,16 +17,52 @@ import (
 
 // Defines values for ApiClientCreateRequestEnvironment.
 const (
-	Live    ApiClientCreateRequestEnvironment = "live"
-	Sandbox ApiClientCreateRequestEnvironment = "sandbox"
+	ApiClientCreateRequestEnvironmentLive    ApiClientCreateRequestEnvironment = "live"
+	ApiClientCreateRequestEnvironmentSandbox ApiClientCreateRequestEnvironment = "sandbox"
 )
 
 // Valid indicates whether the value is a known member of the ApiClientCreateRequestEnvironment enum.
 func (e ApiClientCreateRequestEnvironment) Valid() bool {
 	switch e {
-	case Live:
+	case ApiClientCreateRequestEnvironmentLive:
 		return true
-	case Sandbox:
+	case ApiClientCreateRequestEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SmppAccountCreateRequestEnvironment.
+const (
+	SmppAccountCreateRequestEnvironmentLive    SmppAccountCreateRequestEnvironment = "live"
+	SmppAccountCreateRequestEnvironmentSandbox SmppAccountCreateRequestEnvironment = "sandbox"
+)
+
+// Valid indicates whether the value is a known member of the SmppAccountCreateRequestEnvironment enum.
+func (e SmppAccountCreateRequestEnvironment) Valid() bool {
+	switch e {
+	case SmppAccountCreateRequestEnvironmentLive:
+		return true
+	case SmppAccountCreateRequestEnvironmentSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SmppAccountStatusUpdateRequestStatus.
+const (
+	Active    SmppAccountStatusUpdateRequestStatus = "active"
+	Suspended SmppAccountStatusUpdateRequestStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the SmppAccountStatusUpdateRequestStatus enum.
+func (e SmppAccountStatusUpdateRequestStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Suspended:
 		return true
 	default:
 		return false
@@ -311,6 +347,64 @@ type SignupRequest struct {
 	PhoneE164 *string `json:"phone_e164,omitempty"`
 }
 
+// SmppAccountCreateRequest defines model for SmppAccountCreateRequest.
+type SmppAccountCreateRequest struct {
+	Environment SmppAccountCreateRequestEnvironment `json:"environment"`
+
+	// IpAllowlist Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP address. Required and non-empty: SMPP accounts always need one (data model §3), since the protocol's own password is capped at 8 characters.
+	IpAllowlist []string `json:"ip_allowlist"`
+
+	// MaxBinds Maximum simultaneous binds for this account.
+	MaxBinds int `json:"max_binds"`
+
+	// MaxTps Maximum submits per second for this account.
+	MaxTps int `json:"max_tps"`
+
+	// SystemId The SMPP bind's system_id, unique across every tenant.
+	SystemId string `json:"system_id"`
+}
+
+// SmppAccountCreateRequestEnvironment defines model for SmppAccountCreateRequest.Environment.
+type SmppAccountCreateRequestEnvironment string
+
+// SmppAccountList defines model for SmppAccountList.
+type SmppAccountList struct {
+	Accounts *[]SmppAccountSummary `json:"accounts,omitempty"`
+}
+
+// SmppAccountStatusUpdateRequest defines model for SmppAccountStatusUpdateRequest.
+type SmppAccountStatusUpdateRequest struct {
+	Status SmppAccountStatusUpdateRequestStatus `json:"status"`
+}
+
+// SmppAccountStatusUpdateRequestStatus defines model for SmppAccountStatusUpdateRequest.Status.
+type SmppAccountStatusUpdateRequestStatus string
+
+// SmppAccountSummary defines model for SmppAccountSummary.
+type SmppAccountSummary struct {
+	Environment *string   `json:"environment,omitempty"`
+	Id          *string   `json:"id,omitempty"`
+	IpAllowlist *[]string `json:"ip_allowlist,omitempty"`
+	MaxBinds    *int      `json:"max_binds,omitempty"`
+	MaxTps      *int      `json:"max_tps,omitempty"`
+	Status      *string   `json:"status,omitempty"`
+	SystemId    *string   `json:"system_id,omitempty"`
+}
+
+// SmppAccountWithPassword defines model for SmppAccountWithPassword.
+type SmppAccountWithPassword struct {
+	Environment *string   `json:"environment,omitempty"`
+	Id          *string   `json:"id,omitempty"`
+	IpAllowlist *[]string `json:"ip_allowlist,omitempty"`
+	MaxBinds    *int      `json:"max_binds,omitempty"`
+	MaxTps      *int      `json:"max_tps,omitempty"`
+
+	// Password Shown exactly once — store it somewhere safe.
+	Password *string `json:"password,omitempty"`
+	Status   *string `json:"status,omitempty"`
+	SystemId *string `json:"system_id,omitempty"`
+}
+
 // StepUpEmailConfirmationRequest defines model for StepUpEmailConfirmationRequest.
 type StepUpEmailConfirmationRequest struct {
 	// Code The step-up code emailed by createStepUpEmail.
@@ -431,6 +525,24 @@ type CreateSignupParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateSmppAccountParams defines parameters for CreateSmppAccount.
+type CreateSmppAccountParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdateSmppAccountStatusParams defines parameters for UpdateSmppAccountStatus.
+type UpdateSmppAccountStatusParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateSmppAccountPasswordParams defines parameters for CreateSmppAccountPassword.
+type CreateSmppAccountPasswordParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateStepUpEmailParams defines parameters for CreateStepUpEmail.
 type CreateStepUpEmailParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -490,6 +602,12 @@ type CreateSessionJSONRequestBody = SignInRequest
 
 // CreateSignupJSONRequestBody defines body for CreateSignup for application/json ContentType.
 type CreateSignupJSONRequestBody = SignupRequest
+
+// CreateSmppAccountJSONRequestBody defines body for CreateSmppAccount for application/json ContentType.
+type CreateSmppAccountJSONRequestBody = SmppAccountCreateRequest
+
+// UpdateSmppAccountStatusJSONRequestBody defines body for UpdateSmppAccountStatus for application/json ContentType.
+type UpdateSmppAccountStatusJSONRequestBody = SmppAccountStatusUpdateRequest
 
 // CreateStepUpEmailConfirmationJSONRequestBody defines body for CreateStepUpEmailConfirmation for application/json ContentType.
 type CreateStepUpEmailConfirmationJSONRequestBody = StepUpEmailConfirmationRequest
@@ -574,6 +692,21 @@ type ServerInterface interface {
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams)
+	// ListSmppAccounts List the signed-in account's SMPP accounts
+	// (GET /v1/auth/smpp-accounts)
+	ListSmppAccounts(w http.ResponseWriter, r *http.Request)
+	// CreateSmppAccount Create an SMPP account
+	// (POST /v1/auth/smpp-accounts)
+	CreateSmppAccount(w http.ResponseWriter, r *http.Request, params CreateSmppAccountParams)
+	// GetSmppAccount Get one SMPP account
+	// (GET /v1/auth/smpp-accounts/{id})
+	GetSmppAccount(w http.ResponseWriter, r *http.Request, id string)
+	// UpdateSmppAccountStatus Suspend or reactivate an SMPP account
+	// (PATCH /v1/auth/smpp-accounts/{id})
+	UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Request, id string, params UpdateSmppAccountStatusParams)
+	// CreateSmppAccountPassword Rotate an SMPP account's password
+	// (POST /v1/auth/smpp-accounts/{id}/password)
+	CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams)
@@ -730,6 +863,36 @@ func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, id 
 // CreateSignup Start sign-up for an email address
 // (POST /v1/auth/signups)
 func (_ Unimplemented) CreateSignup(w http.ResponseWriter, r *http.Request, params CreateSignupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListSmppAccounts List the signed-in account's SMPP accounts
+// (GET /v1/auth/smpp-accounts)
+func (_ Unimplemented) ListSmppAccounts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSmppAccount Create an SMPP account
+// (POST /v1/auth/smpp-accounts)
+func (_ Unimplemented) CreateSmppAccount(w http.ResponseWriter, r *http.Request, params CreateSmppAccountParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetSmppAccount Get one SMPP account
+// (GET /v1/auth/smpp-accounts/{id})
+func (_ Unimplemented) GetSmppAccount(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateSmppAccountStatus Suspend or reactivate an SMPP account
+// (PATCH /v1/auth/smpp-accounts/{id})
+func (_ Unimplemented) UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Request, id string, params UpdateSmppAccountStatusParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSmppAccountPassword Rotate an SMPP account's password
+// (POST /v1/auth/smpp-accounts/{id}/password)
+func (_ Unimplemented) CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1675,6 +1838,199 @@ func (siw *ServerInterfaceWrapper) CreateSignup(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListSmppAccounts operation middleware
+func (siw *ServerInterfaceWrapper) ListSmppAccounts(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSmppAccounts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSmppAccount operation middleware
+func (siw *ServerInterfaceWrapper) CreateSmppAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSmppAccountParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSmppAccount(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSmppAccount operation middleware
+func (siw *ServerInterfaceWrapper) GetSmppAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSmppAccount(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSmppAccountStatus operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateSmppAccountStatusParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSmppAccountStatus(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSmppAccountPassword operation middleware
+func (siw *ServerInterfaceWrapper) CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSmppAccountPasswordParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSmppAccountPassword(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateStepUpEmail operation middleware
 func (siw *ServerInterfaceWrapper) CreateStepUpEmail(w http.ResponseWriter, r *http.Request) {
 
@@ -2133,6 +2489,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/v1/auth/api-clients/{id}/secrets/{secretId}", wrapper.RevokeApiClientSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/smpp-accounts", wrapper.ListSmppAccounts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/smpp-accounts", wrapper.CreateSmppAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/smpp-accounts/{id}", wrapper.GetSmppAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/auth/smpp-accounts/{id}", wrapper.UpdateSmppAccountStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/smpp-accounts/{id}/password", wrapper.CreateSmppAccountPassword)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/oauth/token", wrapper.CreateOAuthToken)
@@ -3474,6 +3845,354 @@ func (response CreateSignupdefaultApplicationProblemPlusJSONResponse) VisitCreat
 	return err
 }
 
+type ListSmppAccountsRequestObject struct {
+}
+
+type ListSmppAccountsResponseObject interface {
+	VisitListSmppAccountsResponse(w http.ResponseWriter) error
+}
+
+type ListSmppAccounts200JSONResponse SmppAccountList
+
+func (response ListSmppAccounts200JSONResponse) VisitListSmppAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSmppAccounts401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListSmppAccounts401ApplicationProblemPlusJSONResponse) VisitListSmppAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSmppAccountsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListSmppAccountsdefaultApplicationProblemPlusJSONResponse) VisitListSmppAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountRequestObject struct {
+	Params CreateSmppAccountParams
+	Body   *CreateSmppAccountJSONRequestBody
+}
+
+type CreateSmppAccountResponseObject interface {
+	VisitCreateSmppAccountResponse(w http.ResponseWriter) error
+}
+
+type CreateSmppAccount200JSONResponse SmppAccountWithPassword
+
+func (response CreateSmppAccount200JSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccount400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSmppAccount400ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccount401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccount401ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateSmppAccountdefaultApplicationProblemPlusJSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccountRequestObject struct {
+	Id string `json:"id"`
+}
+
+type GetSmppAccountResponseObject interface {
+	VisitGetSmppAccountResponse(w http.ResponseWriter) error
+}
+
+type GetSmppAccount200JSONResponse SmppAccountSummary
+
+func (response GetSmppAccount200JSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccount401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetSmppAccount401ApplicationProblemPlusJSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccount404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetSmppAccount404ApplicationProblemPlusJSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccountdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetSmppAccountdefaultApplicationProblemPlusJSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSmppAccountStatusRequestObject struct {
+	Id     string `json:"id"`
+	Params UpdateSmppAccountStatusParams
+	Body   *UpdateSmppAccountStatusJSONRequestBody
+}
+
+type UpdateSmppAccountStatusResponseObject interface {
+	VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error
+}
+
+type UpdateSmppAccountStatus200JSONResponse SmppAccountSummary
+
+func (response UpdateSmppAccountStatus200JSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSmppAccountStatus400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSmppAccountStatus400ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSmppAccountStatus401ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateSmppAccountStatus401ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSmppAccountStatusdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateSmppAccountStatusdefaultApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountPasswordRequestObject struct {
+	Id     string `json:"id"`
+	Params CreateSmppAccountPasswordParams
+}
+
+type CreateSmppAccountPasswordResponseObject interface {
+	VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error
+}
+
+type CreateSmppAccountPassword200JSONResponse SmppAccountWithPassword
+
+func (response CreateSmppAccountPassword200JSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountPassword401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSmppAccountPassword401ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountPassword404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccountPassword404ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountPassworddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateSmppAccountPassworddefaultApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateStepUpEmailRequestObject struct {
 	Params CreateStepUpEmailParams
 }
@@ -3982,6 +4701,21 @@ type StrictServerInterface interface {
 	// CreateSignup Start sign-up for an email address
 	// (POST /v1/auth/signups)
 	CreateSignup(ctx context.Context, request CreateSignupRequestObject) (CreateSignupResponseObject, error)
+	// ListSmppAccounts List the signed-in account's SMPP accounts
+	// (GET /v1/auth/smpp-accounts)
+	ListSmppAccounts(ctx context.Context, request ListSmppAccountsRequestObject) (ListSmppAccountsResponseObject, error)
+	// CreateSmppAccount Create an SMPP account
+	// (POST /v1/auth/smpp-accounts)
+	CreateSmppAccount(ctx context.Context, request CreateSmppAccountRequestObject) (CreateSmppAccountResponseObject, error)
+	// GetSmppAccount Get one SMPP account
+	// (GET /v1/auth/smpp-accounts/{id})
+	GetSmppAccount(ctx context.Context, request GetSmppAccountRequestObject) (GetSmppAccountResponseObject, error)
+	// UpdateSmppAccountStatus Suspend or reactivate an SMPP account
+	// (PATCH /v1/auth/smpp-accounts/{id})
+	UpdateSmppAccountStatus(ctx context.Context, request UpdateSmppAccountStatusRequestObject) (UpdateSmppAccountStatusResponseObject, error)
+	// CreateSmppAccountPassword Rotate an SMPP account's password
+	// (POST /v1/auth/smpp-accounts/{id}/password)
+	CreateSmppAccountPassword(ctx context.Context, request CreateSmppAccountPasswordRequestObject) (CreateSmppAccountPasswordResponseObject, error)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(ctx context.Context, request CreateStepUpEmailRequestObject) (CreateStepUpEmailResponseObject, error)
@@ -4678,6 +5412,150 @@ func (sh *strictHandler) CreateSignup(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSignupResponseObject); ok {
 		if err := validResponse.VisitCreateSignupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSmppAccounts operation middleware
+func (sh *strictHandler) ListSmppAccounts(w http.ResponseWriter, r *http.Request) {
+	var request ListSmppAccountsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSmppAccounts(ctx, request.(ListSmppAccountsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSmppAccounts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSmppAccountsResponseObject); ok {
+		if err := validResponse.VisitListSmppAccountsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSmppAccount operation middleware
+func (sh *strictHandler) CreateSmppAccount(w http.ResponseWriter, r *http.Request, params CreateSmppAccountParams) {
+	var request CreateSmppAccountRequestObject
+
+	request.Params = params
+
+	var body CreateSmppAccountJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSmppAccount(ctx, request.(CreateSmppAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSmppAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSmppAccountResponseObject); ok {
+		if err := validResponse.VisitCreateSmppAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSmppAccount operation middleware
+func (sh *strictHandler) GetSmppAccount(w http.ResponseWriter, r *http.Request, id string) {
+	var request GetSmppAccountRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSmppAccount(ctx, request.(GetSmppAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSmppAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSmppAccountResponseObject); ok {
+		if err := validResponse.VisitGetSmppAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSmppAccountStatus operation middleware
+func (sh *strictHandler) UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Request, id string, params UpdateSmppAccountStatusParams) {
+	var request UpdateSmppAccountStatusRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateSmppAccountStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSmppAccountStatus(ctx, request.(UpdateSmppAccountStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSmppAccountStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSmppAccountStatusResponseObject); ok {
+		if err := validResponse.VisitUpdateSmppAccountStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSmppAccountPassword operation middleware
+func (sh *strictHandler) CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams) {
+	var request CreateSmppAccountPasswordRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSmppAccountPassword(ctx, request.(CreateSmppAccountPasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSmppAccountPassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSmppAccountPasswordResponseObject); ok {
+		if err := validResponse.VisitCreateSmppAccountPasswordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

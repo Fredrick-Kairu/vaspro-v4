@@ -58,6 +58,34 @@ func (q *Queries) CreateSMPPAccount(ctx context.Context, arg CreateSMPPAccountPa
 	return i, err
 }
 
+const getSMPPAccountByID = `-- name: GetSMPPAccountByID :one
+SELECT id, tenant_id, system_id, password_hash, ip_allowlist, max_binds, max_tps, environment, status FROM identity.smpp_accounts WHERE id = $1 AND tenant_id = $2
+`
+
+type GetSMPPAccountByIDParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// Ownership-checked in the query itself, not just trusted to RLS —
+// same "belt and suspenders" style api_clients.sql already uses.
+func (q *Queries) GetSMPPAccountByID(ctx context.Context, arg GetSMPPAccountByIDParams) (IdentitySmppAccount, error) {
+	row := q.db.QueryRow(ctx, getSMPPAccountByID, arg.ID, arg.TenantID)
+	var i IdentitySmppAccount
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.SystemID,
+		&i.PasswordHash,
+		&i.IpAllowlist,
+		&i.MaxBinds,
+		&i.MaxTps,
+		&i.Environment,
+		&i.Status,
+	)
+	return i, err
+}
+
 const getSMPPAccountBySystemID = `-- name: GetSMPPAccountBySystemID :one
 SELECT id, tenant_id, system_id, password_hash, ip_allowlist, max_binds, max_tps, environment, status FROM identity.smpp_accounts WHERE system_id = $1
 `
@@ -77,4 +105,80 @@ func (q *Queries) GetSMPPAccountBySystemID(ctx context.Context, systemID string)
 		&i.Status,
 	)
 	return i, err
+}
+
+const listSMPPAccountsByTenant = `-- name: ListSMPPAccountsByTenant :many
+SELECT id, tenant_id, system_id, password_hash, ip_allowlist, max_binds, max_tps, environment, status FROM identity.smpp_accounts WHERE tenant_id = $1 ORDER BY id DESC
+`
+
+// smpp_accounts has no created_at column (data model §3's literal
+// schema) — id is a UUIDv7 (platform/ids), which sorts lexicographically
+// in creation order, so ordering by it gives the same "newest first"
+// result api_clients.sql gets from an explicit created_at column.
+func (q *Queries) ListSMPPAccountsByTenant(ctx context.Context, tenantID uuid.UUID) ([]IdentitySmppAccount, error) {
+	rows, err := q.db.Query(ctx, listSMPPAccountsByTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentitySmppAccount
+	for rows.Next() {
+		var i IdentitySmppAccount
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.SystemID,
+			&i.PasswordHash,
+			&i.IpAllowlist,
+			&i.MaxBinds,
+			&i.MaxTps,
+			&i.Environment,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateSMPPAccountPassword = `-- name: UpdateSMPPAccountPassword :execrows
+UPDATE identity.smpp_accounts SET password_hash = $3
+WHERE id = $1 AND tenant_id = $2
+`
+
+type UpdateSMPPAccountPasswordParams struct {
+	ID           uuid.UUID `json:"id"`
+	TenantID     uuid.UUID `json:"tenant_id"`
+	PasswordHash string    `json:"password_hash"`
+}
+
+func (q *Queries) UpdateSMPPAccountPassword(ctx context.Context, arg UpdateSMPPAccountPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSMPPAccountPassword, arg.ID, arg.TenantID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateSMPPAccountStatus = `-- name: UpdateSMPPAccountStatus :execrows
+UPDATE identity.smpp_accounts SET status = $3
+WHERE id = $1 AND tenant_id = $2
+`
+
+type UpdateSMPPAccountStatusParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+	Status   string    `json:"status"`
+}
+
+func (q *Queries) UpdateSMPPAccountStatus(ctx context.Context, arg UpdateSMPPAccountStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSMPPAccountStatus, arg.ID, arg.TenantID, arg.Status)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

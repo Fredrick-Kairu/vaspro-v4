@@ -105,6 +105,11 @@ var requireSessionOperations = map[string]bool{
 	"RevokeApiClient":                       true,
 	"CreateApiClientSecret":                 true,
 	"RevokeApiClientSecret":                 true,
+	"CreateSmppAccount":                     true,
+	"ListSmppAccounts":                      true,
+	"GetSmppAccount":                        true,
+	"UpdateSmppAccountStatus":               true,
+	"CreateSmppAccountPassword":             true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves
@@ -152,6 +157,8 @@ var requireStepUpOperations = map[string]bool{
 	"CreatePasskeyRegistration": true,
 	"CreateApiClient":           true,
 	"CreateApiClientSecret":     true,
+	"CreateSmppAccount":         true,
+	"CreateSmppAccountPassword": true,
 }
 
 // requireStepUp rejects a request whose session hasn't proved MFA

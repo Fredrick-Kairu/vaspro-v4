@@ -779,6 +779,161 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts:
+    post:
+      operationId: createSmppAccount
+      summary: Create an SMPP account
+      description: >
+        Requires Authorization: Bearer <session_id> and step-up MFA
+        proved within the last 5 minutes (task 1.6; AUTH-4012 if not)
+        — creating a credential is on system design §3's step-up list,
+        same reasoning as createApiClient. ip_allowlist is required
+        and must be non-empty: data model §3's own comment says SMPP
+        accounts always need one, since the SMPP 3.4 protocol limits
+        the password itself to 8 characters. The password is returned
+        exactly once.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmppAccountCreateRequest'
+            example:
+              system_id: "ACME01"
+              environment: "sandbox"
+              ip_allowlist: ["203.0.113.0/24"]
+              max_binds: 2
+              max_tps: 50
+      responses:
+        "200":
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountWithPassword'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSmppAccounts
+      summary: List the signed-in account's SMPP accounts
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's SMPP accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts/{id}:
+    get:
+      operationId: getSmppAccount
+      summary: Get one SMPP account
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Account detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountSummary'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateSmppAccountStatus
+      summary: Suspend or reactivate an SMPP account
+      description: >
+        The schema's only states are "active" and "suspended" (data
+        model §3's CHECK constraint) — there's no permanent revoke to
+        model here, so this toggles between them rather than deleting
+        anything. Doesn't require step-up: suspending/reactivating
+        isn't "create or reveal a credential," system design §3's own
+        trigger.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmppAccountStatusUpdateRequest'
+      responses:
+        "200":
+          description: Status updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountSummary'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts/{id}/password:
+    post:
+      operationId: createSmppAccountPassword
+      summary: Rotate an SMPP account's password
+      description: >
+        Requires step-up MFA proved within the last 5 minutes (task
+        1.6; AUTH-4012 if not) — same reasoning as
+        createSmppAccount. Overwrites the previous password outright:
+        unlike API client secrets (1.7), smpp_accounts has a single
+        password_hash column, not a rotation-overlap table.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Password rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountWithPassword'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/oauth/token:
     post:
       operationId: createOAuthToken
@@ -1166,6 +1321,72 @@ components:
           properties:
             secret:
               $ref: '#/components/schemas/ApiClientSecretResult'
+    SmppAccountCreateRequest:
+      type: object
+      required: [system_id, environment, ip_allowlist, max_binds, max_tps]
+      properties:
+        system_id:
+          type: string
+          description: The SMPP bind's system_id, unique across every tenant.
+        environment:
+          type: string
+          enum: [sandbox, live]
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+          description: >
+            Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP
+            address. Required and non-empty: SMPP accounts always need
+            one (data model §3), since the protocol's own password is
+            capped at 8 characters.
+        max_binds:
+          type: integer
+          description: Maximum simultaneous binds for this account.
+        max_tps:
+          type: integer
+          description: Maximum submits per second for this account.
+    SmppAccountStatusUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, suspended]
+    SmppAccountSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        system_id:
+          type: string
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+        max_binds:
+          type: integer
+        max_tps:
+          type: integer
+        environment:
+          type: string
+        status:
+          type: string
+    SmppAccountList:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmppAccountSummary'
+    SmppAccountWithPassword:
+      allOf:
+        - $ref: '#/components/schemas/SmppAccountSummary'
+        - type: object
+          properties:
+            password:
+              type: string
+              description: Shown exactly once — store it somewhere safe.
     OAuthTokenRequest:
       type: object
       required: [grant_type, client_id, client_secret]
