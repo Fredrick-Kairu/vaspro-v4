@@ -20,6 +20,7 @@ const (
 	AUTH4010 Code = "AUTH-4010"
 	AUTH4011 Code = "AUTH-4011"
 	AUTH4012 Code = "AUTH-4012"
+	AUTH4013 Code = "AUTH-4013"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -58,6 +59,14 @@ var registry = map[Code]entry{
 		Title:     "Step-up verification required",
 		Cause:     "The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list).",
 		Fix:       "Complete a step-up verification (TOTP code, or an emailed one-time code) and retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4013: {
+		Status:    401,
+		Title:     "HMAC signature invalid or request expired",
+		Cause:     "The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response.",
+		Fix:       "Recompute the signature over the exact request as sent, with a fresh timestamp and a fresh nonce, and retry.",
 		Retryable: false,
 		Billable:  false,
 	},

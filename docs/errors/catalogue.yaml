@@ -52,6 +52,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4013
+    status: 401
+    title: HMAC signature invalid or request expired
+    cause: The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response.
+    fix: Recompute the signature over the exact request as sent, with a fresh timestamp and a fresh nonce, and retry.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service

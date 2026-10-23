@@ -724,7 +724,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.6 Step-up MFA for sensitive actions, as listed in system design §3.
 - [x] 1.7 API clients: create, rotate (two active secrets), revoke; scopes, IP allowlist, expiry, spend cap; the secret is shown once and stored hashed.
 - [x] 1.8 OAuth2 client-credentials token endpoint; JWT signing keys with rotation; JWKS endpoint.
-- [ ] 1.9 HMAC request signing for high-value calls: signature over method, path, body and timestamp, valid for 5 minutes, with replay protection.
+- [x] 1.9 HMAC request signing for high-value calls: signature over method, path, body and timestamp, valid for 5 minutes, with replay protection.
 - [ ] 1.10 SMPP accounts for the existing SMPP front end (system design §3, §5.2).
 - [ ] 1.11 Gateway: routing, JWT checks, scopes, Redis rate limits with `Retry-After`, IP allowlists, sandbox or live environment taken from the credential, idempotency on writes, OpenAPI request validation, audit events.
 - [ ] 1.12 Security events log; login alerts by email.
