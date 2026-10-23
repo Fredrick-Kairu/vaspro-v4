@@ -228,10 +228,15 @@ func (s *Service) recordSignInFailure(ctx context.Context, q *store.Queries, use
 // stays unset — there's no tenant/account selection flow yet (accounts
 // is Phase 2) — and Redis caching plus list/revoke/sign-out-everywhere
 // are task 1.5's job, built on top of this row, not replacing it.
-func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uuid.UUID, ip net.IP, userAgent string) (*Session, error) {
+// alertNewIP reports whether the caller should send a login alert
+// email once its own transaction commits (task 1.12's
+// recordSignInEvent) — every sign-in path (password, TOTP, passkey)
+// funnels through this one function, so the sign_in security event
+// and the new-IP check only need to live here, not in each of them.
+func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uuid.UUID, ip net.IP, userAgent string) (session *Session, alertNewIP bool, err error) {
 	id, err := ids.New()
 	if err != nil {
-		return nil, fmt.Errorf("app: generating session id: %w", err)
+		return nil, false, fmt.Errorf("app: generating session id: %w", err)
 	}
 	expiresAt := s.clk.Now().Add(sessionTTL)
 	row, err := q.CreateSession(ctx, store.CreateSessionParams{
@@ -243,9 +248,13 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("app: creating session: %w", err)
+		return nil, false, fmt.Errorf("app: creating session: %w", err)
 	}
-	return &Session{ID: row.ID, ExpiresAt: row.ExpiresAt}, nil
+	alertNewIP, err = s.recordSignInEvent(ctx, q, userID, ip)
+	if err != nil {
+		return nil, false, err
+	}
+	return &Session{ID: row.ID, ExpiresAt: row.ExpiresAt}, alertNewIP, nil
 }
 
 // totpChallenge is the payload inside a sign-in challenge token.

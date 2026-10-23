@@ -34,6 +34,38 @@ func (q *Queries) CountRecentSignInFailures(ctx context.Context, arg CountRecent
 	return count, err
 }
 
+const countSignInEventsByUser = `-- name: CountSignInEventsByUser :one
+SELECT count(*) FROM identity.security_events WHERE user_id = $1 AND type = 'sign_in'
+`
+
+// Zero means this sign-in is the account's first ever — task 1.12's
+// own call site treats that as nothing to compare "new IP" against,
+// not an alert-worthy novelty.
+func (q *Queries) CountSignInEventsByUser(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countSignInEventsByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countSignInEventsByUserAndIP = `-- name: CountSignInEventsByUserAndIP :one
+SELECT count(*) FROM identity.security_events WHERE user_id = $1 AND type = 'sign_in' AND ip = $2
+`
+
+type CountSignInEventsByUserAndIPParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	Ip     *netip.Addr `json:"ip"`
+}
+
+// Zero means ip has never appeared on a prior sign_in event for this
+// user — task 1.12's "used from a new IP" check.
+func (q *Queries) CountSignInEventsByUserAndIP(ctx context.Context, arg CountSignInEventsByUserAndIPParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countSignInEventsByUserAndIP, arg.UserID, arg.Ip)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSecurityEvent = `-- name: CreateSecurityEvent :one
 INSERT INTO identity.security_events (id, user_id, tenant_id, type, ip, detail)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -72,9 +104,14 @@ func (q *Queries) CreateSecurityEvent(ctx context.Context, arg CreateSecurityEve
 }
 
 const listSecurityEventsByUser = `-- name: ListSecurityEventsByUser :many
-SELECT id, user_id, tenant_id, type, ip, detail, occurred_at FROM identity.security_events WHERE user_id = $1 ORDER BY occurred_at DESC
+SELECT id, user_id, tenant_id, type, ip, detail, occurred_at FROM identity.security_events WHERE user_id = $1 ORDER BY occurred_at DESC LIMIT 100
 `
 
+// Bounded at 100, not true cursor pagination (.claude/rules/api.md
+// otherwise wants cursor-based paging) — same "only build what's
+// needed now" call every other Phase 1 list endpoint already makes
+// (none of them paginate yet either); worth revisiting if this table's
+// per-user row count ever makes 100 feel tight.
 func (q *Queries) ListSecurityEventsByUser(ctx context.Context, userID pgtype.UUID) ([]IdentitySecurityEvent, error) {
 	rows, err := q.db.Query(ctx, listSecurityEventsByUser, userID)
 	if err != nil {

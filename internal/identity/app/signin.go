@@ -35,8 +35,11 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 	}
 
 	var (
-		result *SignInResult
-		failed bool
+		result        *SignInResult
+		failed        bool
+		sendAlertTo   string
+		sendAlertName string
+		sendAlert     bool
 	)
 
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -96,11 +99,14 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 			return nil
 		}
 
-		session, err := s.createSession(ctx, q, user.ID, ip, userAgent)
+		session, alertNewIP, err := s.createSession(ctx, q, user.ID, ip, userAgent)
 		if err != nil {
 			return err
 		}
 		result = &SignInResult{Session: session}
+		if alertNewIP {
+			sendAlertTo, sendAlertName, sendAlert = user.Email, user.FullName, true
+		}
 		return nil
 	})
 	if err != nil {
@@ -108,6 +114,9 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 	}
 	if failed {
 		return nil, ErrBadCredentials
+	}
+	if sendAlert {
+		s.sendLoginAlert(ctx, sendAlertTo, sendAlertName, ip)
 	}
 	return result, nil
 }
@@ -125,8 +134,11 @@ func (s *Service) CompleteTOTPChallenge(ctx context.Context, challenge, code str
 	code = strings.TrimSpace(code)
 
 	var (
-		session *Session
-		failed  bool
+		session       *Session
+		failed        bool
+		sendAlertTo   string
+		sendAlertName string
+		sendAlert     bool
 	)
 
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -180,14 +192,28 @@ func (s *Service) CompleteTOTPChallenge(ctx context.Context, challenge, code str
 			return nil
 		}
 
-		session, err = s.createSession(ctx, q, userID, ip, userAgent)
-		return err
+		var alertNewIP bool
+		session, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent)
+		if err != nil {
+			return err
+		}
+		if alertNewIP {
+			user, err := q.GetUserByID(ctx, userID)
+			if err != nil {
+				return fmt.Errorf("app: looking up user for login alert: %w", err)
+			}
+			sendAlertTo, sendAlertName, sendAlert = user.Email, user.FullName, true
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	if failed {
 		return nil, ErrTwoFactorInvalid
+	}
+	if sendAlert {
+		s.sendLoginAlert(ctx, sendAlertTo, sendAlertName, ip)
 	}
 	return session, nil
 }

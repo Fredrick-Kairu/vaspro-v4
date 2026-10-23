@@ -779,6 +779,29 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/security-events:
+    get:
+      operationId: listSecurityEvents
+      summary: List the signed-in account's security events
+      description: >
+        system design §3: "every credential event ... is logged and
+        shown to the tenant admin" — this phase's placeholder for
+        "tenant admin" is the account's own owner, same reasoning
+        every other Phase 1 list endpoint already uses. Newest first,
+        bounded at 100 rows (not true cursor pagination yet).
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's security events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityEventList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/auth/smpp-accounts:
     post:
       operationId: createSmppAccount
@@ -1321,6 +1344,29 @@ components:
           properties:
             secret:
               $ref: '#/components/schemas/ApiClientSecretResult'
+    SecurityEventSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: e.g. "sign_in", "api_client_created", "api_client_revoked".
+        ip:
+          type: string
+        detail:
+          type: object
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+    SecurityEventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityEventSummary'
     SmppAccountCreateRequest:
       type: object
       required: [system_id, environment, ip_allowlist, max_binds, max_tps]

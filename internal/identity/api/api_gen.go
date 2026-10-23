@@ -299,6 +299,22 @@ type Problem struct {
 	Type      string  `json:"type"`
 }
 
+// SecurityEventList defines model for SecurityEventList.
+type SecurityEventList struct {
+	Events *[]SecurityEventSummary `json:"events,omitempty"`
+}
+
+// SecurityEventSummary defines model for SecurityEventSummary.
+type SecurityEventSummary struct {
+	Detail     *map[string]interface{} `json:"detail,omitempty"`
+	Id         *string                 `json:"id,omitempty"`
+	Ip         *string                 `json:"ip,omitempty"`
+	OccurredAt *time.Time              `json:"occurred_at,omitempty"`
+
+	// Type e.g. "sign_in", "api_client_created", "api_client_revoked".
+	Type *string `json:"type,omitempty"`
+}
+
 // SessionList defines model for SessionList.
 type SessionList struct {
 	Sessions *[]SessionSummary `json:"sessions,omitempty"`
@@ -677,6 +693,9 @@ type ServerInterface interface {
 	// CreatePasswordReset Request a password-set-or-reset code
 	// (POST /v1/auth/password-resets)
 	CreatePasswordReset(w http.ResponseWriter, r *http.Request, params CreatePasswordResetParams)
+	// ListSecurityEvents List the signed-in account's security events
+	// (GET /v1/auth/security-events)
+	ListSecurityEvents(w http.ResponseWriter, r *http.Request)
 	// DeleteSessions Sign out everywhere
 	// (DELETE /v1/auth/sessions)
 	DeleteSessions(w http.ResponseWriter, r *http.Request, params DeleteSessionsParams)
@@ -833,6 +852,12 @@ func (_ Unimplemented) CreatePasswordResetConfirmation(w http.ResponseWriter, r 
 // CreatePasswordReset Request a password-set-or-reset code
 // (POST /v1/auth/password-resets)
 func (_ Unimplemented) CreatePasswordReset(w http.ResponseWriter, r *http.Request, params CreatePasswordResetParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListSecurityEvents List the signed-in account's security events
+// (GET /v1/auth/security-events)
+func (_ Unimplemented) ListSecurityEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1626,6 +1651,20 @@ func (siw *ServerInterfaceWrapper) CreatePasswordReset(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreatePasswordReset(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSecurityEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListSecurityEvents(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSecurityEvents(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2489,6 +2528,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/v1/auth/api-clients/{id}/secrets/{secretId}", wrapper.RevokeApiClientSecret)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/security-events", wrapper.ListSecurityEvents)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/smpp-accounts", wrapper.ListSmppAccounts)
@@ -3541,6 +3583,60 @@ type CreatePasswordResetdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreatePasswordResetdefaultApplicationProblemPlusJSONResponse) VisitCreatePasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecurityEventsRequestObject struct {
+}
+
+type ListSecurityEventsResponseObject interface {
+	VisitListSecurityEventsResponse(w http.ResponseWriter) error
+}
+
+type ListSecurityEvents200JSONResponse SecurityEventList
+
+func (response ListSecurityEvents200JSONResponse) VisitListSecurityEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecurityEvents401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListSecurityEvents401ApplicationProblemPlusJSONResponse) VisitListSecurityEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecurityEventsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListSecurityEventsdefaultApplicationProblemPlusJSONResponse) VisitListSecurityEventsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4686,6 +4782,9 @@ type StrictServerInterface interface {
 	// CreatePasswordReset Request a password-set-or-reset code
 	// (POST /v1/auth/password-resets)
 	CreatePasswordReset(ctx context.Context, request CreatePasswordResetRequestObject) (CreatePasswordResetResponseObject, error)
+	// ListSecurityEvents List the signed-in account's security events
+	// (GET /v1/auth/security-events)
+	ListSecurityEvents(ctx context.Context, request ListSecurityEventsRequestObject) (ListSecurityEventsResponseObject, error)
 	// DeleteSessions Sign out everywhere
 	// (DELETE /v1/auth/sessions)
 	DeleteSessions(ctx context.Context, request DeleteSessionsRequestObject) (DeleteSessionsResponseObject, error)
@@ -5269,6 +5368,30 @@ func (sh *strictHandler) CreatePasswordReset(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreatePasswordResetResponseObject); ok {
 		if err := validResponse.VisitCreatePasswordResetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSecurityEvents operation middleware
+func (sh *strictHandler) ListSecurityEvents(w http.ResponseWriter, r *http.Request) {
+	var request ListSecurityEventsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSecurityEvents(ctx, request.(ListSecurityEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSecurityEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSecurityEventsResponseObject); ok {
+		if err := validResponse.VisitListSecurityEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

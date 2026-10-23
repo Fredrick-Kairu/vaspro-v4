@@ -47,12 +47,19 @@ func doJSON(t *testing.T, r http.Handler, method, path, bearer string, body any,
 }
 
 // signUpVerifyAndSetPassword drives the full anonymous onboarding flow
-// over HTTP and returns the account's email.
+// over HTTP and returns the account's email. Every Idempotency-Key is
+// suffixed with rawEmail — every pre-auth call in this flow shares one
+// anonymous tenant (uuid.Nil, no gateway/tenant context yet), so a
+// bare "signup-key" collides across two different calls to this helper
+// in the same test (two different bodies claiming the same key is
+// VAL-4001, found by testing once a test needed two accounts).
+// Collision-free for every existing single-account call site too,
+// since rawEmail was already distinct there.
 func signUpVerifyAndSetPassword(t *testing.T, r http.Handler, sender *email.Sender, rawEmail, password string) {
 	t.Helper()
 
 	code, _ := doJSON(t, r, http.MethodPost, "/v1/auth/signups", "",
-		map[string]string{"email": rawEmail, "full_name": "Ada Lovelace"}, "signup-key")
+		map[string]string{"email": rawEmail, "full_name": "Ada Lovelace"}, "signup-key-"+rawEmail)
 	if code != http.StatusAccepted {
 		t.Fatalf("signup: got status %d", code)
 	}
@@ -61,13 +68,13 @@ func signUpVerifyAndSetPassword(t *testing.T, r http.Handler, sender *email.Send
 		t.Fatal("expected a verification email")
 	}
 	code, _ = doJSON(t, r, http.MethodPost, "/v1/auth/email-verifications", "",
-		map[string]string{"email": rawEmail, "code": sent.Code}, "verify-key")
+		map[string]string{"email": rawEmail, "code": sent.Code}, "verify-key-"+rawEmail)
 	if code != http.StatusOK {
 		t.Fatalf("email verification: got status %d", code)
 	}
 
 	code, _ = doJSON(t, r, http.MethodPost, "/v1/auth/password-resets", "",
-		map[string]string{"email": rawEmail}, "pwreset-key")
+		map[string]string{"email": rawEmail}, "pwreset-key-"+rawEmail)
 	if code != http.StatusAccepted {
 		t.Fatalf("password reset request: got status %d", code)
 	}
@@ -76,7 +83,7 @@ func signUpVerifyAndSetPassword(t *testing.T, r http.Handler, sender *email.Send
 		t.Fatal("expected a password reset email")
 	}
 	code, _ = doJSON(t, r, http.MethodPost, "/v1/auth/password-reset-confirmations", "",
-		map[string]string{"email": rawEmail, "code": sent.Code, "new_password": password}, "pwconfirm-key")
+		map[string]string{"email": rawEmail, "code": sent.Code, "new_password": password}, "pwconfirm-key-"+rawEmail)
 	if code != http.StatusOK {
 		t.Fatalf("password reset confirmation: got status %d", code)
 	}

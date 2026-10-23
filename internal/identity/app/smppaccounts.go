@@ -127,6 +127,11 @@ func (s *Service) CreateSMPPAccount(
 		if err != nil {
 			return fmt.Errorf("app: creating smpp account: %w", err)
 		}
+		if err := recordSecurityEvent(ctx, q, userID, "smpp_account_created", nil, map[string]any{
+			"smpp_account_id": accountID.String(), "system_id": systemID, "environment": string(env),
+		}); err != nil {
+			return err
+		}
 		result = &SMPPAccountWithPassword{SMPPAccountSummary: smppAccountSummary(account), Password: password}
 		return nil
 	})
@@ -234,6 +239,12 @@ func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, accou
 			return nil
 		}
 
+		if err := recordSecurityEvent(ctx, q, tenantID, "smpp_account_password_rotated", nil, map[string]any{
+			"smpp_account_id": accountID.String(),
+		}); err != nil {
+			return err
+		}
+
 		account.PasswordHash = passwordHash
 		result = &SMPPAccountWithPassword{SMPPAccountSummary: smppAccountSummary(account), Password: password}
 		return nil
@@ -248,17 +259,28 @@ func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, accou
 }
 
 // setSMPPAccountStatus is SuspendSMPPAccount's/ReactivateSMPPAccount's
-// shared implementation.
-func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID uuid.UUID, status string) error {
+// shared implementation. eventType names the security event this
+// particular status change records — the two callers each pass their
+// own.
+func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID uuid.UUID, status, eventType string) error {
 	var n int64
 	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
 		var err error
-		n, err = store.New(tx).UpdateSMPPAccountStatus(ctx, store.UpdateSMPPAccountStatusParams{
+		n, err = q.UpdateSMPPAccountStatus(ctx, store.UpdateSMPPAccountStatusParams{
 			ID:       accountID,
 			TenantID: tenantID,
 			Status:   status,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		return recordSecurityEvent(ctx, q, tenantID, eventType, nil, map[string]any{
+			"smpp_account_id": accountID.String(),
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("app: updating smpp account status: %w", err)
@@ -274,12 +296,12 @@ func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID 
 // "suspended" (data model §3's CHECK constraint), so there's no
 // permanent revoke to model here.
 func (s *Service) SuspendSMPPAccount(ctx context.Context, tenantID, accountID uuid.UUID) error {
-	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusSuspended)
+	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusSuspended, "smpp_account_suspended")
 }
 
 // ReactivateSMPPAccount reverses SuspendSMPPAccount.
 func (s *Service) ReactivateSMPPAccount(ctx context.Context, tenantID, accountID uuid.UUID) error {
-	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusActive)
+	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusActive, "smpp_account_reactivated")
 }
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint

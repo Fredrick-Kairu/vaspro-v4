@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
+	"time"
 )
 
 // EmailSender sends identity's transactional emails.
@@ -22,6 +23,13 @@ type EmailSender interface {
 	// one-time code proving fresh account control for a sensitive
 	// action (task 1.6), not a sign-in or password flow.
 	SendStepUpCode(ctx context.Context, to, fullName, code string) error
+	// SendLoginAlert tells to (addressed to fullName) that their
+	// account just signed in from ip, an address never seen on this
+	// account before (task 1.12) — not a code to act on, just a
+	// notice, so unlike the three methods above a failure here never
+	// blocks the sign-in that triggered it (app.Service's own call
+	// site deliberately doesn't propagate this one's error).
+	SendLoginAlert(ctx context.Context, to, fullName, ip string, occurredAt time.Time) error
 }
 
 // SMTPSender sends over plain SMTP — no auth, no TLS. That's exactly
@@ -68,6 +76,17 @@ func (s *SMTPSender) SendStepUpCode(_ context.Context, to, fullName, code string
 	)
 	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
 		return fmt.Errorf("adapters: sending step-up email: %w", err)
+	}
+	return nil
+}
+
+func (s *SMTPSender) SendLoginAlert(_ context.Context, to, fullName, ip string, occurredAt time.Time) error {
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: New sign-in to your VASPRO account\r\n\r\nHi %s,\r\n\r\nYour account was just signed in to from a new location (%s) at %s.\r\n\r\nIf this was you, no action is needed. If it wasn't, change your password and review your active sessions right away.\r\n",
+		s.from, to, fullName, ip, occurredAt.Format(time.RFC1123),
+	)
+	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
+		return fmt.Errorf("adapters: sending login alert email: %w", err)
 	}
 	return nil
 }

@@ -110,6 +110,7 @@ var requireSessionOperations = map[string]bool{
 	"GetSmppAccount":                        true,
 	"UpdateSmppAccountStatus":               true,
 	"CreateSmppAccountPassword":             true,
+	"ListSecurityEvents":                    true,
 }
 
 // requireSession reads Authorization: Bearer <session_id> and resolves

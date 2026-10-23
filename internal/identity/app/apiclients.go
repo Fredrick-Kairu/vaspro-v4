@@ -198,6 +198,12 @@ func (s *Service) CreateApiClient(
 			return fmt.Errorf("app: storing api client secret: %w", err)
 		}
 
+		if err := recordSecurityEvent(ctx, q, userID, "api_client_created", nil, map[string]any{
+			"api_client_id": clientID.String(), "name": name, "environment": string(env),
+		}); err != nil {
+			return err
+		}
+
 		result = &ApiClientWithSecret{
 			ApiClientSummary: apiClientSummary(client),
 			Secret:           ApiClientSecretResult{ID: secretRow.ID, Secret: secret, Last4: last4},
@@ -356,6 +362,12 @@ func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, clientID 
 			return fmt.Errorf("app: storing rotated api client secret: %w", err)
 		}
 
+		if err := recordSecurityEvent(ctx, q, tenantID, "api_client_secret_rotated", nil, map[string]any{
+			"api_client_id": clientID.String(), "secret_id": secretRow.ID.String(),
+		}); err != nil {
+			return err
+		}
+
 		result = &ApiClientSecretResult{ID: secretRow.ID, Secret: secret, Last4: last4}
 		return nil
 	})
@@ -377,9 +389,18 @@ func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, clientID 
 func (s *Service) RevokeApiClient(ctx context.Context, tenantID, clientID uuid.UUID) error {
 	var n int64
 	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
 		var err error
-		n, err = store.New(tx).RevokeApiClient(ctx, store.RevokeApiClientParams{ID: clientID, TenantID: tenantID})
-		return err
+		n, err = q.RevokeApiClient(ctx, store.RevokeApiClientParams{ID: clientID, TenantID: tenantID})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		return recordSecurityEvent(ctx, q, tenantID, "api_client_revoked", nil, map[string]any{
+			"api_client_id": clientID.String(),
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("app: revoking api client: %w", err)

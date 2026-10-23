@@ -373,8 +373,11 @@ func (s *Service) CompletePasskeyLogin(ctx context.Context, challengeToken strin
 	}
 
 	var (
-		result *Session
-		failed bool
+		result        *Session
+		failed        bool
+		sendAlertTo   string
+		sendAlertName string
+		sendAlert     bool
 	)
 
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -432,14 +435,24 @@ func (s *Service) CompletePasskeyLogin(ctx context.Context, challengeToken strin
 			return fmt.Errorf("app: updating passkey sign count: %w", err)
 		}
 
-		result, err = s.createSession(ctx, q, userID, ip, userAgent)
-		return err
+		var alertNewIP bool
+		result, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent)
+		if err != nil {
+			return err
+		}
+		if alertNewIP {
+			sendAlertTo, sendAlertName, sendAlert = dbUser.Email, dbUser.FullName, true
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	if failed {
 		return nil, ErrBadCredentials
+	}
+	if sendAlert {
+		s.sendLoginAlert(ctx, sendAlertTo, sendAlertName, ip)
 	}
 	return result, nil
 }

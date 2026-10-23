@@ -6,6 +6,7 @@ package email
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // Kind distinguishes which EmailSender method a Sent came from, since
@@ -14,14 +15,18 @@ const (
 	KindVerification  = "verification"
 	KindPasswordReset = "password_reset"
 	KindStepUp        = "step_up"
+	KindLoginAlert    = "login_alert"
 )
 
-// Sent is one recorded call to Sender.
+// Sent is one recorded call to Sender. Code is set for the three
+// code-based kinds; IP/OccurredAt are set for KindLoginAlert instead.
 type Sent struct {
-	Kind     string
-	To       string
-	FullName string
-	Code     string
+	Kind       string
+	To         string
+	FullName   string
+	Code       string
+	IP         string
+	OccurredAt time.Time
 }
 
 // Sender is a fake adapters.EmailSender: thread-safe, keeps every call
@@ -43,6 +48,11 @@ func (s *Sender) SendPasswordResetCode(_ context.Context, to, fullName, code str
 
 func (s *Sender) SendStepUpCode(_ context.Context, to, fullName, code string) error {
 	s.record(Sent{Kind: KindStepUp, To: to, FullName: fullName, Code: code})
+	return nil
+}
+
+func (s *Sender) SendLoginAlert(_ context.Context, to, fullName, ip string, occurredAt time.Time) error {
+	s.record(Sent{Kind: KindLoginAlert, To: to, FullName: fullName, IP: ip, OccurredAt: occurredAt})
 	return nil
 }
 
