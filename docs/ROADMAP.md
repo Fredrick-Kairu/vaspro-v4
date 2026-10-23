@@ -729,7 +729,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.11 Gateway: routing, JWT checks, scopes, Redis rate limits with `Retry-After`, IP allowlists, sandbox or live environment taken from the credential, idempotency on writes, OpenAPI request validation, audit events.
 - [x] 1.12 Security events log; login alerts by email.
 - [x] 1.13 v3 importer: users and profiles. v3 passwords are bcrypt of MD5: verify that way once, then re-hash with Argon2id. Users without a usable email are flagged.
-- [ ] 1.14 Design (not enable) the v3 token compatibility route (OD-16).
+- [x] 1.14 Design (not enable) the v3 token compatibility route (OD-16).
 - [ ] 1.15 OIDC single sign-on for clients who used Okta in v3, if time allows; otherwise in Phase 20.
 
 **Tests specific to this phase**
