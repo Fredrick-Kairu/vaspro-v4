@@ -91,7 +91,11 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 			return fmt.Errorf("app: decrypting TOTP secret: %w", err)
 		}
 
-		if !domain.ValidateTOTPCode(string(secret), code, s.clk.Now()) {
+		accepted, err := s.acceptTOTPCode(ctx, q, userID, string(secret), code)
+		if err != nil {
+			return err
+		}
+		if !accepted {
 			// No write happened yet in this branch, so returning the
 			// sentinel directly (rather than the commit-after-the-fact
 			// pattern SignIn/CompleteTOTPChallenge need) is safe here —
@@ -101,4 +105,21 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 
 		return q.ConfirmUserTOTP(ctx, userID)
 	})
+}
+
+// acceptTOTPCode reports whether code is valid for secret now and, if
+// so, spends it: the code's time step is claimed for userID, so neither
+// it nor any code from an earlier step is accepted again (RFC 6238
+// §5.2). Enrolment confirmation, the sign-in challenge and step-up all
+// go through here, so a code is spent wherever it's first used.
+func (s *Service) acceptTOTPCode(ctx context.Context, q *store.Queries, userID uuid.UUID, secret, code string) (bool, error) {
+	step, ok := domain.MatchTOTPStep(secret, code, s.clk.Now())
+	if !ok {
+		return false, nil
+	}
+	claimed, err := q.ClaimTOTPStep(ctx, store.ClaimTOTPStepParams{UserID: userID, Step: step})
+	if err != nil {
+		return false, fmt.Errorf("app: claiming TOTP time step: %w", err)
+	}
+	return claimed == 1, nil
 }

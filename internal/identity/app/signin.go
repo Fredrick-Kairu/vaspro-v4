@@ -188,7 +188,10 @@ func (s *Service) CompleteTOTPChallenge(ctx context.Context, challenge, code str
 			return fmt.Errorf("app: decrypting TOTP secret: %w", err)
 		}
 
-		valid := domain.ValidateTOTPCode(string(secret), code, s.clk.Now())
+		valid, err := s.acceptTOTPCode(ctx, q, userID, string(secret), code)
+		if err != nil {
+			return err
+		}
 		if !valid {
 			_, consumeErr := q.ConsumeRecoveryCode(ctx, store.ConsumeRecoveryCodeParams{
 				UserID:   userID,

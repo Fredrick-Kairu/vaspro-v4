@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"time"
 
@@ -34,14 +35,26 @@ func GenerateTOTPSecret(issuer, accountName string) (secret, url string, err err
 	return key.Secret(), key.URL(), nil
 }
 
-// ValidateTOTPCode reports whether code is valid for secret at at,
-// allowing totpSkew periods of drift either side.
-func ValidateTOTPCode(secret, code string, at time.Time) bool {
-	ok, err := totp.ValidateCustom(code, secret, at, totp.ValidateOpts{
-		Period:    totpPeriod,
-		Skew:      totpSkew,
-		Digits:    totpDigits,
-		Algorithm: otp.AlgorithmSHA1,
-	})
-	return err == nil && ok
+// MatchTOTPStep reports whether code is valid for secret at at,
+// allowing totpSkew periods of drift either side, and returns the time
+// step (unix seconds / totpPeriod) the code belongs to. The caller
+// records that step so the same code — or one from an earlier step —
+// is never accepted twice (RFC 6238 §5.2); validity alone can't say
+// whether a code was already used.
+func MatchTOTPStep(secret, code string, at time.Time) (step int64, ok bool) {
+	if len(code) != totpDigits.Length() {
+		return 0, false
+	}
+	opts := totp.ValidateOpts{Period: totpPeriod, Digits: totpDigits, Algorithm: otp.AlgorithmSHA1}
+	now := at.Unix() / totpPeriod
+	for candidate := now - totpSkew; candidate <= now+totpSkew; candidate++ {
+		want, err := totp.GenerateCodeCustom(secret, time.Unix(candidate*totpPeriod, 0).UTC(), opts)
+		if err != nil {
+			return 0, false
+		}
+		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
+			return candidate, true
+		}
+	}
+	return 0, false
 }

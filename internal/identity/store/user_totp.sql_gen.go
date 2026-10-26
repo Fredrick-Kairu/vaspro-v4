@@ -11,6 +11,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimTOTPStep = `-- name: ClaimTOTPStep :execrows
+UPDATE identity.user_totp
+SET last_used_step = $1::bigint
+WHERE user_id = $2
+  AND (last_used_step IS NULL OR last_used_step < $1::bigint)
+`
+
+type ClaimTOTPStepParams struct {
+	Step   int64     `json:"step"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+// RFC 6238 §5.2 replay protection: records step as used only if it's
+// later than the last one used. 0 rows means the code (or a newer one)
+// was already used. Atomic, so two concurrent uses of one code can't
+// both succeed — the same reasoning as ConsumeRecoveryCode.
+func (q *Queries) ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimTOTPStep, arg.Step, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const confirmUserTOTP = `-- name: ConfirmUserTOTP :exec
 UPDATE identity.user_totp SET confirmed_at = now() WHERE user_id = $1
 `
@@ -24,7 +48,7 @@ const consumeRecoveryCode = `-- name: ConsumeRecoveryCode :one
 UPDATE identity.user_totp
 SET recovery_code_hashes = array_remove(recovery_code_hashes, $1::text)
 WHERE user_id = $2 AND $1::text = ANY(recovery_code_hashes)
-RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes
+RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes, last_used_step
 `
 
 type ConsumeRecoveryCodeParams struct {
@@ -44,6 +68,7 @@ func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCo
 		&i.SecretCiphertext,
 		&i.ConfirmedAt,
 		&i.RecoveryCodeHashes,
+		&i.LastUsedStep,
 	)
 	return i, err
 }
@@ -51,7 +76,7 @@ func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCo
 const createUserTOTP = `-- name: CreateUserTOTP :one
 INSERT INTO identity.user_totp (user_id, secret_ciphertext)
 VALUES ($1, $2)
-RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes
+RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes, last_used_step
 `
 
 type CreateUserTOTPParams struct {
@@ -67,12 +92,13 @@ func (q *Queries) CreateUserTOTP(ctx context.Context, arg CreateUserTOTPParams) 
 		&i.SecretCiphertext,
 		&i.ConfirmedAt,
 		&i.RecoveryCodeHashes,
+		&i.LastUsedStep,
 	)
 	return i, err
 }
 
 const getUserTOTP = `-- name: GetUserTOTP :one
-SELECT user_id, secret_ciphertext, confirmed_at, recovery_code_hashes FROM identity.user_totp WHERE user_id = $1
+SELECT user_id, secret_ciphertext, confirmed_at, recovery_code_hashes, last_used_step FROM identity.user_totp WHERE user_id = $1
 `
 
 func (q *Queries) GetUserTOTP(ctx context.Context, userID uuid.UUID) (IdentityUserTotp, error) {
@@ -83,6 +109,7 @@ func (q *Queries) GetUserTOTP(ctx context.Context, userID uuid.UUID) (IdentityUs
 		&i.SecretCiphertext,
 		&i.ConfirmedAt,
 		&i.RecoveryCodeHashes,
+		&i.LastUsedStep,
 	)
 	return i, err
 }
@@ -93,8 +120,9 @@ VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE SET
   secret_ciphertext = EXCLUDED.secret_ciphertext,
   confirmed_at = NULL,
-  recovery_code_hashes = EXCLUDED.recovery_code_hashes
-RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes
+  recovery_code_hashes = EXCLUDED.recovery_code_hashes,
+  last_used_step = NULL
+RETURNING user_id, secret_ciphertext, confirmed_at, recovery_code_hashes, last_used_step
 `
 
 type UpsertUserTOTPParams struct {
@@ -105,7 +133,8 @@ type UpsertUserTOTPParams struct {
 
 // Re-enrolling (scanning a fresh QR code) replaces any pending secret
 // and resets confirmed_at — a half-finished enrollment must not leave a
-// stale secret that could confirm later by accident.
+// stale secret that could confirm later by accident. last_used_step is
+// cleared too: no code of the new secret has been used.
 func (q *Queries) UpsertUserTOTP(ctx context.Context, arg UpsertUserTOTPParams) (IdentityUserTotp, error) {
 	row := q.db.QueryRow(ctx, upsertUserTOTP, arg.UserID, arg.SecretCiphertext, arg.RecoveryCodeHashes)
 	var i IdentityUserTotp
@@ -114,6 +143,7 @@ func (q *Queries) UpsertUserTOTP(ctx context.Context, arg UpsertUserTOTPParams) 
 		&i.SecretCiphertext,
 		&i.ConfirmedAt,
 		&i.RecoveryCodeHashes,
+		&i.LastUsedStep,
 	)
 	return i, err
 }

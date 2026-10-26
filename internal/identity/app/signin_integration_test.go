@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/pquerna/otp/totp"
 
@@ -136,6 +137,9 @@ func TestSignIn_WithTOTP_ChallengeThenComplete_ReturnsSession(t *testing.T) {
 		t.Fatal("expected no session before the TOTP step completes")
 	}
 
+	// Each TOTP code is accepted once (RFC 6238 §5.2): the next one
+	// comes from a later time step.
+	clk.Advance(30 * time.Second)
 	loginCode, err := totp.GenerateCode(secret, clk.Now())
 	if err != nil {
 		t.Fatalf("generating a second TOTP code: %v", err)

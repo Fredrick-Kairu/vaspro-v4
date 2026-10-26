@@ -359,37 +359,33 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// totpCodes hands out TOTP codes the way a careful authenticator user
-// would never repeat one: each code comes from a 30-second time step
-// not used before in this test, chosen from the current step and its
-// neighbours (identity accepts ±1 step of drift). So the test stays
-// valid once identity rejects a replayed code (RFC 6238 §5.2), which it
-// doesn't yet.
+// totpCodes hands out TOTP codes the way identity accepts them: each
+// from a 30-second time step later than any used before (RFC 6238 §5.2
+// replay protection), taken oldest-first from the current step and its
+// neighbours (identity accepts ±1 step of drift) — so three codes fit
+// in one window without waiting for the clock.
 type totpCodes struct {
-	secret string
-	used   map[int64]bool
-	issued []string
+	secret   string
+	lastStep int64
+	issued   []string
 }
 
 func (c *totpCodes) next(t *testing.T) string {
 	t.Helper()
 	now := time.Now().Unix() / 30
-	for _, step := range []int64{now, now + 1, now - 1} {
-		if c.used[step] {
-			continue
-		}
-		code, err := totp.GenerateCodeCustom(c.secret, time.Unix(step*30, 0), totp.ValidateOpts{
-			Period: 30, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
-		})
-		if err != nil {
-			t.Fatalf("generating a TOTP code: %v", err)
-		}
-		c.used[step] = true
-		c.issued = append(c.issued, code)
-		return code
+	step := max(now-1, c.lastStep+1)
+	if step > now+1 {
+		t.Fatal("no unused TOTP time step left in the drift window")
 	}
-	t.Fatal("no unused TOTP time step left in the drift window")
-	return ""
+	code, err := totp.GenerateCodeCustom(c.secret, time.Unix(step*30, 0), totp.ValidateOpts{
+		Period: 30, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		t.Fatalf("generating a TOTP code: %v", err)
+	}
+	c.lastStep = step
+	c.issued = append(c.issued, code)
+	return code
 }
 
 // TestGateway_SignupThroughApiClientAndToken_EndToEnd is Phase 1's
@@ -506,7 +502,7 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	if totpSecret == "" || len(recoveryCodes) == 0 {
 		t.Fatalf("expected a TOTP secret and recovery codes, got %v", enrolBody)
 	}
-	codes := &totpCodes{secret: totpSecret, used: map[int64]bool{}}
+	codes := &totpCodes{secret: totpSecret}
 
 	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments/confirmation", sessionToken,
 		map[string]string{"code": codes.next(t)}, "totp-confirm-key")
