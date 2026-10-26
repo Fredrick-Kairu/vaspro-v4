@@ -107,13 +107,13 @@ func claimsFromContext(ctx context.Context) (Claims, bool) {
 
 // requireJWT verifies Authorization: Bearer <jwt> against jwks,
 // rejecting a missing header, malformed token, bad signature, unknown
-// kid, expired token or wrong issuer alike with AUTH-4010 — same
+// kid, expired token, wrong issuer or wrong/missing audience alike with AUTH-4010 — same
 // "don't distinguish" anti-enumeration principle 1.3 established for
 // sign-in, now applied to the machine-credential side of auth. Unlike
 // identity's own requireSession (a dashboard session ID), this is the
 // OAuth2 client-credentials JWT task 1.8 mints — a different
 // mechanism for a different audience, not a replacement for it.
-func requireJWT(jwks *jwksCache, clk clock.Clock, issuer string) func(http.Handler) http.Handler {
+func requireJWT(jwks *jwksCache, clk clock.Clock, issuer, audience string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			const prefix = "Bearer "
@@ -130,7 +130,7 @@ func requireJWT(jwks *jwksCache, clk clock.Clock, issuer string) func(http.Handl
 				return
 			}
 
-			token, err := jwt.Parse([]byte(raw), jwt.WithKeySet(set), jwt.WithClock(clk), jwt.WithIssuer(issuer))
+			token, err := jwt.Parse([]byte(raw), jwt.WithKeySet(set), jwt.WithClock(clk), jwt.WithIssuer(issuer), jwt.WithAudience(audience))
 			if err != nil {
 				rejectUnauthenticated(w, r)
 				return

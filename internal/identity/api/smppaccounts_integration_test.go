@@ -13,9 +13,9 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token, got %v", signInBody)
 	}
 
 	createReq := map[string]any{
@@ -26,7 +26,7 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 		"max_tps":      50,
 	}
 
-	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionID, createReq, "create-key-1")
+	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionToken, createReq, "create-key-1")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("got status %d, want 401 before stepping up (body: %v)", status, problemBody)
 	}
@@ -34,9 +34,9 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("got code %v, want AUTH-4012", problemBody["code"])
 	}
 
-	stepUpViaEmail(t, r, sender, sessionID)
+	stepUpViaEmail(t, r, sender, sessionToken)
 
-	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionID, createReq, "create-key-2")
+	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionToken, createReq, "create-key-2")
 	if status != http.StatusOK {
 		t.Fatalf("create smpp account: got status %d (body: %v)", status, createBody)
 	}
@@ -49,7 +49,7 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("expected a password in the create response, got %v", createBody)
 	}
 
-	status, listBody := doJSON(t, r, http.MethodGet, "/v1/auth/smpp-accounts", sessionID, nil, "")
+	status, listBody := doJSON(t, r, http.MethodGet, "/v1/auth/smpp-accounts", sessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("list smpp accounts: got status %d", status)
 	}
@@ -61,7 +61,7 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 	// Rotation is also step-up-gated, but the step-up that just
 	// unlocked create is still fresh (well within the 5-minute
 	// window), same reasoning as the API clients test.
-	status, rotateBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts/"+accountID+"/password", sessionID, nil, "rotate-key-1")
+	status, rotateBody := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts/"+accountID+"/password", sessionToken, nil, "rotate-key-1")
 	if status != http.StatusOK {
 		t.Fatalf("rotate password: got status %d (body: %v)", status, rotateBody)
 	}
@@ -70,7 +70,7 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("expected a fresh password on rotation, got %v", rotateBody)
 	}
 
-	status, suspendBody := doJSON(t, r, http.MethodPatch, "/v1/auth/smpp-accounts/"+accountID, sessionID,
+	status, suspendBody := doJSON(t, r, http.MethodPatch, "/v1/auth/smpp-accounts/"+accountID, sessionToken,
 		map[string]any{"status": "suspended"}, "suspend-key")
 	if status != http.StatusOK {
 		t.Fatalf("suspend: got status %d (body: %v)", status, suspendBody)
@@ -79,7 +79,7 @@ func TestSmppAccounts_CreateSuspendReactivateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("got status %v, want suspended", suspendBody["status"])
 	}
 
-	status, reactivateBody := doJSON(t, r, http.MethodPatch, "/v1/auth/smpp-accounts/"+accountID, sessionID,
+	status, reactivateBody := doJSON(t, r, http.MethodPatch, "/v1/auth/smpp-accounts/"+accountID, sessionToken,
 		map[string]any{"status": "active"}, "reactivate-key")
 	if status != http.StatusOK {
 		t.Fatalf("reactivate: got status %d (body: %v)", status, reactivateBody)
@@ -95,10 +95,10 @@ func TestSmppAccounts_EmptyIPAllowlist_ReturnsValidationError(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
-	sessionID, _ := signInBody["session_id"].(string)
-	stepUpViaEmail(t, r, sender, sessionID)
+	sessionToken, _ := signInBody["session_token"].(string)
+	stepUpViaEmail(t, r, sender, sessionToken)
 
-	status, body := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionID,
+	status, body := doJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionToken,
 		map[string]any{"system_id": "ACME01", "environment": "sandbox", "max_binds": 2, "max_tps": 50}, "create-key")
 	if status != http.StatusBadRequest {
 		t.Fatalf("got status %d, want 400 (body: %v)", status, body)

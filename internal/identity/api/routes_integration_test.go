@@ -48,8 +48,12 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 		SigningKeysKMSKey:   randomBase64Key(t),
 		ChallengeSigningKey: randomBase64Key(t),
 		WebAuthnRPID:        "localhost",
-		WebAuthnOrigins:     []string{"https://localhost"},
-		RedisURL:            testkit.StartRedisURL(t),
+		// Set explicitly: a literal Config skips the env loader's
+		// "VASPRO" default, and go-webauthn only rejects an empty
+		// display name at BeginRegistration, not at construction.
+		WebAuthnRPDisplayName: "VASPRO Test",
+		WebAuthnOrigins:       []string{"https://localhost"},
+		RedisURL:              testkit.StartRedisURL(t),
 	}
 	sender := &email.Sender{}
 	svc, err := identity.New(cfg, pool, nil, sender)

@@ -738,7 +738,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - TOTP against the RFC 6238 test vectors, including time-step drift of ±1.
 - WebAuthn registration and assertion with a virtual authenticator; a sign counter that goes backwards is rejected.
 - v3 password import: a known bcrypt(MD5) hash verifies once and is replaced by Argon2id; the old hash no longer works afterwards.
-- Lockout after the configured number of failures; unlock by time and by staff.
+- Lockout after the configured number of failures; unlock by time and by staff. *Unlock by staff deferred to Phase 2 (2026-10-25): no staff role or admin console exists before `accounts`; unlock by time is covered.*
 - JWT: expired, wrong audience, unknown key ID, and a key rotated out but still in its overlap window.
 - HMAC: wrong signature, timestamp older than 5 minutes, replayed nonce.
 - Rate limit returns 429 with `Retry-After`; a missing scope returns 403 with an `AUTH-` code; a sandbox credential cannot reach live routes.
@@ -747,9 +747,9 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] The e2e scenario above is green.
-- [ ] A negative-test pass covers every endpoint without a token, with a wrong scope, and with another tenant's IDs.
-- [ ] No secret, password or token appears in any log line; a test greps test logs for them.
+- [x] The e2e scenario above is green. *Evidence: `internal/gateway` `TestGateway_SignupThroughApiClientAndToken_EndToEnd` (real `cmd/identity` subprocess), `make check` green 2026-10-25.*
+- [x] A negative-test pass covers every endpoint without a token, with a wrong scope, and with another tenant's IDs. *Evidence: `internal/identity/api` `TestEverySessionBearerOperation_RejectsMissingGarbageAndRevokedTokens`, `TestEveryIDTakingOperation_RejectsAnotherTenantsIDs` and `TestRequireSessionOperations_MatchesSpec` (all driven by `docs/api/identity.yaml`); wrong scope: `internal/gateway` `TestRequireScope`, `TestGateway_MissingScope_Returns403` (no identity operation is scope-gated).*
+- [x] No secret, password or token appears in any log line; a test greps test logs for them. *Evidence: the e2e above greps the gateway's and the identity subprocess's logs for every secret the flow handles; confirmed by mutation (logging the raw path fails it on the TOTP challenge).*
 
 **Kickoff prompt**
 

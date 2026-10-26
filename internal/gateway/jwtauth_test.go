@@ -16,29 +16,43 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
 
-const testIssuer = "vaspro-identity"
+const (
+	testIssuer   = "vaspro-identity"
+	testAudience = "vaspro-api"
+)
 
 // newTestJWKSServer serves a JWKS containing pub under kid — standing
 // in for identity's real /.well-known/jwks.json (task 1.8), whose
 // shape this mirrors exactly (a jwk.Set, Ed25519/OKP).
 func newTestJWKSServer(t *testing.T, kid string, pub ed25519.PublicKey) *httptest.Server {
 	t.Helper()
-	key, err := jwk.Import(pub)
-	if err != nil {
-		t.Fatalf("importing public key: %v", err)
-	}
-	if err := key.Set(jwk.KeyIDKey, kid); err != nil {
-		t.Fatalf("setting kid: %v", err)
-	}
-	if err := key.Set(jwk.AlgorithmKey, jwa.EdDSA()); err != nil {
-		t.Fatalf("setting alg: %v", err)
-	}
-	if err := key.Set(jwk.KeyUsageKey, "sig"); err != nil {
-		t.Fatalf("setting use: %v", err)
-	}
+	return newTestJWKSServerWithKeys(t, map[string]ed25519.PublicKey{kid: pub})
+}
+
+// newTestJWKSServerWithKeys serves every key in keys at once — the
+// shape identity's JWKS has during a rotation's overlap window, when
+// it publishes both the new active key and the retiring one (task
+// 1.8's PublishableSigningKeys).
+func newTestJWKSServerWithKeys(t *testing.T, keys map[string]ed25519.PublicKey) *httptest.Server {
+	t.Helper()
 	set := jwk.NewSet()
-	if err := set.AddKey(key); err != nil {
-		t.Fatalf("adding key to set: %v", err)
+	for kid, pub := range keys {
+		key, err := jwk.Import(pub)
+		if err != nil {
+			t.Fatalf("importing public key: %v", err)
+		}
+		if err := key.Set(jwk.KeyIDKey, kid); err != nil {
+			t.Fatalf("setting kid: %v", err)
+		}
+		if err := key.Set(jwk.AlgorithmKey, jwa.EdDSA()); err != nil {
+			t.Fatalf("setting alg: %v", err)
+		}
+		if err := key.Set(jwk.KeyUsageKey, "sig"); err != nil {
+			t.Fatalf("setting use: %v", err)
+		}
+		if err := set.AddKey(key); err != nil {
+			t.Fatalf("adding key to set: %v", err)
+		}
 	}
 	body, err := json.Marshal(set)
 	if err != nil {
@@ -55,6 +69,7 @@ func newTestJWKSServer(t *testing.T, kid string, pub ed25519.PublicKey) *httptes
 type testTokenOpts struct {
 	kid         string
 	issuer      string
+	audience    string // empty leaves aud unset
 	expiresIn   time.Duration
 	clientID    string
 	tenantID    string
@@ -84,6 +99,9 @@ func signTestToken(t *testing.T, priv ed25519.PrivateKey, opts testTokenOpts) st
 		Claim("env", opts.environment).
 		Claim("scope", opts.scope).
 		Claim("ip_allowlist", opts.ipAllowlist)
+	if opts.audience != "" {
+		builder = builder.Audience([]string{opts.audience})
+	}
 
 	token, err := builder.Build()
 	if err != nil {
@@ -100,6 +118,7 @@ func defaultTokenOpts(kid string) testTokenOpts {
 	return testTokenOpts{
 		kid:         kid,
 		issuer:      testIssuer,
+		audience:    testAudience,
 		expiresIn:   time.Hour,
 		clientID:    "client-1",
 		tenantID:    "tenant-1",
@@ -123,7 +142,7 @@ func TestRequireJWT_ValidToken_SetsClaims(t *testing.T) {
 	})
 
 	jwks := newJWKSCache(srv.URL, testkit.NewClock(time.Now()))
-	handler := requireJWT(jwks, testkit.NewClock(time.Now()), testIssuer)(next)
+	handler := requireJWT(jwks, testkit.NewClock(time.Now()), testIssuer, testAudience)(next)
 
 	token := signTestToken(t, priv, defaultTokenOpts("kid-1"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -180,6 +199,16 @@ func TestRequireJWT_Rejections(t *testing.T) {
 			opts.issuer = "someone-else"
 			return signTestToken(t, priv, opts)
 		}},
+		{"wrong audience", "", func() string {
+			opts := defaultTokenOpts("kid-1")
+			opts.audience = "someone-elses-api"
+			return signTestToken(t, priv, opts)
+		}},
+		{"missing audience", "", func() string {
+			opts := defaultTokenOpts("kid-1")
+			opts.audience = ""
+			return signTestToken(t, priv, opts)
+		}},
 		{"unknown kid", "", func() string {
 			return signTestToken(t, priv, defaultTokenOpts("kid-does-not-exist"))
 		}},
@@ -194,7 +223,7 @@ func TestRequireJWT_Rejections(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			jwks := newJWKSCache(srv.URL, clk)
-			handler := requireJWT(jwks, clk, testIssuer)(okHandler())
+			handler := requireJWT(jwks, clk, testIssuer, testAudience)(okHandler())
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			switch {
@@ -216,5 +245,41 @@ func TestRequireJWT_Rejections(t *testing.T) {
 				t.Fatalf("got code %q, want AUTH-4010", body.Code)
 			}
 		})
+	}
+}
+
+// TestRequireJWT_RotatedKeyInOverlapWindow covers the phase's "a key
+// rotated out but still in its overlap window" case: while identity's
+// JWKS still publishes the retiring key alongside the new active one,
+// a token signed before the rotation keeps verifying; once the
+// retiring key drops out of the JWKS (retired), the same token fails.
+func TestRequireJWT_RotatedKeyInOverlapWindow(t *testing.T) {
+	oldPub, oldPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating old key: %v", err)
+	}
+	newPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating new key: %v", err)
+	}
+	clk := testkit.NewClock(time.Now())
+	token := signTestToken(t, oldPriv, defaultTokenOpts("kid-old"))
+
+	call := func(srv *httptest.Server) int {
+		handler := requireJWT(newJWKSCache(srv.URL, clk), clk, testIssuer, testAudience)(okHandler())
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	overlap := newTestJWKSServerWithKeys(t, map[string]ed25519.PublicKey{"kid-new": newPub, "kid-old": oldPub})
+	if got := call(overlap); got != http.StatusOK {
+		t.Fatalf("during overlap: got status %d, want 200", got)
+	}
+	retired := newTestJWKSServer(t, "kid-new", newPub)
+	if got := call(retired); got != http.StatusUnauthorized {
+		t.Fatalf("after retirement: got status %d, want 401", got)
 	}
 }

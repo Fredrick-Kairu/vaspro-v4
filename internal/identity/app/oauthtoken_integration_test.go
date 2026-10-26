@@ -83,6 +83,9 @@ func TestExchangeClientCredentials_HappyPath(t *testing.T) {
 	if sub, _ := parsed.Subject(); sub != client.ID.String() {
 		t.Fatalf("got sub %q, want %q", sub, client.ID.String())
 	}
+	if aud, _ := parsed.Audience(); len(aud) != 1 || aud[0] != "vaspro-api" {
+		t.Fatalf("got aud %v, want [vaspro-api] (what the gateway's requireJWT checks)", aud)
+	}
 	var tid string
 	if err := parsed.Get("tid", &tid); err != nil {
 		t.Fatalf("getting tid claim: %v", err)

@@ -135,7 +135,7 @@ func TestStepUpEmail_HappyPath_MarksSessionFresh(t *testing.T) {
 		t.Fatalf("SignIn: %v", err)
 	}
 	session := result.Session
-	userID, err := svc.ResolveSession(ctx, session.ID)
+	_, userID, err := svc.ResolveSession(ctx, session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestConfirmStepUpEmail_WrongCode_IncrementsAttemptsWithoutSteppingUp(t *tes
 		t.Fatalf("SignIn: %v", err)
 	}
 	session := result.Session
-	userID, err := svc.ResolveSession(ctx, session.ID)
+	_, userID, err := svc.ResolveSession(ctx, session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestStepUpFresh_ExpiresAfterWindow(t *testing.T) {
 		t.Fatalf("SignIn: %v", err)
 	}
 	session := result.Session
-	userID, err := svc.ResolveSession(ctx, session.ID)
+	_, userID, err := svc.ResolveSession(ctx, session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}

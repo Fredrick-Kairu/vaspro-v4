@@ -4,7 +4,10 @@ package app_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
@@ -12,6 +15,56 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 )
+
+// sessionCacheKey recomputes, independently of app/, where a session
+// token's cache entry must live: the SHA-256 of the token, hex-encoded
+// — never the raw token, never the session id.
+func sessionCacheKey(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return "identity:session:" + hex.EncodeToString(sum[:])
+}
+
+func TestResolveSession_SessionIDIsNotAToken(t *testing.T) {
+	ctx := context.Background()
+	svc, _, sender, _, _ := newTestService(t)
+	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
+
+	result, err := svc.SignIn(ctx, "ada@example.com", "a-strong-password", nil, "test-agent")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if _, _, err := svc.ResolveSession(ctx, result.Session.ID.String()); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("got error %v, want app.ErrNotFound for a session id used as a token", err)
+	}
+}
+
+func TestRevokeSession_ColdCache_StillRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, _, sender, _, _ := newTestService(t)
+	setPassword(t, ctx, svc, sender, "ada@example.com", "a-strong-password")
+
+	result, err := svc.SignIn(ctx, "ada@example.com", "a-strong-password", nil, "test-agent")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	user, err := svc.SignIn(ctx, "ada@example.com", "a-strong-password", nil, "test-agent")
+	if err != nil {
+		t.Fatalf("second SignIn: %v", err)
+	}
+	// Resolve the second session only, so the first one's cache entry
+	// was never written: its revocation is checked purely against
+	// Postgres.
+	_, userID, err := svc.ResolveSession(ctx, user.Session.Token)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if err := svc.RevokeSession(ctx, userID, result.Session.ID); err != nil {
+		t.Fatalf("RevokeSession: %v", err)
+	}
+	if _, _, err := svc.ResolveSession(ctx, result.Session.Token); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("got error %v, want app.ErrNotFound after revocation", err)
+	}
+}
 
 func TestResolveSession_CacheMissOnFirstUse_ThenPopulatesCache(t *testing.T) {
 	ctx := context.Background()
@@ -22,7 +75,7 @@ func TestResolveSession_CacheMissOnFirstUse_ThenPopulatesCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	key := "identity:session:" + result.Session.ID.String()
+	key := sessionCacheKey(result.Session.Token)
 
 	// Cache is populated lazily, not write-through at sign-in — a fresh
 	// session is a guaranteed miss until the first ResolveSession call.
@@ -30,17 +83,23 @@ func TestResolveSession_CacheMissOnFirstUse_ThenPopulatesCache(t *testing.T) {
 		t.Fatalf("expected a cache miss right after sign-in, got err=%v", err)
 	}
 
-	userID, err := svc.ResolveSession(ctx, result.Session.ID)
+	sessionID, userID, err := svc.ResolveSession(ctx, result.Session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
+	}
+	if sessionID != result.Session.ID {
+		t.Fatalf("resolved session %s, want %s", sessionID, result.Session.ID)
 	}
 
 	cached, err := c.Get(ctx, key).Result()
 	if err != nil {
 		t.Fatalf("expected the cache to be populated after ResolveSession, got err=%v", err)
 	}
-	if cached != userID.String() {
-		t.Fatalf("cached value %q, want %q", cached, userID.String())
+	if want := sessionID.String() + " " + userID.String(); cached != want {
+		t.Fatalf("cached value %q, want %q", cached, want)
+	}
+	if strings.Contains(cached, result.Session.Token) {
+		t.Fatal("the cached value contains the raw session token")
 	}
 }
 
@@ -61,12 +120,12 @@ func TestResolveSession_CacheMiss_FallsBackToPostgresAndBumpsLastSeenAt(t *testi
 
 	// Force a cache miss even though ResolveSession might otherwise have
 	// populated it already.
-	key := "identity:session:" + result.Session.ID.String()
+	key := sessionCacheKey(result.Session.Token)
 	if err := c.Del(ctx, key).Err(); err != nil {
 		t.Fatalf("Del: %v", err)
 	}
 
-	if _, err := svc.ResolveSession(ctx, result.Session.ID); err != nil {
+	if _, _, err := svc.ResolveSession(ctx, result.Session.Token); err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
 
@@ -93,7 +152,7 @@ func TestListSessions_ShowsActiveSessionsWithCurrentFlag(t *testing.T) {
 		t.Fatalf("second SignIn: %v", err)
 	}
 
-	userID, err := svc.ResolveSession(ctx, first.Session.ID)
+	_, userID, err := svc.ResolveSession(ctx, first.Session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
@@ -135,7 +194,7 @@ func TestRevokeSession_InvalidatesCacheAndPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	userID, err := svc.ResolveSession(ctx, result.Session.ID)
+	_, userID, err := svc.ResolveSession(ctx, result.Session.Token)
 	if err != nil {
 		t.Fatalf("priming ResolveSession: %v", err)
 	}
@@ -144,12 +203,12 @@ func TestRevokeSession_InvalidatesCacheAndPostgres(t *testing.T) {
 		t.Fatalf("RevokeSession: %v", err)
 	}
 
-	key := "identity:session:" + result.Session.ID.String()
+	key := sessionCacheKey(result.Session.Token)
 	if _, err := c.Get(ctx, key).Result(); !errors.Is(err, redis.Nil) {
 		t.Fatalf("expected the cache entry to be evicted, got err=%v", err)
 	}
 
-	if _, err := svc.ResolveSession(ctx, result.Session.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, _, err := svc.ResolveSession(ctx, result.Session.Token); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("got error %v, want app.ErrNotFound after revocation", err)
 	}
 }
@@ -187,7 +246,7 @@ func TestSignOutEverywhere_RevokesEverySessionIncludingCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second SignIn: %v", err)
 	}
-	userID, err := svc.ResolveSession(ctx, first.Session.ID)
+	_, userID, err := svc.ResolveSession(ctx, first.Session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}
@@ -200,10 +259,10 @@ func TestSignOutEverywhere_RevokesEverySessionIncludingCurrent(t *testing.T) {
 		t.Fatalf("got %d sessions revoked, want 2", count)
 	}
 
-	if _, err := svc.ResolveSession(ctx, first.Session.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, _, err := svc.ResolveSession(ctx, first.Session.Token); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("got error %v for the first (current) session, want app.ErrNotFound", err)
 	}
-	if _, err := svc.ResolveSession(ctx, second.Session.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, _, err := svc.ResolveSession(ctx, second.Session.Token); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("got error %v for the second session, want app.ErrNotFound", err)
 	}
 }

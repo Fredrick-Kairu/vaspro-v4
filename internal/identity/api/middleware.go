@@ -113,7 +113,7 @@ var requireSessionOperations = map[string]bool{
 	"ListSecurityEvents":                    true,
 }
 
-// requireSession reads Authorization: Bearer <session_id> and resolves
+// requireSession reads Authorization: Bearer <session_token> and resolves
 // it through lookup, rejecting a missing, malformed, unknown, expired
 // or revoked token with the same AUTH-4010 sign-in uses — identity has
 // no real bearer-auth yet, so this is a narrow, local stand-in, not a
@@ -129,11 +129,11 @@ func requireSession(lookup *SessionLookup) StrictMiddlewareFunc {
 			if !strings.HasPrefix(header, prefix) {
 				return nil, problem.New(problem.AUTH4010, "a bearer session token is required")
 			}
-			sessionID, err := uuid.Parse(strings.TrimPrefix(header, prefix))
-			if err != nil {
+			token := strings.TrimPrefix(header, prefix)
+			if token == "" {
 				return nil, problem.New(problem.AUTH4010, "a bearer session token is required")
 			}
-			userID, err := lookup.userIDForSession(ctx, sessionID)
+			sessionID, userID, err := lookup.resolve(ctx, token)
 			if err != nil {
 				return nil, problem.New(problem.AUTH4010, "a bearer session token is required")
 			}

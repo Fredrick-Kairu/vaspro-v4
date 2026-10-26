@@ -24,6 +24,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 )
 
@@ -145,7 +146,11 @@ func New(d Deps) *Service {
 // Session is what a successful sign-in (or completed TOTP challenge)
 // produces.
 type Session struct {
-	ID        uuid.UUID
+	ID uuid.UUID
+	// Token is the bearer credential, returned exactly once at sign-in
+	// and stored only as its hash. ID is the public handle list/revoke
+	// use and never authenticates.
+	Token     string
 	ExpiresAt time.Time
 }
 
@@ -238,6 +243,10 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 	if err != nil {
 		return nil, false, fmt.Errorf("app: generating session id: %w", err)
 	}
+	token, err := domain.GenerateSessionToken()
+	if err != nil {
+		return nil, false, err
+	}
 	expiresAt := s.clk.Now().Add(sessionTTL)
 	row, err := q.CreateSession(ctx, store.CreateSessionParams{
 		ID:        id,
@@ -246,6 +255,7 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 		Ip:        toNetipAddr(ip),
 		UserAgent: pgtype.Text{String: userAgent, Valid: userAgent != ""},
 		ExpiresAt: expiresAt,
+		TokenHash: domain.HashSessionToken(token),
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("app: creating session: %w", err)
@@ -254,7 +264,7 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 	if err != nil {
 		return nil, false, err
 	}
-	return &Session{ID: row.ID, ExpiresAt: row.ExpiresAt}, alertNewIP, nil
+	return &Session{ID: row.ID, Token: token, ExpiresAt: row.ExpiresAt}, alertNewIP, nil
 }
 
 // totpChallenge is the payload inside a sign-in challenge token.

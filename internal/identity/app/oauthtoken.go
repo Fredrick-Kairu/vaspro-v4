@@ -32,6 +32,11 @@ const tokenTTL = time.Hour
 
 const oauthIssuer = "vaspro-identity"
 
+// oauthAudience is the aud claim every token carries: the gateway
+// (internal/gateway, its own duplicated oauthAudience) rejects a token
+// for any other audience.
+const oauthAudience = "vaspro-api"
+
 // Token is a successfully issued OAuth2 client-credentials access
 // token (RFC 6749 §4.4.3).
 type Token struct {
@@ -145,6 +150,7 @@ func (s *Service) ExchangeClientCredentials(ctx context.Context, clientID, clien
 	token, err := jwt.NewBuilder().
 		Issuer(oauthIssuer).
 		Subject(client.ID.String()).
+		Audience([]string{oauthAudience}).
 		IssuedAt(now).
 		Expiration(now.Add(tokenTTL)).
 		JwtID(jti.String()).

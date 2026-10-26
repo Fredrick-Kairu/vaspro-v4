@@ -23,6 +23,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +37,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
@@ -225,6 +230,14 @@ func randomBase64Key(t *testing.T) string {
 // containers and smtp (the fake SMTP server), returning its base URL.
 func startRealIdentity(t *testing.T, smtpAddr string) string {
 	t.Helper()
+	return startRealIdentityWithLogs(t, smtpAddr, nil)
+}
+
+// startRealIdentityWithLogs is startRealIdentity that also copies the
+// subprocess's stdout and stderr into logs, for a test that needs to
+// read back what identity logged.
+func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer) string {
+	t.Helper()
 	root := repoRoot(t)
 
 	binPath := filepath.Join(t.TempDir(), "identity")
@@ -255,6 +268,10 @@ func startRealIdentity(t *testing.T, smtpAddr string) string {
 	)
 	runCmd.Stdout = os.Stdout
 	runCmd.Stderr = os.Stderr
+	if logs != nil {
+		runCmd.Stdout = io.MultiWriter(os.Stdout, logs)
+		runCmd.Stderr = io.MultiWriter(os.Stderr, logs)
+	}
 	if err := runCmd.Start(); err != nil {
 		t.Fatalf("starting identity subprocess: %v", err)
 	}
@@ -304,21 +321,88 @@ func gwDoJSON(t *testing.T, h http.Handler, method, path, bearer string, body an
 
 func newTestGateway(t *testing.T, identityBaseURL string, protected []ProtectedRoute) http.Handler {
 	t.Helper()
+	return newTestGatewayWithLogger(t, identityBaseURL, protected, slog.Default())
+}
+
+// newTestGatewayWithLogger is newTestGateway with the gateway's logger
+// supplied, for a test that needs to read back what the gateway logged.
+func newTestGatewayWithLogger(t *testing.T, identityBaseURL string, protected []ProtectedRoute, logger *slog.Logger) http.Handler {
+	t.Helper()
 	root := repoRoot(t)
 	cfg := Config{
 		IdentityBaseURL:     identityBaseURL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
 	}
-	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, protected)
+	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected)
 	if err != nil {
 		t.Fatalf("gateway.New: %v", err)
 	}
 	return svc.Router()
 }
 
+// syncBuffer is a bytes.Buffer safe to write from the gateway's
+// handlers and the identity subprocess's output copiers at once.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// totpCodes hands out TOTP codes the way a careful authenticator user
+// would never repeat one: each code comes from a 30-second time step
+// not used before in this test, chosen from the current step and its
+// neighbours (identity accepts ±1 step of drift). So the test stays
+// valid once identity rejects a replayed code (RFC 6238 §5.2), which it
+// doesn't yet.
+type totpCodes struct {
+	secret string
+	used   map[int64]bool
+	issued []string
+}
+
+func (c *totpCodes) next(t *testing.T) string {
+	t.Helper()
+	now := time.Now().Unix() / 30
+	for _, step := range []int64{now, now + 1, now - 1} {
+		if c.used[step] {
+			continue
+		}
+		code, err := totp.GenerateCodeCustom(c.secret, time.Unix(step*30, 0), totp.ValidateOpts{
+			Period: 30, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
+		})
+		if err != nil {
+			t.Fatalf("generating a TOTP code: %v", err)
+		}
+		c.used[step] = true
+		c.issued = append(c.issued, code)
+		return code
+	}
+	t.Fatal("no unused TOTP time step left in the drift window")
+	return ""
+}
+
+// TestGateway_SignupThroughApiClientAndToken_EndToEnd is Phase 1's
+// exit-gate e2e scenario, step for step: sign up → verify email →
+// enrol TOTP → sign in → create API client → get a token → call a
+// protected endpoint → revoke the client → the call fails. It also
+// carries the gate's "no secret, password or token in any log line"
+// check: every secret the flow handles is grepped for in what both
+// the gateway and the identity subprocess logged.
 func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	smtp := startFakeSMTPServer(t)
-	identityBaseURL := startRealIdentity(t, smtp.Addr())
+	var identityLogs, gatewayLogs syncBuffer
+	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), &identityLogs)
 
 	// The synthetic protected route this task's own tests use to prove
 	// the JWT/scope/env/ip-allowlist pipeline: a real, already-existing
@@ -328,7 +412,18 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	protected := []ProtectedRoute{
 		{Method: http.MethodGet, Pattern: "/.well-known/jwks.json", Scope: "reports:read"},
 	}
-	r := newTestGateway(t, identityBaseURL, protected)
+	// JSON, minus the timestamp: its microsecond field is a run of six
+	// digits that could match a 6-digit code by chance.
+	gatewayLogger := slog.New(slog.NewJSONHandler(&gatewayLogs, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}))
+	r := newTestGatewayWithLogger(t, identityBaseURL, protected, gatewayLogger)
 
 	email := "ada@example.com"
 
@@ -369,27 +464,95 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sign in: got status %d (body: %v)", status, signInBody)
 	}
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token, got %v", signInBody)
 	}
 
 	// --- step up via email (no TOTP enrolled) ---
 	before = smtp.count()
-	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionID, nil, "stepup-request-key")
+	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionToken, nil, "stepup-request-key")
 	if status != http.StatusAccepted {
 		t.Fatalf("step-up email request: got status %d", status)
 	}
 	stepUpCode := extractCode(t, smtp.waitForNext(t, before))
 
-	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionID,
+	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionToken,
 		map[string]string{"code": stepUpCode}, "stepup-confirm-key")
 	if status != http.StatusOK {
 		t.Fatalf("step-up email confirmation: got status %d", status)
 	}
 
+	// --- enrol TOTP (step-up-gated; the email step-up above covers it,
+	// since an account with no TOTP yet has no other way to step up) ---
+	status, enrolBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments", sessionToken, nil, "totp-enrol-key")
+	if status != http.StatusOK {
+		t.Fatalf("totp enrollment: got status %d (body: %v)", status, enrolBody)
+	}
+	otpURL, _ := enrolBody["url"].(string)
+	otpKey, err := otp.NewKeyFromURL(otpURL)
+	if err != nil {
+		t.Fatalf("parsing the otpauth url: %v", err)
+	}
+	totpSecret := otpKey.Secret()
+	var recoveryCodes []string
+	if raw, ok := enrolBody["recovery_codes"].([]any); ok {
+		for _, c := range raw {
+			if s, ok := c.(string); ok {
+				recoveryCodes = append(recoveryCodes, s)
+			}
+		}
+	}
+	if totpSecret == "" || len(recoveryCodes) == 0 {
+		t.Fatalf("expected a TOTP secret and recovery codes, got %v", enrolBody)
+	}
+	codes := &totpCodes{secret: totpSecret, used: map[int64]bool{}}
+
+	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments/confirmation", sessionToken,
+		map[string]string{"code": codes.next(t)}, "totp-confirm-key")
+	if status != http.StatusOK {
+		t.Fatalf("totp enrollment confirmation: got status %d", status)
+	}
+
+	// --- sign out everywhere, then sign in again: TOTP is now required ---
+	firstSessionToken := sessionToken
+	status, _ = gwDoJSON(t, r, http.MethodDelete, "/v1/auth/sessions", sessionToken, nil, "signout-key")
+	if status != http.StatusNoContent {
+		t.Fatalf("sign out everywhere: got status %d", status)
+	}
+	status, body := gwDoJSON(t, r, http.MethodGet, "/v1/auth/sessions", firstSessionToken, nil, "")
+	if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" {
+		t.Fatalf("signed-out session: got status %d, code %v, want 401 AUTH-4010", status, body["code"])
+	}
+
+	status, signInBody = gwDoJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
+		map[string]string{"email": email, "password": "a-strong-password"}, "signin-totp-key")
+	if status != http.StatusOK {
+		t.Fatalf("sign in with TOTP enrolled: got status %d (body: %v)", status, signInBody)
+	}
+	challenge, _ := signInBody["challenge"].(string)
+	if challenge == "" || signInBody["session_token"] != nil {
+		t.Fatalf("expected a TOTP challenge and no session yet, got %v", signInBody)
+	}
+	status, challengeBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/totp-challenges/"+challenge+"/verification", "",
+		map[string]string{"code": codes.next(t)}, "totp-challenge-key")
+	if status != http.StatusOK {
+		t.Fatalf("totp challenge: got status %d (body: %v)", status, challengeBody)
+	}
+	sessionToken, _ = challengeBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token after the TOTP challenge, got %v", challengeBody)
+	}
+
+	// --- step up with TOTP: the new session needs its own fresh step-up ---
+	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/totp", sessionToken,
+		map[string]string{"code": codes.next(t)}, "stepup-totp-key")
+	if status != http.StatusOK {
+		t.Fatalf("step-up totp: got status %d", status)
+	}
+
 	// --- create an API client (step-up-gated) ---
-	status, clientBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID,
+	status, clientBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{
 			"name": "gateway test client", "environment": "sandbox",
 			"scopes": []string{"reports:read"}, "ip_allowlist": []string{"203.0.113.0/24"},
@@ -463,7 +626,7 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	}
 
 	// --- no Authorization header at all ---
-	status, body := callProtected("", "203.0.113.42:1234")
+	status, body = callProtected("", "203.0.113.42:1234")
 	if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" {
 		t.Fatalf("missing bearer: got status %d, code %v", status, body["code"])
 	}
@@ -483,12 +646,24 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 		t.Fatalf("disallowed IP: got status %d, code %v", status, body["code"])
 	}
 
+	// --- an SMPP account too, so its generated password is one more
+	// secret the log check below looks for ---
+	status, smppBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/smpp-accounts", sessionToken,
+		map[string]any{
+			"system_id": "gwtest01", "environment": "sandbox",
+			"ip_allowlist": []string{"203.0.113.0/24"}, "max_binds": 1, "max_tps": 10,
+		}, "create-smpp-key")
+	if status != http.StatusOK {
+		t.Fatalf("create smpp account: got status %d (body: %v)", status, smppBody)
+	}
+	smppPassword, _ := smppBody["password"].(string)
+
 	// --- revoke the client: a NEW token exchange fails. An
 	// already-issued token keeps working until its own 1-hour expiry
 	// (task 1.8's own documented behavior — revoking doesn't recall
 	// it), so this deliberately checks the exchange, not the token
 	// that's already out. ---
-	status, _ = gwDoJSON(t, r, http.MethodDelete, "/v1/auth/api-clients/"+clientID, sessionID, nil, "revoke-key")
+	status, _ = gwDoJSON(t, r, http.MethodDelete, "/v1/auth/api-clients/"+clientID, sessionToken, nil, "revoke-key")
 	if status != http.StatusNoContent {
 		t.Fatalf("revoke api client: got status %d", status)
 	}
@@ -498,6 +673,42 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	}
 	if errBody["error"] != "invalid_client" {
 		t.Fatalf("got oauth error %v, want invalid_client", errBody["error"])
+	}
+
+	// --- exit gate: no secret, password or token in any log line ---
+	secrets := map[string]string{
+		"password":            "a-strong-password",
+		"signup code":         signupCode,
+		"password reset code": pwResetCode,
+		"step-up email code":  stepUpCode,
+		"totp secret":         totpSecret,
+		"first session token": firstSessionToken,
+		"session token":       sessionToken,
+		"totp challenge":      challenge,
+		"client secret":       clientSecret,
+		"access token":        accessToken,
+		"narrowed token":      narrowToken,
+		"smpp password":       smppPassword,
+	}
+	for i, c := range codes.issued {
+		secrets[fmt.Sprintf("totp code %d", i)] = c
+	}
+	for i, c := range recoveryCodes {
+		secrets[fmt.Sprintf("recovery code %d", i)] = c
+	}
+	logs := map[string]string{"gateway": gatewayLogs.String(), "identity": identityLogs.String()}
+	if !strings.Contains(logs["gateway"], `"msg":"gateway: request"`) {
+		t.Fatalf("expected the gateway's audit lines in its log, got %q", logs["gateway"])
+	}
+	for name, secret := range secrets {
+		if secret == "" {
+			t.Fatalf("secret %q is empty: the flow above didn't capture it", name)
+		}
+		for source, text := range logs {
+			if strings.Contains(text, secret) {
+				t.Errorf("the %s log contains the %s", source, name)
+			}
+		}
 	}
 }
 
@@ -509,9 +720,9 @@ func TestGateway_MissingScope_Returns403(t *testing.T) {
 	}
 	r := newTestGateway(t, identityBaseURL, protected)
 
-	_, sessionID := signUpVerifySetPasswordAndSignIn(t, r, smtp, "bob@example.com")
-	stepUp(t, r, smtp, sessionID)
-	clientID, clientSecret := createApiClient(t, r, sessionID, []string{"reports:read"}, nil)
+	_, sessionToken := signUpVerifySetPasswordAndSignIn(t, r, smtp, "bob@example.com")
+	stepUp(t, r, smtp, sessionToken)
+	clientID, clientSecret := createApiClient(t, r, sessionToken, []string{"reports:read"}, nil)
 
 	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {clientID}, "client_secret": {clientSecret}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/oauth/token", strings.NewReader(form.Encode()))
@@ -545,9 +756,9 @@ func TestGateway_SandboxCredentialCannotReachLiveOnlyRoute(t *testing.T) {
 	}
 	r := newTestGateway(t, identityBaseURL, protected)
 
-	_, sessionID := signUpVerifySetPasswordAndSignIn(t, r, smtp, "carol@example.com")
-	stepUp(t, r, smtp, sessionID)
-	clientID, clientSecret := createApiClient(t, r, sessionID, []string{"reports:read"}, nil) // sandbox, 1.7's own default
+	_, sessionToken := signUpVerifySetPasswordAndSignIn(t, r, smtp, "carol@example.com")
+	stepUp(t, r, smtp, sessionToken)
+	clientID, clientSecret := createApiClient(t, r, sessionToken, []string{"reports:read"}, nil) // sandbox, 1.7's own default
 
 	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {clientID}, "client_secret": {clientSecret}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/oauth/token", strings.NewReader(form.Encode()))
@@ -609,35 +820,35 @@ func signUpVerifySetPasswordAndSignIn(t *testing.T, r http.Handler, smtp *fakeSM
 	if status != http.StatusOK {
 		t.Fatalf("sign in: got status %d", status)
 	}
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token, got %v", signInBody)
 	}
-	return email, sessionID
+	return email, sessionToken
 }
 
-func stepUp(t *testing.T, r http.Handler, smtp *fakeSMTPServer, sessionID string) {
+func stepUp(t *testing.T, r http.Handler, smtp *fakeSMTPServer, sessionToken string) {
 	t.Helper()
 	before := smtp.count()
-	status, _ := gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionID, nil, "stepup-req-"+sessionID)
+	status, _ := gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionToken, nil, "stepup-req-"+sessionToken)
 	if status != http.StatusAccepted {
 		t.Fatalf("step-up request: got status %d", status)
 	}
 	code := extractCode(t, smtp.waitForNext(t, before))
-	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionID,
-		map[string]string{"code": code}, "stepup-confirm-"+sessionID)
+	status, _ = gwDoJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionToken,
+		map[string]string{"code": code}, "stepup-confirm-"+sessionToken)
 	if status != http.StatusOK {
 		t.Fatalf("step-up confirmation: got status %d", status)
 	}
 }
 
-func createApiClient(t *testing.T, r http.Handler, sessionID string, scopes, ipAllowlist []string) (string, string) {
+func createApiClient(t *testing.T, r http.Handler, sessionToken string, scopes, ipAllowlist []string) (string, string) {
 	t.Helper()
 	body := map[string]any{"name": "test client", "environment": "sandbox", "scopes": scopes}
 	if ipAllowlist != nil {
 		body["ip_allowlist"] = ipAllowlist
 	}
-	status, clientBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID, body, "create-client-"+sessionID)
+	status, clientBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken, body, "create-client-"+sessionToken)
 	if status != http.StatusOK {
 		t.Fatalf("create api client: got status %d (body: %v)", status, clientBody)
 	}

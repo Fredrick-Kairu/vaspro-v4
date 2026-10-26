@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
@@ -95,6 +96,49 @@ func TestCreateSession_GetSessionByID_RoundTrip(t *testing.T) {
 	}
 	if got.UserID != user.ID {
 		t.Fatalf("got session for user %s, want %s", got.UserID, user.ID)
+	}
+}
+
+// TestSessions_TokenHashUnique covers migration 20261025090000's
+// sessions_token_hash index: two sessions can never share a token hash,
+// while any number of rows with no token (created before the column
+// existed) can coexist.
+func TestSessions_TokenHashUnique(t *testing.T) {
+	ctx := context.Background()
+	pool := newIdentityPool(t)
+	q := store.New(pool)
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{
+		ID:       uuid.New(),
+		Email:    "token-owner@example.com",
+		FullName: "Token Owner",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	create := func(tokenHash []byte) error {
+		_, err := q.CreateSession(ctx, store.CreateSessionParams{
+			ID:        uuid.New(),
+			UserID:    user.ID,
+			ExpiresAt: time.Now().Add(time.Hour),
+			TokenHash: tokenHash,
+		})
+		return err
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := create(nil); err != nil {
+			t.Fatalf("session %d with no token hash: %v", i, err)
+		}
+	}
+
+	hash := []byte("0123456789abcdef0123456789abcdef")
+	if err := create(hash); err != nil {
+		t.Fatalf("first session with a token hash: %v", err)
+	}
+	var pgErr *pgconn.PgError
+	if err := create(hash); !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		t.Fatalf("got error %v, want a unique violation (23505) for a duplicate token hash", err)
 	}
 }
 

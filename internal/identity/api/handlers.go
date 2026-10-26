@@ -443,14 +443,16 @@ func passkeySummaryResponse(s *app.PasskeySummary) PasskeySummary {
 }
 
 // signInResult renders an app.SignInResult as the API's SignInResult
-// shape: Challenge set, or SessionId+ExpiresAt set — never both.
+// shape: Challenge set, or SessionId+SessionToken+ExpiresAt set —
+// never both.
 func signInResult(r *app.SignInResult) SignInResult {
 	if r.Challenge != "" {
 		return SignInResult{Challenge: &r.Challenge}
 	}
 	return SignInResult{
-		SessionId: ptr(r.Session.ID.String()),
-		ExpiresAt: &r.Session.ExpiresAt,
+		SessionId:    ptr(r.Session.ID.String()),
+		SessionToken: ptr(r.Session.Token),
+		ExpiresAt:    &r.Session.ExpiresAt,
 	}
 }
 

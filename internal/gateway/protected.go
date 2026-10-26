@@ -44,10 +44,10 @@ const (
 // first (everything after it reads Claims from context), and scope/
 // environment/ip-allowlist all reuse the one JWT verification rather
 // than re-parsing the token.
-func mountProtectedRoutes(r chi.Router, routes []ProtectedRoute, jwks *jwksCache, clk clock.Clock, issuer string, limiter RateLimiter, handler http.Handler) {
+func mountProtectedRoutes(r chi.Router, routes []ProtectedRoute, jwks *jwksCache, clk clock.Clock, issuer, audience string, limiter RateLimiter, handler http.Handler) {
 	for _, route := range routes {
 		mw := []func(http.Handler) http.Handler{
-			requireJWT(jwks, clk, issuer),
+			requireJWT(jwks, clk, issuer, audience),
 			rateLimit(limiter, rateLimitByClientID, protectedRouteRateLimit, protectedRouteRateWindow),
 			requireScope(route.Scope),
 		}

@@ -345,8 +345,11 @@ type SignInResult struct {
 	Challenge *string    `json:"challenge,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 
-	// SessionId Set when sign-in completed without a TOTP step.
+	// SessionId Set when sign-in completed without a TOTP step. The session's public handle, as listSessions shows it and deleteSession takes it — never a credential.
 	SessionId *string `json:"session_id,omitempty"`
+
+	// SessionToken Set alongside session_id. The bearer credential for every sessionBearer operation (Authorization: Bearer <session_token>). Returned exactly once; only its hash is stored.
+	SessionToken *string `json:"session_token,omitempty"`
 }
 
 // SignupAccepted defines model for SignupAccepted.

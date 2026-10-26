@@ -27,7 +27,7 @@ func signedInUserID(t *testing.T, ctx context.Context, svc *app.Service, sender 
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	userID, err := svc.ResolveSession(ctx, result.Session.ID)
+	_, userID, err := svc.ResolveSession(ctx, result.Session.Token)
 	if err != nil {
 		t.Fatalf("ResolveSession: %v", err)
 	}

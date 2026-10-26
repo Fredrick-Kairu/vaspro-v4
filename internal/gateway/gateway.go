@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/getkin/kin-openapi/routers/gorillamux"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 
@@ -24,6 +25,11 @@ import (
 // with it. Duplicated, not imported: the gateway must never import
 // internal/identity (CLAUDE.md's service boundary).
 const oauthIssuer = "vaspro-identity"
+
+// oauthAudience must match identity/app/oauthtoken.go's own
+// oauthAudience the same way, for the same reason. A token minted for
+// any other audience is rejected even if its signature verifies.
+const oauthAudience = "vaspro-api"
 
 // globalRateLimit/globalRateWindow gate every proxied request by
 // caller IP, ahead of (and independent from) the protected-route
@@ -63,7 +69,7 @@ type Service struct {
 // is the production route table — empty today (see ProtectedRoute's
 // own doc); tests pass their own to exercise the pipeline against a
 // real identity route.
-func New(cfg Config, c *cache.Cache, clk clock.Clock, protected []ProtectedRoute) (*Service, error) {
+func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, protected []ProtectedRoute) (*Service, error) {
 	target, err := url.Parse(cfg.IdentityBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_IDENTITY_BASE_URL: %w", err)
@@ -72,11 +78,14 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, protected []ProtectedRoute
 	if err != nil {
 		return nil, err
 	}
+	specRoutes, err := gorillamux.NewRouter(spec)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: building openapi route table: %w", err)
+	}
 
 	jwks := newJWKSCache(cfg.IdentityBaseURL+"/.well-known/jwks.json", clk)
 	limiter := NewRedisRateLimiter(c)
 	proxyHandler := newReverseProxy(target)
-	logger := slog.Default()
 
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
@@ -88,12 +97,12 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, protected []ProtectedRoute
 	r.Get("/readyz", httpx.Readyz())
 
 	proxied := chi.NewRouter()
-	proxied.Use(audit(logger))
+	proxied.Use(audit(logger, specRoutes))
 	proxied.Use(rateLimit(limiter, rateLimitByIP, globalRateLimit, globalRateWindow))
 	proxied.Use(requireIdempotencyKeyHeader)
 	proxied.Use(requireValidRequestShape(spec))
 
-	mountProtectedRoutes(proxied, protected, jwks, clk, oauthIssuer, limiter, proxyHandler)
+	mountProtectedRoutes(proxied, protected, jwks, clk, oauthIssuer, oauthAudience, limiter, proxyHandler)
 	proxied.NotFound(proxyHandler.ServeHTTP)
 	proxied.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) { proxyHandler.ServeHTTP(w, r) })
 
@@ -113,7 +122,7 @@ func Bootstrap(_ context.Context) (*Service, error) {
 	}
 	c := cache.New(redisOpts)
 
-	return New(cfg, c, clock.Real{}, nil)
+	return New(cfg, c, clock.Real{}, slog.Default(), nil)
 }
 
 // Router is the gateway's HTTP handler, exported so tests can drive it

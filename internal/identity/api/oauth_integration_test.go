@@ -37,13 +37,13 @@ func TestCreateOAuthToken_HappyPathAndExemptions(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "oauth-http@example.com", "password": "a-strong-password"}, "signin-key")
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token, got %v", signInBody)
 	}
-	stepUpViaEmail(t, r, sender, sessionID)
+	stepUpViaEmail(t, r, sender, sessionToken)
 
-	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID,
+	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{"name": "OAuth test client", "environment": "sandbox", "scopes": []string{"sms:send", "reports:read"}}, "create-oauth-client")
 	if status != http.StatusOK {
 		t.Fatalf("create api client: got status %d (body: %v)", status, createBody)
@@ -105,10 +105,10 @@ func TestCreateOAuthToken_BadSecret_ReturnsInvalidClient(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "oauth-badsecret@example.com", "password": "a-strong-password"}, "signin-key-2")
-	sessionID, _ := signInBody["session_id"].(string)
-	stepUpViaEmail(t, r, sender, sessionID)
+	sessionToken, _ := signInBody["session_token"].(string)
+	stepUpViaEmail(t, r, sender, sessionToken)
 
-	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID,
+	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{"name": "OAuth bad secret client", "environment": "sandbox", "scopes": []string{"sms:send"}}, "create-oauth-client-2")
 	if status != http.StatusOK {
 		t.Fatalf("create api client: got status %d (body: %v)", status, createBody)

@@ -15,9 +15,9 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at
+INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at, token_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash
 `
 
 type CreateSessionParams struct {
@@ -27,6 +27,7 @@ type CreateSessionParams struct {
 	Ip        *netip.Addr `json:"ip"`
 	UserAgent pgtype.Text `json:"user_agent"`
 	ExpiresAt time.Time   `json:"expires_at"`
+	TokenHash []byte      `json:"token_hash"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (IdentitySession, error) {
@@ -37,6 +38,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (I
 		arg.Ip,
 		arg.UserAgent,
 		arg.ExpiresAt,
+		arg.TokenHash,
 	)
 	var i IdentitySession
 	err := row.Scan(
@@ -50,12 +52,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (I
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.TokenHash,
 	)
 	return i, err
 }
 
 const getActiveSessionByID = `-- name: GetActiveSessionByID :one
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at FROM identity.sessions
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
 WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
 `
 
@@ -78,12 +81,44 @@ func (q *Queries) GetActiveSessionByID(ctx context.Context, arg GetActiveSession
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.TokenHash,
+	)
+	return i, err
+}
+
+const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
+WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
+`
+
+type GetActiveSessionByTokenHashParams struct {
+	TokenHash []byte    `json:"token_hash"`
+	Now       time.Time `json:"now"`
+}
+
+// The per-request bearer check: the bearer is the session token, never
+// the session id (migration 20261025090000).
+func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (IdentitySession, error) {
+	row := q.db.QueryRow(ctx, getActiveSessionByTokenHash, arg.TokenHash, arg.Now)
+	var i IdentitySession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TenantID,
+		&i.Ip,
+		&i.UserAgent,
+		&i.StepUpAt,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.TokenHash,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at FROM identity.sessions WHERE id = $1
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions WHERE id = $1
 `
 
 func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (IdentitySession, error) {
@@ -100,12 +135,13 @@ func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (IdentitySes
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.TokenHash,
 	)
 	return i, err
 }
 
 const listActiveSessionsByUserID = `-- name: ListActiveSessionsByUserID :many
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at FROM identity.sessions
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
 WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
 ORDER BY last_seen_at DESC
 `
@@ -135,6 +171,7 @@ func (q *Queries) ListActiveSessionsByUserID(ctx context.Context, arg ListActive
 			&i.LastSeenAt,
 			&i.ExpiresAt,
 			&i.RevokedAt,
+			&i.TokenHash,
 		); err != nil {
 			return nil, err
 		}
@@ -149,22 +186,22 @@ func (q *Queries) ListActiveSessionsByUserID(ctx context.Context, arg ListActive
 const revokeAllSessions = `-- name: RevokeAllSessions :many
 UPDATE identity.sessions SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL
-RETURNING id
+RETURNING token_hash
 `
 
-func (q *Queries) RevokeAllSessions(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+func (q *Queries) RevokeAllSessions(ctx context.Context, userID uuid.UUID) ([][]byte, error) {
 	rows, err := q.db.Query(ctx, revokeAllSessions, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []uuid.UUID
+	var items [][]byte
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var token_hash []byte
+		if err := rows.Scan(&token_hash); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, token_hash)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -172,9 +209,10 @@ func (q *Queries) RevokeAllSessions(ctx context.Context, userID uuid.UUID) ([]uu
 	return items, nil
 }
 
-const revokeSession = `-- name: RevokeSession :execrows
+const revokeSession = `-- name: RevokeSession :one
 UPDATE identity.sessions SET revoked_at = now()
 WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+RETURNING token_hash
 `
 
 type RevokeSessionParams struct {
@@ -182,12 +220,13 @@ type RevokeSessionParams struct {
 	UserID uuid.UUID `json:"user_id"`
 }
 
-func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeSession, arg.ID, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+// Returns token_hash so the caller can evict the session's Redis
+// cache entry, which is keyed by it. No row means not found.
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, revokeSession, arg.ID, arg.UserID)
+	var token_hash []byte
+	err := row.Scan(&token_hash)
+	return token_hash, err
 }
 
 const setSessionStepUp = `-- name: SetSessionStepUp :exec

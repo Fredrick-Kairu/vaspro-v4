@@ -19,12 +19,12 @@ func TestListSecurityEvents_RequiresBearerAndScopesToOwnUser(t *testing.T) {
 
 	_, adaSignIn := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "ada-signin")
-	adaSessionID, _ := adaSignIn["session_id"].(string)
+	adaSessionToken, _ := adaSignIn["session_token"].(string)
 	_, bobSignIn := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "bob@example.com", "password": "a-strong-password"}, "bob-signin")
-	bobSessionID, _ := bobSignIn["session_id"].(string)
+	bobSessionToken, _ := bobSignIn["session_token"].(string)
 
-	status, adaBody := doJSON(t, r, http.MethodGet, "/v1/auth/security-events", adaSessionID, nil, "")
+	status, adaBody := doJSON(t, r, http.MethodGet, "/v1/auth/security-events", adaSessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("list security events (ada): got status %d", status)
 	}
@@ -39,7 +39,7 @@ func TestListSecurityEvents_RequiresBearerAndScopesToOwnUser(t *testing.T) {
 		}
 	}
 
-	status, bobBody := doJSON(t, r, http.MethodGet, "/v1/auth/security-events", bobSessionID, nil, "")
+	status, bobBody := doJSON(t, r, http.MethodGet, "/v1/auth/security-events", bobSessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("list security events (bob): got status %d", status)
 	}

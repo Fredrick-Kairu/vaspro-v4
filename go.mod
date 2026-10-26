@@ -5,12 +5,14 @@ go 1.26.2
 require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/descope/virtualwebauthn v1.0.5
+	github.com/getkin/kin-openapi v0.152.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/lestrrat-go/jwx/v3 v3.3.0
 	github.com/nats-io/nats.go v1.54.0
+	github.com/oapi-codegen/nethttp-middleware v1.3.1
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.29.0
@@ -57,7 +59,6 @@ require (
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
-	github.com/getkin/kin-openapi v0.152.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -73,7 +74,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
@@ -95,7 +95,6 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/oapi-codegen/nethttp-middleware v1.3.1 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect

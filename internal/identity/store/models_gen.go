@@ -221,6 +221,7 @@ type IdentitySession struct {
 	LastSeenAt time.Time          `json:"last_seen_at"`
 	ExpiresAt  time.Time          `json:"expires_at"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	TokenHash  []byte             `json:"token_hash"`
 }
 
 type IdentitySigningKey struct {

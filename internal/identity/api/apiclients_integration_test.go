@@ -9,13 +9,13 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
 )
 
-// stepUpViaEmail completes an email step-up for sessionID, assuming
+// stepUpViaEmail completes an email step-up for sessionToken, assuming
 // the account has no TOTP enrolled (the simplest path — this task
 // doesn't need to prove the TOTP step-up path again, 1.6's own tests
 // already cover that).
-func stepUpViaEmail(t *testing.T, r http.Handler, sender *email.Sender, sessionID string) {
+func stepUpViaEmail(t *testing.T, r http.Handler, sender *email.Sender, sessionToken string) {
 	t.Helper()
-	status, _ := doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionID, nil, "stepup-request-"+sessionID)
+	status, _ := doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionToken, nil, "stepup-request-"+sessionToken)
 	if status != http.StatusAccepted {
 		t.Fatalf("step-up email request: got status %d", status)
 	}
@@ -23,8 +23,8 @@ func stepUpViaEmail(t *testing.T, r http.Handler, sender *email.Sender, sessionI
 	if !ok {
 		t.Fatal("expected a step-up email")
 	}
-	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionID,
-		map[string]string{"code": sent.Code}, "stepup-confirm-"+sessionID)
+	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionToken,
+		map[string]string{"code": sent.Code}, "stepup-confirm-"+sessionToken)
 	if status != http.StatusOK {
 		t.Fatalf("step-up email confirmation: got status %d", status)
 	}
@@ -36,12 +36,12 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token, got %v", signInBody)
 	}
 
-	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID,
+	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{"name": "Reporting", "environment": "sandbox", "scopes": []string{"reports:read"}}, "create-key-1")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("got status %d, want 401 before stepping up (body: %v)", status, problemBody)
@@ -50,9 +50,9 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("got code %v, want AUTH-4012", problemBody["code"])
 	}
 
-	stepUpViaEmail(t, r, sender, sessionID)
+	stepUpViaEmail(t, r, sender, sessionToken)
 
-	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionID,
+	status, createBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{"name": "Reporting", "environment": "sandbox", "scopes": []string{"reports:read"}}, "create-key-2")
 	if status != http.StatusOK {
 		t.Fatalf("create api client: got status %d (body: %v)", status, createBody)
@@ -67,7 +67,7 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("expected a secret in the create response, got %v", createBody)
 	}
 
-	status, listBody := doJSON(t, r, http.MethodGet, "/v1/auth/api-clients", sessionID, nil, "")
+	status, listBody := doJSON(t, r, http.MethodGet, "/v1/auth/api-clients", sessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("list api clients: got status %d", status)
 	}
@@ -81,7 +81,7 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 	// window) — one step-up covers every gated action until it
 	// expires, not one step-up per action, so this succeeds without
 	// stepping up again.
-	status, rotateBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients/"+clientID+"/secrets", sessionID, nil, "rotate-key-1")
+	status, rotateBody := doJSON(t, r, http.MethodPost, "/v1/auth/api-clients/"+clientID+"/secrets", sessionToken, nil, "rotate-key-1")
 	if status != http.StatusOK {
 		t.Fatalf("rotate: got status %d (body: %v)", status, rotateBody)
 	}
@@ -90,7 +90,7 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("expected a fresh secret on rotation, got %v", rotateBody)
 	}
 
-	status, detailBody := doJSON(t, r, http.MethodGet, "/v1/auth/api-clients/"+clientID, sessionID, nil, "")
+	status, detailBody := doJSON(t, r, http.MethodGet, "/v1/auth/api-clients/"+clientID, sessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("get api client: got status %d", status)
 	}
@@ -99,12 +99,12 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 		t.Fatalf("got %d active secrets after one rotation, want 2 (body: %v)", len(secrets), detailBody)
 	}
 
-	status, _ = doJSON(t, r, http.MethodDelete, "/v1/auth/api-clients/"+clientID, sessionID, nil, "revoke-key")
+	status, _ = doJSON(t, r, http.MethodDelete, "/v1/auth/api-clients/"+clientID, sessionToken, nil, "revoke-key")
 	if status != http.StatusNoContent {
 		t.Fatalf("revoke api client: got status %d", status)
 	}
 
-	status, detailBody = doJSON(t, r, http.MethodGet, "/v1/auth/api-clients/"+clientID, sessionID, nil, "")
+	status, detailBody = doJSON(t, r, http.MethodGet, "/v1/auth/api-clients/"+clientID, sessionToken, nil, "")
 	if status != http.StatusOK {
 		t.Fatalf("get api client after revoke: got status %d", status)
 	}

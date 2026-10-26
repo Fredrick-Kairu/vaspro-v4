@@ -98,12 +98,12 @@ func TestStepUp_GatesTotpEnrollmentUntilSteppedUp(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("sign-in: got status %d (body: %v)", status, signInBody)
 	}
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id in the sign-in response, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token in the sign-in response, got %v", signInBody)
 	}
 
-	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments", sessionID, nil, "enroll-key-1")
+	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments", sessionToken, nil, "enroll-key-1")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("got status %d, want 401 before stepping up (body: %v)", status, problemBody)
 	}
@@ -111,7 +111,7 @@ func TestStepUp_GatesTotpEnrollmentUntilSteppedUp(t *testing.T) {
 		t.Fatalf("got code %v, want AUTH-4012", problemBody["code"])
 	}
 
-	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionID, nil, "stepup-request-key")
+	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email", sessionToken, nil, "stepup-request-key")
 	if status != http.StatusAccepted {
 		t.Fatalf("step-up email request: got status %d", status)
 	}
@@ -119,13 +119,13 @@ func TestStepUp_GatesTotpEnrollmentUntilSteppedUp(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a step-up email")
 	}
-	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionID,
+	status, _ = doJSON(t, r, http.MethodPost, "/v1/auth/step-up/email/confirmation", sessionToken,
 		map[string]string{"code": sent.Code}, "stepup-confirm-key")
 	if status != http.StatusOK {
 		t.Fatalf("step-up email confirmation: got status %d", status)
 	}
 
-	status, enrollBody := doJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments", sessionID, nil, "enroll-key-2")
+	status, enrollBody := doJSON(t, r, http.MethodPost, "/v1/auth/totp-enrollments", sessionToken, nil, "enroll-key-2")
 	if status != http.StatusOK {
 		t.Fatalf("got status %d, want 200 after stepping up (body: %v)", status, enrollBody)
 	}
@@ -140,12 +140,12 @@ func TestStepUp_GatesPasskeyRegistrationUntilSteppedUp(t *testing.T) {
 
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
-	sessionID, _ := signInBody["session_id"].(string)
-	if sessionID == "" {
-		t.Fatalf("expected a session_id in the sign-in response, got %v", signInBody)
+	sessionToken, _ := signInBody["session_token"].(string)
+	if sessionToken == "" {
+		t.Fatalf("expected a session_token in the sign-in response, got %v", signInBody)
 	}
 
-	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/passkey-registrations", sessionID, nil, "passkey-reg-key")
+	status, problemBody := doJSON(t, r, http.MethodPost, "/v1/auth/passkey-registrations", sessionToken, nil, "passkey-reg-key")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("got status %d, want 401 before stepping up (body: %v)", status, problemBody)
 	}

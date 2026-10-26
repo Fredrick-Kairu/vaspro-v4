@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -230,5 +231,79 @@ func TestRequireSession_LeavesUnprotectedRoutesAlone(t *testing.T) {
 
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("got status %d, want 202 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireSession_SessionIDIsNotABearer: a session's id is its
+// public handle (listSessions returns it; deleteSession takes it in
+// the URL), so it must never authenticate. Only the session_token
+// sign-in returns does.
+func TestRequireSession_SessionIDIsNotABearer(t *testing.T) {
+	r, sender := newTestRouter(t)
+	signUpVerifyAndSetPassword(t, r, sender, "ada@example.com", "a-strong-password")
+
+	code, signIn := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
+		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
+	if code != http.StatusOK {
+		t.Fatalf("sign in: got status %d", code)
+	}
+	sessionID, _ := signIn["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("expected a session_id, got %v", signIn)
+	}
+
+	code, body := doJSON(t, r, http.MethodGet, "/v1/auth/sessions", sessionID, nil, "")
+	if code != http.StatusUnauthorized || body["code"] != "AUTH-4010" {
+		t.Fatalf("session id as bearer: got status %d, code %v, want 401 AUTH-4010", code, body["code"])
+	}
+}
+
+// TestListSessions_NeverReturnsATokenAndRevokeTakesTheID: the list shows
+// each session's public id (what deleteSession takes) and never a
+// session_token, so holding one session can't hand out the others.
+func TestListSessions_NeverReturnsATokenAndRevokeTakesTheID(t *testing.T) {
+	r, sender := newTestRouter(t)
+	signUpVerifyAndSetPassword(t, r, sender, "ada@example.com", "a-strong-password")
+
+	signIn := func(key string) (id, token string) {
+		code, body := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
+			map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, key)
+		if code != http.StatusOK {
+			t.Fatalf("sign in: got status %d", code)
+		}
+		id, _ = body["session_id"].(string)
+		token, _ = body["session_token"].(string)
+		if id == "" || token == "" {
+			t.Fatalf("expected a session_id and session_token, got %v", body)
+		}
+		return id, token
+	}
+	firstID, firstToken := signIn("signin-key-1")
+	_, secondToken := signIn("signin-key-2")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/sessions", nil)
+	req.Header.Set("Authorization", "Bearer "+secondToken)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list sessions: got status %d", rec.Code)
+	}
+	raw := rec.Body.String()
+	for _, token := range []string{firstToken, secondToken} {
+		if strings.Contains(raw, token) {
+			t.Fatalf("the session list contains a session token: %s", raw)
+		}
+	}
+	if !strings.Contains(raw, firstID) {
+		t.Fatalf("expected the first session's id in the list, got %s", raw)
+	}
+
+	code, _ := doJSON(t, r, http.MethodDelete, "/v1/auth/sessions/"+firstID, secondToken, nil, "revoke-first")
+	if code != http.StatusNoContent {
+		t.Fatalf("revoke by id: got status %d", code)
+	}
+	code, body := doJSON(t, r, http.MethodGet, "/v1/auth/sessions", firstToken, nil, "")
+	if code != http.StatusUnauthorized || body["code"] != "AUTH-4010" {
+		t.Fatalf("revoked token: got status %d, code %v, want 401 AUTH-4010", code, body["code"])
 	}
 }
