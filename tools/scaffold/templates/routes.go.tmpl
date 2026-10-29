@@ -1,0 +1,62 @@
+// Package api registers {{.Name}}'s HTTP routes.
+package api
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/httpx"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/{{.Name}}/app"
+)
+
+// Routes builds {{.Name}}'s HTTP handler: platform/httpx's standard
+// middlewares, health/readiness, and the service's own endpoints.
+func Routes(a *app.Service, logger *slog.Logger, ready []httpx.Check) http.Handler {
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Use(httpx.Recover(logger))
+	r.Use(httpx.Timeout(30 * time.Second))
+	r.Use(httpx.BodyLimit(1 << 20))
+
+	r.Get("/healthz", httpx.Healthz)
+	r.Get("/readyz", httpx.Readyz(ready...))
+
+	r.Post("/v1/widgets", createWidget(a))
+
+	return r
+}
+
+type createWidgetRequest struct {
+	// TenantID is read from the body, not an authenticated request
+	// context — there's no gateway yet to populate one (that's Phase 1,
+	// ROADMAP task 1.x). Don't copy this part of the pattern into a real
+	// service once the gateway exists; read tenant_id from context then.
+	TenantID uuid.UUID `json:"tenant_id"`
+	Name     string    `json:"name"`
+}
+
+func createWidget(a *app.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createWidgetRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			problem.Respond(w, r, problem.New(problem.VAL4000, "invalid JSON body"))
+			return
+		}
+
+		widget, err := a.CreateWidget(r.Context(), req.TenantID, req.Name)
+		if err != nil {
+			problem.Respond(w, r, problem.New(problem.VAL4000, err.Error()))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(widget)
+	}
+}

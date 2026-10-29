@@ -1,0 +1,1530 @@
+openapi: 3.1.0
+info:
+  title: VASPRO identity API
+  version: "1"
+  description: >
+    Sign-up, email verification (task 1.2), password sign-in, TOTP and
+    recovery codes (task 1.3), passkeys/WebAuthn (task 1.4). Every
+    operation here is anonymous or uses identity's own temporary
+    session-bearer check — there's no real gateway/JWT auth yet (tasks
+    1.8/1.11). Anonymous write operations that touch an email address
+    return the same shape regardless of outcome where leaking the
+    outcome would let a caller enumerate registered emails.
+servers:
+  - url: /
+paths:
+  /v1/auth/signups:
+    post:
+      operationId: createSignup
+      summary: Start sign-up for an email address
+      description: >
+        Always returns 202, whether the email is new, already pending
+        verification, or already verified — the response never reveals
+        which. A verification code is emailed only in the first two
+        cases.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+            example:
+              email: "Ada@Example.com"
+              full_name: "Ada Lovelace"
+              phone_e164: "+254700000000"
+      responses:
+        "202":
+          description: Accepted — check the email for a verification code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupAccepted'
+              example:
+                message: "If that address can be registered, a verification code was sent to it."
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/email-verifications:
+    post:
+      operationId: createEmailVerification
+      summary: Verify an email address with its code
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+            example:
+              email: "ada@example.com"
+              code: "042918"
+      responses:
+        "200":
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "verified"
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/password-resets:
+    post:
+      operationId: createPasswordReset
+      summary: Request a password-set-or-reset code
+      description: >
+        Always returns 202 regardless of whether the email exists or
+        already has a password — the same mechanism covers "set your
+        first password" and "I forgot it" (proving you control the
+        email is the same bar either way).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+            example:
+              email: "ada@example.com"
+      responses:
+        "202":
+          description: Accepted — check the email for a code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupAccepted'
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/password-reset-confirmations:
+    post:
+      operationId: createPasswordResetConfirmation
+      summary: Confirm a password reset code and set a new password
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmationRequest'
+            example:
+              email: "ada@example.com"
+              code: "042918"
+              new_password: "a-strong-password"
+      responses:
+        "200":
+          description: Password set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "password_set"
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/sessions:
+    post:
+      operationId: createSession
+      summary: Sign in with email and password
+      description: >
+        Returns either a session (no TOTP enrolled) or a short-lived
+        challenge (TOTP enrolled) — complete it via
+        /v1/auth/totp-challenges/{challenge}/verification.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+            example:
+              email: "ada@example.com"
+              password: "a-strong-password"
+      responses:
+        "200":
+          description: Signed in, or a TOTP challenge issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSessions
+      summary: List the signed-in account's active sessions
+      description: >
+        Active sessions only (revoked or expired ones aren't shown) —
+        this is a device-management view, not a history log.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's active sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteSessions
+      summary: Sign out everywhere
+      description: >
+        Revokes every one of the account's active sessions, including
+        the one making this request — the caller must sign in again
+        afterward.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Signed out everywhere.
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/sessions/{id}:
+    delete:
+      operationId: deleteSession
+      summary: Revoke a session
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-challenges/{challenge}/verification:
+    post:
+      operationId: createTotpChallengeVerification
+      summary: Complete a sign-in TOTP challenge
+      description: >
+        code may be a live 6-digit TOTP code or an unused recovery
+        code. The challenge token itself (not a header) is the proof
+        the password step already passed, so this route carries no
+        Idempotency-Key — it isn't a resource-creating write in its
+        own right the way the other operations here are, and the
+        challenge is already single-purpose and short-lived.
+      parameters:
+        - name: challenge
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpChallengeVerificationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-enrollments:
+    post:
+      operationId: createTotpEnrollment
+      summary: Start TOTP enrollment for the signed-in account
+      description: >
+        Requires Authorization: Bearer <session_token> — identity's own
+        temporary stand-in for a real gateway/JWT (tasks 1.8/1.11) —
+        and step-up MFA proved within the last 5 minutes (task 1.6;
+        AUTH-4012 if not): creating a credential is on system design
+        §3's step-up list. Returns the enrollment URL and recovery
+        codes exactly once; the account isn't required to use TOTP at
+        sign-in until /v1/auth/totp-enrollments/confirmation succeeds.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Enrollment started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollmentResult'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/totp-enrollments/confirmation:
+    post:
+      operationId: createTotpEnrollmentConfirmation
+      summary: Confirm TOTP enrollment
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpChallengeVerificationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: TOTP confirmed — sign-in now requires it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "confirmed"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/step-up/totp:
+    post:
+      operationId: createStepUpTotpVerification
+      summary: Step up with the account's existing TOTP code
+      description: >
+        Requires Authorization: Bearer <session_token>. Marks the current
+        session's step-up as fresh for 5 minutes (task 1.6) — reuses
+        the account's existing TOTP enrollment, the same check
+        createTotpChallengeVerification uses at sign-in. Repeated wrong
+        codes lock out the same way repeated wrong sign-in attempts do.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpChallengeVerificationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: Stepped up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "stepped_up"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/step-up/email:
+    post:
+      operationId: createStepUpEmail
+      summary: Request a step-up code by email
+      description: >
+        Requires Authorization: Bearer <session_token>. For an account
+        with no TOTP enrolled, this is step-up's only method — proving
+        current control of the account's own email is the same bar
+        password-reset already uses. Unlike the anonymous email flows,
+        there's no enumeration concern here (the caller is already
+        signed in), so this always sends.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "202":
+          description: Accepted — check the account's email for a code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupAccepted'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/step-up/email/confirmation:
+    post:
+      operationId: createStepUpEmailConfirmation
+      summary: Confirm a step-up email code
+      description: >
+        Requires Authorization: Bearer <session_token>. Marks the current
+        session's step-up as fresh for 5 minutes (task 1.6).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepUpEmailConfirmationRequest'
+            example:
+              code: "042918"
+      responses:
+        "200":
+          description: Stepped up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailVerificationResult'
+              example:
+                status: "stepped_up"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkey-registrations:
+    post:
+      operationId: createPasskeyRegistration
+      summary: Begin registering a new passkey for the signed-in account
+      description: >
+        Requires Authorization: Bearer <session_token>, same as TOTP
+        enrollment (task 1.3) — passkey registration is a dashboard
+        security setting, not part of sign-up. Also requires step-up
+        MFA proved within the last 5 minutes (task 1.6; AUTH-4012 if
+        not).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Registration begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremonyOptions'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkey-registrations/confirmation:
+    post:
+      operationId: createPasskeyRegistrationConfirmation
+      summary: Finish registering a passkey
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyRegistrationConfirmationRequest'
+      responses:
+        "200":
+          description: Passkey registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeySummary'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkeys:
+    get:
+      operationId: listPasskeys
+      summary: List the signed-in account's passkeys
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's passkeys.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkeys/{id}:
+    patch:
+      operationId: updatePasskey
+      summary: Rename a passkey
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyRenameRequest'
+      responses:
+        "200":
+          description: Passkey renamed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeySummary'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePasskey
+      summary: Delete a passkey
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Passkey deleted.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkey-challenges:
+    post:
+      operationId: createPasskeyChallenge
+      summary: Begin signing in with a passkey
+      description: >
+        Always returns a structurally valid challenge, whether or not
+        the email exists or has any registered passkey — same
+        anti-enumeration principle as sign-up and password reset.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyChallengeRequest'
+            example:
+              email: "ada@example.com"
+      responses:
+        "200":
+          description: Challenge begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremonyOptions'
+        "400":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/passkey-challenges/{challenge}/verification:
+    post:
+      operationId: createPasskeyChallengeVerification
+      summary: Complete a passkey sign-in challenge
+      description: >
+        The challenge token itself is the proof the ceremony was
+        correctly begun, so this route carries no Idempotency-Key —
+        same reasoning as createTotpChallengeVerification (task 1.3).
+      parameters:
+        - name: challenge
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyChallengeVerificationRequest'
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients:
+    post:
+      operationId: createApiClient
+      summary: Create an API client
+      description: >
+        Requires Authorization: Bearer <session_token> and step-up MFA
+        proved within the last 5 minutes (task 1.6; AUTH-4012 if not)
+        — creating a credential is on system design §3's step-up
+        list. Scopes, IP allowlist, expiry and spend cap are stored
+        as configuration; nothing in Phase 1 enforces them yet (no
+        gateway, no billing). The secret is returned exactly once.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiClientCreateRequest'
+            example:
+              name: "Reporting integration"
+              environment: "sandbox"
+              scopes: ["reports:read"]
+              ip_allowlist: ["203.0.113.0/24"]
+      responses:
+        "200":
+          description: Client created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientWithSecret'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listApiClients
+      summary: List the signed-in account's API clients
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's API clients.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}:
+    get:
+      operationId: getApiClient
+      summary: Get one API client, including its active secrets' metadata
+      description: >
+        Secret metadata only (id, last4, created_at, expires_at) —
+        never the secret itself, which is only ever returned once, at
+        creation or rotation time.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientDetail'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: revokeApiClient
+      summary: Revoke an API client
+      description: >
+        Revokes the whole client — every secret it has stops working,
+        independent of each secret's own state. Destroying a
+        credential isn't on system design §3's step-up list, so this
+        doesn't require step-up.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Client revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}/secrets:
+    post:
+      operationId: createApiClientSecret
+      summary: Rotate an API client's secret
+      description: >
+        Requires step-up MFA proved within the last 5 minutes (task
+        1.6; AUTH-4012 if not) — same reasoning as createApiClient.
+        Issues a new secret; the previous active one keeps working for
+        a 7-day overlap rather than being revoked immediately. Fails
+        with VAL-4000 if the client already has 2 active secrets —
+        revoke one first.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Secret rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiClientSecretResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/api-clients/{id}/secrets/{secretId}:
+    delete:
+      operationId: revokeApiClientSecret
+      summary: Revoke one of an API client's secrets
+      description: >
+        Revokes a single secret without touching the client or its
+        other secrets — e.g. to end a rotation overlap early, or
+        respond to a suspected leak. Doesn't require step-up (same
+        reasoning as revokeApiClient).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Secret revoked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/security-events:
+    get:
+      operationId: listSecurityEvents
+      summary: List the signed-in account's security events
+      description: >
+        system design §3: "every credential event ... is logged and
+        shown to the tenant admin" — this phase's placeholder for
+        "tenant admin" is the account's own owner, same reasoning
+        every other Phase 1 list endpoint already uses. Newest first,
+        bounded at 100 rows (not true cursor pagination yet).
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's security events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityEventList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts:
+    post:
+      operationId: createSmppAccount
+      summary: Create an SMPP account
+      description: >
+        Requires Authorization: Bearer <session_token> and step-up MFA
+        proved within the last 5 minutes (task 1.6; AUTH-4012 if not)
+        — creating a credential is on system design §3's step-up list,
+        same reasoning as createApiClient. ip_allowlist is required
+        and must be non-empty: data model §3's own comment says SMPP
+        accounts always need one, since the SMPP 3.4 protocol limits
+        the password itself to 8 characters. The password is returned
+        exactly once.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmppAccountCreateRequest'
+            example:
+              system_id: "ACME01"
+              environment: "sandbox"
+              ip_allowlist: ["203.0.113.0/24"]
+              max_binds: 2
+              max_tps: 50
+      responses:
+        "200":
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountWithPassword'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSmppAccounts
+      summary: List the signed-in account's SMPP accounts
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The account's SMPP accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts/{id}:
+    get:
+      operationId: getSmppAccount
+      summary: Get one SMPP account
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Account detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountSummary'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateSmppAccountStatus
+      summary: Suspend or reactivate an SMPP account
+      description: >
+        The schema's only states are "active" and "suspended" (data
+        model §3's CHECK constraint) — there's no permanent revoke to
+        model here, so this toggles between them rather than deleting
+        anything. Doesn't require step-up: suspending/reactivating
+        isn't "create or reveal a credential," system design §3's own
+        trigger.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmppAccountStatusUpdateRequest'
+      responses:
+        "200":
+          description: Status updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountSummary'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/smpp-accounts/{id}/password:
+    post:
+      operationId: createSmppAccountPassword
+      summary: Rotate an SMPP account's password
+      description: >
+        Requires step-up MFA proved within the last 5 minutes (task
+        1.6; AUTH-4012 if not) — same reasoning as
+        createSmppAccount. Overwrites the previous password outright:
+        unlike API client secrets (1.7), smpp_accounts has a single
+        password_hash column, not a rotation-overlap table.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Password rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmppAccountWithPassword'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/oauth/token:
+    post:
+      operationId: createOAuthToken
+      summary: Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
+      description: >
+        No Authorization header and no Idempotency-Key — a deliberate,
+        narrow exception to this API's usual conventions (api.md),
+        so that an off-the-shelf OAuth2 client library can call this
+        endpoint unmodified. Request and error shapes follow RFC 6749
+        exactly (form-encoded request, {"error": "..."} on failure),
+        not this API's usual JSON/problem+json conventions. Looks up
+        the client via a narrow, SELECT-only role
+        (identity_token_exchange, migration 20261022223744), since
+        there is no session/tenant context yet to check ownership
+        against. Does not enforce scopes, IP allowlist or spend cap —
+        nothing in Phase 1 does (same boundary task 1.7 already
+        documented); only validates the credentials, that the client
+        isn't revoked/expired, and that any requested scope is one the
+        client actually has. Revoking a client or secret does not
+        recall an already-issued token before its own 1-hour expiry.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthTokenRequest'
+      responses:
+        "200":
+          description: Access token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthTokenResponse'
+              example:
+                access_token: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImtpZC0xIn0..." # gitleaks:allow (truncated example, not a token)
+                token_type: "Bearer"
+                expires_in: 3600
+                scope: "reports:read"
+        "400":
+          description: Malformed request, unsupported grant type, or a requested scope the client doesn't have.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        "401":
+          description: Unknown client, wrong secret, or a revoked/expired client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      summary: Publish identity's current signing keys as a JWKS
+      description: >
+        The one deliberate exception to this API's /v1/... versioning
+        (RFC 8414/OIDC discovery convention — this path is
+        unversioned and root-level on purpose). Publishes active and
+        retiring keys (retiring so a token signed just before a
+        rotation still verifies until it naturally expires); never a
+        retired key, never any private material.
+      responses:
+        "200":
+          description: The current JSON Web Key Set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        identity's own temporary session-bearer check, not a real JWT
+        — Authorization: Bearer <session_token>. Replaced by the real
+        gateway/JWT auth in tasks 1.8/1.11.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    SignupRequest:
+      type: object
+      required: [email, full_name]
+      properties:
+        email:
+          type: string
+        full_name:
+          type: string
+        phone_e164:
+          type: string
+          description: E.164 format, optional (data model §3).
+    SignupAccepted:
+      type: object
+      properties:
+        message:
+          type: string
+    EmailVerificationRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+        code:
+          type: string
+          description: The 6-digit code emailed at sign-up.
+    EmailVerificationResult:
+      type: object
+      properties:
+        status:
+          type: string
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+    PasswordResetConfirmationRequest:
+      type: object
+      required: [email, code, new_password]
+      properties:
+        email:
+          type: string
+        code:
+          type: string
+          description: The reset code emailed by createPasswordReset.
+        new_password:
+          type: string
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    SignInResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: >
+            Set when sign-in completed without a TOTP step. The
+            session's public handle, as listSessions shows it and
+            deleteSession takes it — never a credential.
+        session_token:
+          type: string
+          description: >
+            Set alongside session_id. The bearer credential for every
+            sessionBearer operation (Authorization: Bearer
+            <session_token>). Returned exactly once; only its hash is
+            stored.
+        expires_at:
+          type: string
+          format: date-time
+        challenge:
+          type: string
+          description: Set when the account has TOTP enrolled — complete it via createTotpChallengeVerification.
+    TotpChallengeVerificationRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: A live 6-digit TOTP code, or an unused recovery code.
+    TotpEnrollmentResult:
+      type: object
+      properties:
+        url:
+          type: string
+          description: otpauth:// URL for an authenticator app to scan.
+        recovery_codes:
+          type: array
+          items:
+            type: string
+          description: Shown exactly once — store them somewhere safe.
+    PasskeyCeremonyOptions:
+      type: object
+      required: [session, options]
+      properties:
+        session:
+          type: string
+          description: Opaque, signed — pass back unchanged to the matching confirmation/verification call.
+        options:
+          type: object
+          description: >
+            go-webauthn's own CredentialCreation (registration) or
+            CredentialAssertion (sign-in) JSON, passed verbatim to
+            navigator.credentials.create()/get(). Not modelled field
+            by field here — it's the library's wire format, not ours.
+    PasskeyRegistrationConfirmationRequest:
+      type: object
+      required: [session, credential]
+      properties:
+        session:
+          type: string
+        name:
+          type: string
+          description: Optional display name, e.g. "Work laptop".
+        credential:
+          type: object
+          description: The navigator.credentials.create() response, passed through as-is.
+    PasskeyChallengeRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+    PasskeyChallengeVerificationRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential:
+          type: object
+          description: The navigator.credentials.get() response, passed through as-is.
+    PasskeyRenameRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    PasskeySummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    PasskeyList:
+      type: object
+      properties:
+        passkeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/PasskeySummary'
+    SessionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        ip:
+          type: string
+        user_agent:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+          description: True for the session bound to the bearer token used on this request.
+    SessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSummary'
+    StepUpEmailConfirmationRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: The step-up code emailed by createStepUpEmail.
+    ApiClientCreateRequest:
+      type: object
+      required: [name, environment, scopes]
+      properties:
+        name:
+          type: string
+        environment:
+          type: string
+          enum: [sandbox, live]
+        scopes:
+          type: array
+          items:
+            type: string
+          description: e.g. ["sms:send", "reports:read"].
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+          description: Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP address.
+        expires_at:
+          type: string
+          format: date-time
+        spend_cap_minor:
+          type: integer
+          format: int64
+          description: Minor units of spend_cap_currency; stored as configuration only — not enforced in Phase 1.
+        spend_cap_currency:
+          type: string
+          description: Required if spend_cap_minor is set.
+    ApiClientSecretSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        last4:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    ApiClientSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        environment:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        spend_cap_minor:
+          type: integer
+          format: int64
+        spend_cap_currency:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    ApiClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/ApiClientSummary'
+        - type: object
+          properties:
+            secrets:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiClientSecretSummary'
+    ApiClientList:
+      type: object
+      properties:
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiClientSummary'
+    ApiClientSecretResult:
+      type: object
+      properties:
+        id:
+          type: string
+        secret:
+          type: string
+          description: Shown exactly once — store it somewhere safe.
+        last4:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    ApiClientWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/ApiClientSummary'
+        - type: object
+          properties:
+            secret:
+              $ref: '#/components/schemas/ApiClientSecretResult'
+    SecurityEventSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: e.g. "sign_in", "api_client_created", "api_client_revoked".
+        ip:
+          type: string
+        detail:
+          type: object
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+    SecurityEventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityEventSummary'
+    SmppAccountCreateRequest:
+      type: object
+      required: [system_id, environment, ip_allowlist, max_binds, max_tps]
+      properties:
+        system_id:
+          type: string
+          description: The SMPP bind's system_id, unique across every tenant.
+        environment:
+          type: string
+          enum: [sandbox, live]
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+          description: >
+            Each entry is a CIDR (e.g. "203.0.113.0/24") or a bare IP
+            address. Required and non-empty: SMPP accounts always need
+            one (data model §3), since the protocol's own password is
+            capped at 8 characters.
+        max_binds:
+          type: integer
+          description: Maximum simultaneous binds for this account.
+        max_tps:
+          type: integer
+          description: Maximum submits per second for this account.
+    SmppAccountStatusUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, suspended]
+    SmppAccountSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        system_id:
+          type: string
+        ip_allowlist:
+          type: array
+          items:
+            type: string
+        max_binds:
+          type: integer
+        max_tps:
+          type: integer
+        environment:
+          type: string
+        status:
+          type: string
+    SmppAccountList:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SmppAccountSummary'
+    SmppAccountWithPassword:
+      allOf:
+        - $ref: '#/components/schemas/SmppAccountSummary'
+        - type: object
+          properties:
+            password:
+              type: string
+              description: Shown exactly once — store it somewhere safe.
+    OAuthTokenRequest:
+      type: object
+      required: [grant_type, client_id, client_secret]
+      properties:
+        grant_type:
+          type: string
+          description: Must be "client_credentials" — the only grant this endpoint supports.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        scope:
+          type: string
+          description: Space-separated (RFC 6749). Omit to receive every scope the client has.
+    OAuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          description: Always "Bearer".
+        expires_in:
+          type: integer
+          description: Seconds until expiry (1 hour).
+        scope:
+          type: string
+          description: Space-separated, the scopes actually granted.
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: RFC 6749 §5.2 — e.g. invalid_request, invalid_client, unsupported_grant_type, invalid_scope.
+        error_description:
+          type: string
+    JwkKey:
+      type: object
+      required: [kty, crv, x, kid, alg, use]
+      properties:
+        kty:
+          type: string
+          description: "\"OKP\" for Ed25519 (RFC 8037)."
+        crv:
+          type: string
+          description: "\"Ed25519\"."
+        x:
+          type: string
+          description: Base64url-encoded public key.
+        kid:
+          type: string
+        alg:
+          type: string
+          description: "\"EdDSA\"."
+        use:
+          type: string
+          description: "\"sig\"."
+    Jwks:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JwkKey'
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

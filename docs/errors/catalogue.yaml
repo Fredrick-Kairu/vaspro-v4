@@ -1,0 +1,197 @@
+# Every error code the backend can return, in RFC 9457 problem+json
+# responses (system design §8) and in event payloads (e.g. DLR reason
+# codes). internal/platform/problem generates Go constants and a lookup
+# table from this file — run `make gen` after editing it (tools/errcodes).
+#
+# This is deliberately partial: one representative code per family
+# (AUTH, KYC, VAL, BAL, CMP, RTE, DLR, RATE, SYS, LIM, PAY — D-08) for
+# Phase 0's own tests. Each service adds the rest of its codes here
+# before its own phase starts, the same way OpenAPI specs are written
+# just in time (ROADMAP §10 item A5).
+#
+# Columns:
+#   code      - FAMILY-NNNN, unique.
+#   status    - the HTTP status the problem+json body carries when this
+#                code is returned synchronously. DLR codes are reported
+#                through delivery-report events after the original
+#                request already returned success, so their status is
+#                nominal (what a synchronous rejection for the same
+#                reason would have used), never actually sent as a
+#                response.
+#   title     - short, stable; becomes the problem+json "title".
+#   cause     - what produced it, for the docs page and for whoever is
+#                debugging a support ticket.
+#   fix       - what the caller (or VASPRO staff) should do about it.
+#   retryable - true if retrying the same request can succeed without
+#                changing anything.
+#   billable  - true if VASPRO still charges for the attempt that
+#                produced this error (most don't).
+
+codes:
+  - code: AUTH-4010
+    status: 401
+    title: Invalid or missing credentials
+    cause: The request's bearer token or API credentials are missing, expired, or don't match any account.
+    fix: Sign in again or mint a fresh token; if the credential was revoked, issue a new one.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4011
+    status: 401
+    title: Two-factor code invalid or expired
+    cause: The TOTP code or recovery code submitted doesn't match, was already used, or the sign-in challenge it belongs to expired.
+    fix: Retry with a current code from the authenticator app, or an unused recovery code; if the challenge expired, sign in again.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4012
+    status: 401
+    title: Step-up verification required
+    cause: The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list).
+    fix: Complete a step-up verification (TOTP code, or an emailed one-time code) and retry.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4013
+    status: 401
+    title: HMAC signature invalid or request expired
+    cause: The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response.
+    fix: Recompute the signature over the exact request as sent, with a fresh timestamp and a fresh nonce, and retry.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4014
+    status: 403
+    title: Required scope missing
+    cause: The credential's token doesn't include a scope this route requires.
+    fix: Request a token with the needed scope, or use a different credential that has it.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4015
+    status: 403
+    title: IP address not allowed
+    cause: The caller's IP address isn't on this credential's ip_allowlist.
+    fix: Call from an allowed IP, or add the caller's IP to the credential's ip_allowlist.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4016
+    status: 403
+    title: Credential environment mismatch
+    cause: A sandbox credential's token was used to call a route that only live credentials may reach.
+    fix: Use a live credential, or call the route from a sandbox-eligible context.
+    retryable: false
+    billable: false
+
+  - code: KYC-4020
+    status: 403
+    title: Account tier too low for this service
+    cause: The tenant hasn't completed the KYC tier this service requires in this country.
+    fix: Complete the next tier's verification, then retry.
+    retryable: false
+    billable: false
+
+  - code: VAL-4000
+    status: 400
+    title: Request failed validation
+    cause: One or more fields in the request body don't satisfy the API's rules.
+    fix: Fix the named field(s) and resubmit.
+    retryable: false
+    billable: false
+
+  - code: VAL-4001
+    status: 409
+    title: Idempotency key reused with a different request body
+    cause: The Idempotency-Key header matches an earlier request whose body hashes differently.
+    fix: Use a fresh Idempotency-Key for a genuinely different request; resend the original body to replay the first response.
+    retryable: false
+    billable: false
+
+  - code: VAL-4002
+    status: 400
+    title: Verification code invalid or expired
+    cause: The submitted code doesn't match the most recent one issued for this address, has already been used, has expired, or has been guessed wrong too many times. Deliberately not distinguished in the response.
+    fix: Request a new code and try again.
+    retryable: false
+    billable: false
+
+  - code: VAL-4003
+    status: 404
+    title: Resource not found
+    cause: The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.
+    fix: Check the ID and retry; the resource may have been deleted or never belonged to this account.
+    retryable: false
+    billable: false
+
+  - code: BAL-4001
+    status: 402
+    title: Insufficient balance
+    cause: The service token wallet doesn't hold enough tokens for this send.
+    fix: Buy more tokens, turn on auto-buy, or reduce the request size.
+    retryable: false
+    billable: false
+
+  - code: CMP-4030
+    status: 422
+    title: Blocked by a compliance rule
+    cause: The request falls outside an allowed send window, or targets a number that opted out, for this country's rules.
+    fix: Resend inside the allowed window, or remove the opted-out recipient.
+    retryable: false
+    billable: false
+
+  - code: RTE-6020
+    status: 422
+    title: Sender ID not registered on this network
+    cause: The chosen sender ID has no route on the destination operator.
+    fix: Register the sender ID with that operator, or choose a sender ID that already is.
+    retryable: false
+    billable: false
+
+  - code: DLR-7001
+    status: 200
+    title: Unknown or inactive number
+    cause: The operator reports the destination number doesn't exist or is inactive.
+    fix: Confirm the number with the recipient; remove it from future sends if it keeps failing.
+    retryable: false
+    billable: false
+
+  - code: RATE-4290
+    status: 429
+    title: Rate limit exceeded
+    cause: This credential has made more requests than its configured rate limit allows in the current window.
+    fix: Slow down and retry after the window given in Retry-After.
+    retryable: true
+    billable: false
+
+  - code: SYS-9000
+    status: 500
+    title: Internal error
+    cause: An unexpected error occurred while handling the request (including a recovered panic).
+    fix: Retry; if it keeps happening, contact support with the request ID from the response.
+    retryable: true
+    billable: false
+
+  - code: SYS-5030
+    status: 503
+    title: Request timed out
+    cause: The handler didn't finish within the service's configured timeout.
+    fix: Retry; if it keeps happening, contact support with the request ID from the response.
+    retryable: true
+    billable: false
+
+  - code: LIM-4501
+    status: 429
+    title: Daily message limit reached
+    cause: The client's own configured daily send limit for this service has been reached.
+    fix: Wait for the limit to reset, or raise it in the dashboard.
+    retryable: false
+    billable: false
+
+  - code: PAY-6501
+    status: 422
+    title: Recipient wallet not registered
+    cause: The destination mobile money account isn't registered with the rail for this payout.
+    fix: Confirm the recipient's number and that they're registered for this rail.
+    retryable: false
+    billable: false

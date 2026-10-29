@@ -1,0 +1,92 @@
+// Package app holds {{.Name}}'s use cases: validate through domain/,
+// then write through store/ or platform/outbox inside one
+// platform/db.Pool.WithTenantTx — never partly before and partly after
+// a transaction.
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/inbox"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/{{.Name}}/domain"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/{{.Name}}/events"
+)
+
+// Service holds {{.Name}}'s use cases.
+type Service struct {
+	pool *db.Pool
+	clk  clock.Clock
+}
+
+// New builds a Service over pool, using clk for every timestamp it
+// writes — never time.Now() directly (.claude/rules/go.md).
+func New(pool *db.Pool, clk clock.Clock) *Service {
+	return &Service{pool: pool, clk: clk}
+}
+
+// CreateWidget validates name through domain.NewWidget, then inserts the
+// row and writes its outbox event in one transaction — the event is
+// published only if the insert actually committed.
+func (s *Service) CreateWidget(ctx context.Context, tenantID uuid.UUID, name string) (domain.Widget, error) {
+	w, err := domain.NewWidget(tenantID, name)
+	if err != nil {
+		return domain.Widget{}, err
+	}
+
+	err = s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "INSERT INTO widgets (id, tenant_id, name) VALUES ($1, $2, $3)", w.ID, w.TenantID, w.Name); err != nil {
+			return fmt.Errorf("app: inserting widget: %w", err)
+		}
+
+		eventID, err := ids.New()
+		if err != nil {
+			return fmt.Errorf("app: generating event id: %w", err)
+		}
+		env, err := platformevents.New(eventID, events.WidgetCreated, 1, tenantID, s.clk.Now(), "", map[string]any{
+			"widget_id": w.ID,
+			"name":      w.Name,
+		})
+		if err != nil {
+			return fmt.Errorf("app: building event: %w", err)
+		}
+		return outbox.Write(ctx, tx, "widget", w.ID, env)
+	})
+	if err != nil {
+		return domain.Widget{}, err
+	}
+	return w, nil
+}
+
+// ApplyWidgetCreated applies one delivery of a widget_created event
+// exactly once (platform/inbox): a redelivery of the same event ID is a
+// no-op, not an error.
+func ApplyWidgetCreated(ctx context.Context, pool *db.Pool, data []byte) error {
+	var env platformevents.Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return fmt.Errorf("app: decoding event: %w", err)
+	}
+
+	return pool.WithTenantTx(ctx, env.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		alreadyProcessed, err := inbox.MarkProcessed(ctx, tx, env.ID)
+		if err != nil {
+			return err
+		}
+		if alreadyProcessed {
+			return nil
+		}
+		// No further side effect needed for this starter use case —
+		// MarkProcessed itself is what proves a redelivery doesn't
+		// double-apply. A real use case does its actual work here.
+		return nil
+	})
+}

@@ -1,0 +1,135 @@
+name: vaspro-v4
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vaspro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vaspro}
+      POSTGRES_DB: ${POSTGRES_DB:-vaspro}
+    ports:
+      - "5433:5432" # 5432 is taken by other local projects on this machine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vaspro} -d ${POSTGRES_DB:-vaspro}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222", "-sd", "/data"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-vaspro}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-vaspro}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-vaspro}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-vaspro}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-vaspro}
+    ports:
+      - "8123:8123"
+      - "9004:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  # minio/minio was removed from Docker Hub (the repository no longer
+  # resolves, even authenticated — see docs/STATUS.md). SeaweedFS's S3
+  # gateway is the stand-in: same S3 API surface, freely pullable.
+  object-storage:
+    image: chrislusf/seaweedfs:latest
+    command: ["server", "-dir=/data", "-s3", "-ip.bind=0.0.0.0"]
+    ports:
+      - "9000:8333" # S3 API
+      - "9001:9333" # master status / cluster UI
+    volumes:
+      - object-storage-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9333/cluster/status || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    volumes:
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8025/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.8.1
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - otel-lgtm-data:/data
+    healthcheck:
+      # /tmp/ready is the marker the image's own entrypoint writes once every
+      # component (Loki, Prometheus, Tempo, the OTel collector, Grafana) is up.
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+  rabbitmq-data:
+  clickhouse-data:
+  object-storage-data:
+  mailpit-data:
+  otel-lgtm-data:

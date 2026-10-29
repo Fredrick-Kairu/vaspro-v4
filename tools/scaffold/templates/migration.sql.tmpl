@@ -1,0 +1,54 @@
+-- +goose Up
+CREATE SCHEMA {{.Name}};
+
+CREATE TABLE {{.Name}}.widgets (
+  id         uuid PRIMARY KEY,
+  tenant_id  uuid NOT NULL,
+  name       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE {{.Name}}.widgets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE {{.Name}}.widgets FORCE ROW LEVEL SECURITY;
+-- nullif(..., '') matters: on a pooled connection that previously ran a
+-- WithTenantTx for some tenant, current_setting(..., true) returns ''
+-- (not NULL) once that transaction's SET LOCAL value has reverted, and
+-- casting '' to uuid errors instead of failing closed to "no rows" the
+-- way a truly never-set GUC does (.claude/rules/migrations.md).
+CREATE POLICY tenant_isolation ON {{.Name}}.widgets
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+CREATE TABLE {{.Name}}.outbox_events (
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid,
+  aggregate    text NOT NULL,
+  aggregate_id uuid NOT NULL,
+  event_type   text NOT NULL,
+  payload      jsonb NOT NULL,
+  occurred_at  timestamptz NOT NULL DEFAULT now(),
+  published_at timestamptz
+);
+CREATE INDEX {{.Name}}_outbox_unpublished ON {{.Name}}.outbox_events (occurred_at) WHERE published_at IS NULL;
+
+CREATE TABLE {{.Name}}.processed_events (
+  event_id     uuid PRIMARY KEY,
+  processed_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE {{.Name}}.idempotency_keys (
+  tenant_id    uuid NOT NULL,
+  key          text NOT NULL,
+  request_hash bytea NOT NULL,
+  status_code  int,
+  response     jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  PRIMARY KEY (tenant_id, key)
+);
+
+-- +goose Down
+DROP TABLE {{.Name}}.idempotency_keys;
+DROP TABLE {{.Name}}.processed_events;
+DROP TABLE {{.Name}}.outbox_events;
+DROP TABLE {{.Name}}.widgets;
+DROP SCHEMA {{.Name}};

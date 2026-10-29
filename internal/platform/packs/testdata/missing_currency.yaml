@@ -1,0 +1,17 @@
+version: "0"
+country_code: KE
+
+numbering:
+  country_code: "254"
+  trunk_prefix: "0"
+  national_significant_number_length: 9
+
+tax:
+  vat_rate_basis_points: 1600
+  vat_inclusive_by_default: true
+
+send_windows:
+  promotional:
+    start: "08:00"
+    end: "20:00"
+    timezone: Africa/Nairobi

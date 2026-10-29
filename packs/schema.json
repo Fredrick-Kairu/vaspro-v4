@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaspro.io/packs/schema.json",
+  "title": "VASPRO country pack",
+  "description": "The versioned, per-country rules platform/packs loads (ROADMAP Stage A item A6; D-09). Required fields are what task 0.10 needs now (numbering, currency, tax, send windows); operators/routes/rails/compliance_keywords/test_numbers are reserved here so later tasks (Phase 7 routes, Stage A6 completion) only need to add data, not change this schema.",
+  "type": "object",
+  "required": ["version", "country_code", "currency", "numbering", "tax", "send_windows"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Pack version, pinned by callers via packs.LoadPinned."
+    },
+    "country_code": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "description": "ISO 3166-1 alpha-2, e.g. KE."
+    },
+    "currency": {
+      "type": "object",
+      "required": ["code", "exponent"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "exponent": { "type": "integer", "minimum": 0, "maximum": 4 }
+      }
+    },
+    "numbering": {
+      "type": "object",
+      "required": ["country_code", "trunk_prefix", "national_significant_number_length"],
+      "additionalProperties": false,
+      "properties": {
+        "country_code": {
+          "type": "string",
+          "pattern": "^[0-9]{1,4}$",
+          "description": "E.164 calling code, no leading +, e.g. 254."
+        },
+        "trunk_prefix": { "type": "string" },
+        "national_significant_number_length": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "tax": {
+      "type": "object",
+      "required": ["vat_rate_basis_points", "vat_inclusive_by_default"],
+      "additionalProperties": false,
+      "properties": {
+        "vat_rate_basis_points": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "1600 = 16.00% (platform/money.VATRateBasisPoints)."
+        },
+        "vat_inclusive_by_default": { "type": "boolean" }
+      }
+    },
+    "send_windows": {
+      "type": "object",
+      "required": ["promotional"],
+      "additionalProperties": false,
+      "properties": {
+        "promotional": { "$ref": "#/$defs/send_window" }
+      }
+    },
+    "operators": {
+      "type": "array",
+      "description": "Reserved for Stage A6 completion; not required by task 0.10.",
+      "items": { "type": "object" }
+    },
+    "compliance_keywords": {
+      "type": "array",
+      "description": "Reserved for Stage A6 completion.",
+      "items": { "type": "string" }
+    },
+    "routes": {
+      "type": "array",
+      "description": "Reserved for Phase 7 (A6: \"routes needed by Phase 7\").",
+      "items": { "type": "object" }
+    },
+    "rails": {
+      "type": "array",
+      "description": "Reserved for Stage A6 completion / Phase 4+.",
+      "items": { "type": "object" }
+    },
+    "test_numbers": {
+      "type": "array",
+      "description": "Reserved for Stage A6 completion (ROADMAP §8.4's reserved test number blocks).",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "send_window": {
+      "type": "object",
+      "required": ["start", "end", "timezone"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "end": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "timezone": { "type": "string" }
+      }
+    }
+  }
+}
