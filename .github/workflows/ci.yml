@@ -13,15 +13,19 @@ env:
   GOLANGCI_LINT_VERSION: "v2.11.4"
   GITLEAKS_VERSION: "8.30.1"
   GOVULNCHECK_VERSION: "v1.9.0"
+  # Must match the versions in the generated files' headers, or
+  # gen-check reports a diff on the version comment alone.
+  SQLC_VERSION: "v1.31.1"
+  OAPI_CODEGEN_VERSION: "v2.8.0"
 
 jobs:
   fast:
     name: Fast (gen-check, lint, test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -30,6 +34,12 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
             | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+
+      # make gen-check runs make gen, which needs both generators.
+      - name: Install sqlc and oapi-codegen
+        run: |
+          go install "github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}"
+          go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}"
 
       - name: Install gitleaks
         run: |
@@ -46,9 +56,9 @@ jobs:
     needs: fast
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -64,9 +74,9 @@ jobs:
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -87,9 +97,9 @@ jobs:
     needs: fast
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -134,9 +144,9 @@ jobs:
     needs: fast
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -164,9 +174,9 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
