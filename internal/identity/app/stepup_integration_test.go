@@ -53,6 +53,9 @@ func TestVerifyStepUpTOTP_HappyPath_MarksSessionFresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
+	// Each TOTP code is accepted once (RFC 6238 §5.2): the next one
+	// comes from a later time step.
+	clk.Advance(30 * time.Second)
 	code, err := totp.GenerateCode(secret, clk.Now())
 	if err != nil {
 		t.Fatalf("generating a TOTP code: %v", err)
@@ -70,6 +73,9 @@ func TestVerifyStepUpTOTP_HappyPath_MarksSessionFresh(t *testing.T) {
 		t.Fatal("expected a brand-new session to not already be stepped up")
 	}
 
+	// Each TOTP code is accepted once (RFC 6238 §5.2): the next one
+	// comes from a later time step.
+	clk.Advance(30 * time.Second)
 	stepUpCode, err := totp.GenerateCode(secret, clk.Now())
 	if err != nil {
 		t.Fatalf("generating a step-up TOTP code: %v", err)
@@ -101,6 +107,9 @@ func TestVerifyStepUpTOTP_RepeatedWrongCode_EventuallyLocksOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
+	// Each TOTP code is accepted once (RFC 6238 §5.2): the next one
+	// comes from a later time step.
+	clk.Advance(30 * time.Second)
 	code, err := totp.GenerateCode(secret, clk.Now())
 	if err != nil {
 		t.Fatalf("generating a TOTP code: %v", err)
@@ -116,6 +125,9 @@ func TestVerifyStepUpTOTP_RepeatedWrongCode_EventuallyLocksOut(t *testing.T) {
 		}
 	}
 
+	// Each TOTP code is accepted once (RFC 6238 §5.2): the next one
+	// comes from a later time step.
+	clk.Advance(30 * time.Second)
 	rightCode, err := totp.GenerateCode(secret, clk.Now())
 	if err != nil {
 		t.Fatalf("generating the correct TOTP code: %v", err)

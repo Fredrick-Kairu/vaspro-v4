@@ -142,6 +142,59 @@ func TestSessions_TokenHashUnique(t *testing.T) {
 	}
 }
 
+// TestClaimTOTPStep_OnlyMovesForward covers migration 20261026090000's
+// user_totp.last_used_step: a step is claimed at most once, and never
+// one at or before the last claimed (RFC 6238 §5.2). Re-enrolling
+// clears it, since a new secret has no used codes.
+func TestClaimTOTPStep_OnlyMovesForward(t *testing.T) {
+	ctx := context.Background()
+	pool := newIdentityPool(t)
+	q := store.New(pool)
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{
+		ID:       uuid.New(),
+		Email:    "totp-owner@example.com",
+		FullName: "TOTP Owner",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, err := q.CreateUserTOTP(ctx, store.CreateUserTOTPParams{UserID: user.ID, SecretCiphertext: []byte("sealed")}); err != nil {
+		t.Fatalf("CreateUserTOTP: %v", err)
+	}
+	claim := func(step int64) int64 {
+		t.Helper()
+		n, err := q.ClaimTOTPStep(ctx, store.ClaimTOTPStepParams{UserID: user.ID, Step: step})
+		if err != nil {
+			t.Fatalf("ClaimTOTPStep(%d): %v", step, err)
+		}
+		return n
+	}
+
+	steps := []struct {
+		name string
+		step int64
+		want int64
+	}{
+		{"first use", 100, 1},
+		{"same step again", 100, 0},
+		{"an earlier step", 99, 0},
+		{"a later step", 101, 1},
+	}
+	for _, s := range steps {
+		if got := claim(s.step); got != s.want {
+			t.Fatalf("%s (step %d): claimed %d rows, want %d", s.name, s.step, got, s.want)
+		}
+	}
+
+	if _, err := q.UpsertUserTOTP(ctx, store.UpsertUserTOTPParams{UserID: user.ID, SecretCiphertext: []byte("resealed"), RecoveryCodeHashes: []string{}}); err != nil {
+		t.Fatalf("UpsertUserTOTP: %v", err)
+	}
+	if got := claim(50); got != 1 {
+		t.Fatalf("after re-enrolling: claimed %d rows for step 50, want 1", got)
+	}
+}
+
 func TestCreateSigningKey_ListActiveSigningKeys(t *testing.T) {
 	ctx := context.Background()
 	pool := newIdentityPool(t)

@@ -85,7 +85,11 @@ func (s *Service) VerifyStepUpTOTP(ctx context.Context, userID, sessionID uuid.U
 			return fmt.Errorf("app: decrypting TOTP secret: %w", err)
 		}
 
-		if !domain.ValidateTOTPCode(string(secret), code, s.clk.Now()) {
+		accepted, err := s.acceptTOTPCode(ctx, q, userID, string(secret), code)
+		if err != nil {
+			return err
+		}
+		if !accepted {
 			if err := s.recordSignInFailure(ctx, q, userID, nil); err != nil {
 				return err
 			}

@@ -292,6 +292,7 @@ type IdentityUserTotp struct {
 	SecretCiphertext   []byte             `json:"secret_ciphertext"`
 	ConfirmedAt        pgtype.Timestamptz `json:"confirmed_at"`
 	RecoveryCodeHashes []string           `json:"recovery_code_hashes"`
+	LastUsedStep       pgtype.Int8        `json:"last_used_step"`
 }
 
 type IdentityVerificationToken struct {
