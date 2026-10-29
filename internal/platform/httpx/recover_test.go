@@ -17,7 +17,7 @@ func TestRecover_PanicBecomesSYS9000WithNoStackTraceInBody(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		panic("something went very wrong, here is a secret: sk_live_abc123")
+		panic("something went very wrong, here is a secret: sk_live_abc123") // gitleaks:allow (fake secret under test)
 	})
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

@@ -991,7 +991,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OAuthTokenResponse'
               example:
-                access_token: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImtpZC0xIn0..."
+                access_token: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImtpZC0xIn0..." # gitleaks:allow (truncated example, not a token)
                 token_type: "Bearer"
                 expires_in: 3600
                 scope: "reports:read"

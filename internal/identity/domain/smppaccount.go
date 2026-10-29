@@ -18,7 +18,7 @@ const SMPPAccountPasswordLength = 8
 // repeatedly, so there's no need to exclude visually similar
 // characters the way GenerateRecoveryCodes does for a human reading
 // codes off a screen.
-const smppAccountPasswordAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+const smppAccountPasswordAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" // gitleaks:allow (a character set, not a password)
 
 // GenerateSMPPAccountPassword returns a fresh, high-entropy password
 // for an SMPP account, shown exactly once at creation or rotation and

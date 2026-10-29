@@ -50,7 +50,7 @@ migrate:
 lint:
 	@if [ -z "$(GO_PKGS)" ]; then echo "lint: no Go packages yet, skipping golangci-lint"; \
 	else golangci-lint run ./...; fi
-	@if command -v gitleaks >/dev/null 2>&1; then gitleaks detect --no-banner; \
+	@if command -v gitleaks >/dev/null 2>&1; then gitleaks detect --no-banner --redact --verbose; \
 	else echo "lint: gitleaks not installed, skipping secret scan"; fi
 
 test:

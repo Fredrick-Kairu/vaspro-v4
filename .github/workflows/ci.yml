@@ -121,7 +121,7 @@ jobs:
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
 
       - name: gitleaks detect
-        run: gitleaks detect --no-banner
+        run: gitleaks detect --no-banner --redact --verbose
 
       - name: trivy image
         run: |
