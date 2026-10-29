@@ -1,6 +1,6 @@
 # Build status
 
-**Updated:** 2026-10-27
+**Updated:** 2026-10-29
 **Current phase:** Phase 1: Identity, access and API gateway (Phase 0 complete: tasks 0.1-0.14 done; M0 exit gate not yet fully verified, see Notes)
 **Current task:** Phase 1 closed (`phase-1-done`, 2026-10-27) after the TOTP replay fix. Next: Phase 2 kickoff.
 **Branch:** p1/totp-replay (on top of p1/identity-schema)
@@ -8,7 +8,7 @@
 ## Done in Phase 0
 - 0.1 Repository skeleton: `Makefile`, `.golangci.yml` (`gosec` + per-service `depguard` boundary), `.editorconfig`.
 - 0.2 Local stack: `deploy/compose/docker-compose.yml`, 8 services with healthchecks, verified live.
-- 0.3 CI workflow: `.github/workflows/ci.yml`, all six §8.7 jobs, validated with `actionlint`. **Not yet run on actual GitHub Actions.**
+- 0.3 CI workflow: `.github/workflows/ci.yml`, all six §8.7 jobs, validated with `actionlint`. **First real GitHub Actions run green 2026-10-29**, after three fixes found by running it: the fast job never installed `sqlc`/`oapi-codegen` (so `make gen-check` failed, `sqlc: command not found`); gitleaks flagged three false positives (an example token in `identity.yaml`, the SMPP password alphabet, a fake `sk_live_` in a test; now `gitleaks:allow` with reasons, and gitleaks runs `--redact --verbose` so a finding names its file and line); govulncheck failed on 29 standard-library vulnerabilities in Go 1.26.2 (Go bumped to 1.26.10, `golang.org/x/net` to v0.62.0; the remaining `x/crypto/openpgp` notice has no fix and isn't called). Actions moved to `checkout@v5`/`setup-go@v6` (Node 24).
 - 0.4 platform/config, platform/log, platform/otel.
 - 0.5 platform/problem, platform/httpx: error catalogue + generated `Code` constants; problem+json; all five middlewares.
 - 0.6 platform/db: `Pool`/`WithTenantTx`. Found and fixed a real bug in the canonical RLS pattern (see below).
@@ -42,7 +42,7 @@
 
 ## Next up
 1. Phase 2 (accounts, KYC and onboarding): paste the Phase 2 kickoff prompt from ROADMAP §11 in a new conversation. Also carried over: unlock by staff (deferred from Phase 1), `respondProblem` logging unknown errors, and folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3.
-2. Still open from earlier phases: the two M0 checks (clean-machine `make up`, a real CI run).
+2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
 - (none)
