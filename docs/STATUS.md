@@ -2,14 +2,15 @@
 
 **Updated:** 2026-10-30
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.1 done (2026-10-30). Next: 2.5 tier state machine (moved up, see the plan below).
-**Branch:** `p2/accounts-schema` (branched from `p1/status-merged`, whose STATUS commit isn't on `main` yet, so it rides along in this PR)
+**Current task:** 1.16 Sign in with Google (added to Phase 1 by the 30 Oct roadmap update, D-22), then 2.5. 2.1 done (2026-10-30).
+**Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
 
 | # | Task | Tests first |
 |---|---|---|
+| 1.16 | Sign in with Google (D-22, roadmap update of 30 Oct): OIDC code flow + PKCE/state/nonce, `identity.user_identities`, `sessions.auth_method`, second factor before the session, SSO domains refused | fake OIDC provider: tampered/expired token, wrong aud/iss, reused nonce, bad state; no session without TOTP/passkey; no silent linking; unlink refused if it's the only way in; Google e2e |
 | 2.1 | `accounts` migration (data model §4) + starter sqlc queries; no service code yet (1.1's precedent) | migration applies; RLS per tenant-owned table; every CHECK/UNIQUE |
 | 2.5 | Tier state machine (`domain/`), `tier_changes` in the same transaction as the tier | table test of every transition; no tier change without a `tier_changes` row |
 | 2.2 | Scaffold the service; tenant created by an explicit onboarding call; tenant types; `tenant.created`; migrate Phase 1 placeholder tenants | RLS cross-tenant; placeholder rows moved |
@@ -29,6 +30,13 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Q4 staff:** a minimal staff role check for 2.9, no console (the console is Phase 10).
 
 ## Done in Phase 2
+- **Roadmap update (2026-10-30).** `docs/ROADMAP_UPDATED.md` was made from an older copy, before the Phase 0/1 ticks and evidence. Its new content is now in `docs/ROADMAP.md` and the duplicate is deleted:
+  - D-22 (Sign in with Google) and the D-07 note;
+  - `coreos/go-oidc/v3` + `golang.org/x/oauth2` in the tech stack;
+  - task 1.16, its six tests and the Google e2e;
+  - the kickoff prompt now says 1.1–1.16;
+  - frontend track F1.
+  Kept from the current roadmap, which the update had lost: every tick and its evidence, the `[>]` marker, 1.15's deferral to 20.8, the staff-unlock note, and the `jwx/v3` pin (the update said `v2`, which 1.8 found deprecated). Phase 1's e2e gate line is reopened until 1.16's Google e2e is green. `docs/design/data-model.md` §3 and `system-design.md` §3 are synced from the design docs' 30 Oct edits (`identity.user_identities`, `sessions.auth_method`, Google sign-in text).
 - 2.1 `accounts` migration and sqlc queries. `migrations/accounts/20261030090000_init.sql` holds all 12 tables from data model §4, copied exactly, plus `outbox_events` and `idempotency_keys`. There's no `processed_events`: after decision Q1, accounts consumes no events yet. Standard RLS goes on the 7 tables with `tenant_id NOT NULL`; the 3 global tables (`services`, `service_country_rules`, `tier_caps`) have none.
   - **Two policies data model §4 doesn't spell out, approved in the 2.1 plan:**
     - `tenants` (no `tenant_id`; the row's `id` is the tenant): `id = cur OR parent_tenant_id = cur` for both USING and WITH CHECK. A reseller sees and creates its sub-accounts. Creating a tenant runs in `WithTenantTx(newID)`.

@@ -87,7 +87,7 @@ Shaded boxes are account tiers; the others are steps and checks. Each check retu
 
 ## 3. API authentication
 
-People prove who they are with passkeys or an authenticator app; machines exchange a hashed secret for a token that expires within an hour. The gateway checks every call before any service sees it.
+People prove who they are with a passkey, or with a password or Google account plus an authenticator app; machines exchange a hashed secret for a token that expires within an hour. The gateway checks every call before any service sees it.
 
 &#91;embedded content: API authentication · 5 parties, 4 phases\]
 
@@ -99,7 +99,8 @@ Solid arrows are requests and dashed arrows are replies. The highlighted box is 
 - **Token claims:** tenant, client, environment, scopes, KYC tier and expiry. Tokens are signed with rotating keys published as a JWKS, so partners can verify them offline.
 - **High-value calls** (payouts, B2B, wallet transfers) also carry an HMAC-SHA256 signature over method, path, body and timestamp, valid for 5 minutes. mTLS is an option for enterprise clients.
 - **SMPP clients** keep binding to the existing SMPP front end, which passes each submit to v4 the way it calls v3's `/smpp/api/create` today. v4 checks the system ID against a hashed password and the IP allowlist, then sends the message through the same orchestrator as REST.
-- **Dashboard sign-in:** email plus passkey, or email, password and TOTP. Email is the unique identity, so no local phone number is needed. Step-up MFA is required to create or reveal credentials, change callback URLs, approve payouts, add users, or edit sender IDs.
+- **Dashboard sign-in:** email plus passkey; email, password and TOTP; or Sign in with Google followed by TOTP or a passkey. Email is the unique identity, so no local phone number is needed. Step-up MFA is required to create or reveal credentials, change callback URLs, approve payouts, add users, or edit sender IDs.
+- **Sign in with Google** (decided 30 Oct) uses OpenID Connect: the authorization code flow with PKCE, `state` and `nonce`, with the ID token checked against Google's published keys and our client ID. Accounts are matched on Google's `sub`, never on email, and are never linked silently: an existing user signs in the usual way first, then links Google. Google never replaces the second factor or step-up. A domain with company SSO is sent to its own identity provider instead. Stored in `identity.user_identities`.
 - **Audit:** every credential event (created, used from a new IP, rotated, revoked) is logged and shown to the tenant admin.
 - **Errors raised here:** `AUTH-1001` bad credentials, `AUTH-1003` token expired, `AUTH-1004` scope missing, `AUTH-1005` IP not allowed, `AUTH-1010` step-up needed, `KYC-2001` tier too low, `RATE-8001` rate limit.
 
