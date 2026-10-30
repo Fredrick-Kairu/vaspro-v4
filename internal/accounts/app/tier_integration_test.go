@@ -21,6 +21,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
 
@@ -54,7 +55,11 @@ func newHarness(t *testing.T) harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(appPool.Close)
-	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC())})
+	ke, err := packs.Load("../../../packs/schema.json", "../../../packs/ke/pack.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke}})
 	return harness{svc: svc, app: appPool, super: super}
 }
 
@@ -231,11 +236,19 @@ func TestChangeTier_DemotionByReverification(t *testing.T) {
 // (ROADMAP §8.3) and returns its data.
 func assertTierChangedEventValid(t *testing.T, h harness, tenant uuid.UUID) map[string]any {
 	t.Helper()
+	return assertEventValid(t, h, "tenant.tier_changed", tenant)
+}
+
+// assertEventValid checks the newest eventType event for tenant against
+// docs/events/<eventType>.schema.json (ROADMAP §8.3) and returns its
+// data.
+func assertEventValid(t *testing.T, h harness, eventType string, tenant uuid.UUID) map[string]any {
+	t.Helper()
 	var payload []byte
 	err := h.super.QueryRow(context.Background(),
-		`SELECT payload FROM outbox_events WHERE event_type = 'tenant.tier_changed' AND aggregate_id = $1 ORDER BY occurred_at DESC LIMIT 1`, tenant).Scan(&payload)
+		`SELECT payload FROM outbox_events WHERE event_type = $2 AND aggregate_id = $1 ORDER BY occurred_at DESC LIMIT 1`, tenant, eventType).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
-		t.Fatal("no tenant.tier_changed event in the outbox")
+		t.Fatalf("no %s event in the outbox", eventType)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -247,8 +260,8 @@ func assertTierChangedEventValid(t *testing.T, h harness, tenant uuid.UUID) map[
 	if env.TenantID != tenant {
 		t.Fatalf("envelope tenant %s, want %s", env.TenantID, tenant)
 	}
-	const path = "../../../docs/events/tenant.tier_changed.schema.json"
-	raw, err := os.ReadFile(path)
+	path := "../../../docs/events/" + eventType + ".schema.json"
+	raw, err := os.ReadFile(path) //nolint:gosec // eventType is a fixed name from the test itself
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,10 +270,10 @@ func assertTierChangedEventValid(t *testing.T, h harness, tenant uuid.UUID) map[
 		t.Fatal(err)
 	}
 	c := jsonschema.NewCompiler()
-	if err := c.AddResource("tenant.tier_changed.schema.json", doc); err != nil {
+	if err := c.AddResource(eventType+".schema.json", doc); err != nil {
 		t.Fatal(err)
 	}
-	schema, err := c.Compile("tenant.tier_changed.schema.json")
+	schema, err := c.Compile(eventType + ".schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

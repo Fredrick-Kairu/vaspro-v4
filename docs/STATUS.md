@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-30
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.5 done (2026-10-30). Next: 2.2 tenant at sign-up (decide Q2 in its plan). Also done: 2.1, 1.16.
+**Current task:** 2.2a done (2026-10-30). Next: 2.2b reseller and sub-account types, then 2.2c tenant selection. Also done: 2.1, 2.5, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -25,7 +25,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 
 **Decisions (2026-10-30):**
 - **Q1 tenant at sign-up:** an explicit onboarding call after email verification (`display_name`, country; currency/timezone/region from the pack), not auto-created from `user.email_verified`. So accounts consumes no identity event in 2.1.
-- **Q2 how identity learns memberships/tier:** to settle in 2.2's plan. My recommendation: a gRPC call from identity to accounts for membership checks (first `proto/`), since removing a member must take effect at once; a copy built from events could serve the token's `kyc_tier` claim later.
+- **Q2 how identity learns memberships/tier (decided 30 Oct):** identity asks accounts over gRPC, so removing a member takes effect at once. A copy built from events may serve the token's `kyc_tier` claim later.
+- **Session auth for services other than identity (decided 30 Oct):** the gateway resolves the dashboard session through identity's `ResolveSession` RPC and forwards a trusted `X-Vaspro-User-Id`/`X-Vaspro-Session-Id`, stripping client-sent copies. 2.2 ships as three commits (2.2a/b/c), and Phase 1 placeholder credentials are revoked (not moved) in 2.2c.
 - **Q3 Phase 1 placeholder tenants** (`api_clients`/`smpp_accounts.tenant_id` = the creating user's ID): move them to the user's first real tenant in 2.2 (approved; no real data exists yet).
 - **Q4 staff:** a minimal staff role check for 2.9, no console (the console is Phase 10).
 
@@ -113,6 +114,40 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - All were shown failing first (168 domain assertions against a stub; the store and app tests before the trigger and the use case existed).
     - **Mutation-checked:** dropping the trigger's `created_at = now()`, the one-step rule, and the check-status rule each failed the intended test.
   - **`make check`:** the first run failed on `platform/testkit`'s `TestStartNATS_PublishAndConsumeRoundTrips` (`bus: connecting: EOF`) and passed on rerun. This is the second NATS container-startup flake today. `StartNATSURL` probably returns before the server accepts connections under load: worth a readiness wait in its own small task.
+
+- 2.2a Accounts service, gateway session auth, first gRPC, create account.
+  - **gRPC foundation:**
+    - `buf.yaml`/`buf.gen.yaml`; tools pinned and installed in CI: `buf` v1.74.0 (v1.75.0 was only 9 days old), `protoc-gen-go` v1.36.12 (= go.mod's protobuf), `protoc-gen-go-grpc` v1.6.2.
+    - `proto/identity/v1/identity.proto`: `IdentityService.ResolveSession`. Generated `*.pb.go` sits next to it, outside `internal/`.
+    - `make gen` runs `buf lint` then `buf generate`; `make gen-check` also diffs `**/*.pb.go` (ADR 0004 amended).
+    - Identity serves gRPC on `IDENTITY_GRPC_ADDR` (default `:9090`, plaintext; mTLS is Phase 17), wrapping `app.ResolveSession`: the same path as `requireSession`.
+  - **Gateway:**
+    - Backends are routed by prefix: `/v1/accounts/` goes to accounts, everything else to identity. Each is validated against its own spec, and the audit log reads route templates from both.
+    - Client-sent `X-Vaspro-User-Id`/`X-Vaspro-Session-Id` are stripped on every request.
+    - Accounts routes need a session (`ResolveSession` over gRPC; missing or invalid is 401 AUTH-4010 before accounts is called). The user and session are forwarded; the token isn't.
+    - New required config: `GATEWAY_IDENTITY_GRPC_ADDR`, `GATEWAY_ACCOUNTS_BASE_URL`; `New` takes a `SessionResolver`.
+  - **accounts service:**
+    - `internal/accounts/accounts.go` (written by hand: `make new-service` refuses an existing directory), `cmd/accounts`, and registered in `cmd/vaspro-all`.
+    - `docs/api/accounts.yaml`: `createTenant`, `getTenant`.
+    - `requireCaller` trusts the gateway's header. Accounts must be reachable only from the gateway, a deployment rule recorded in its Config doc for Phase 17's network policy.
+    - Idempotency keys are scoped by user, since no tenant exists yet at creation and a shared anonymous scope collides (1.12).
+    - `respondProblem` logs unexpected errors (Phase 1's carry-over, done for accounts; identity's is still open).
+  - **`app.CreateTenant`** (`domain.NormalizeNewTenant` for input):
+    - writes a direct sandbox account, the creator's active membership with the built-in **Admin** role (seeded by migration `20261030160000`, fixed ID, permissions `{*}`; 2.3 defines the matrix), and `tenant.created` (new schema), all in one `WithTenantTx`;
+    - takes currency, time zone and data region from the country's pack: `packs/schema.json` and `packs/ke/pack.yaml` gain required `timezone` and `data_region` (`ke`, a tag until OD-02 and 2.10);
+    - an unsupported country is VAL-4000.
+  - **`GetTenant`** needs an active membership; a missing account and someone else's are both 404.
+  - **Tests:**
+    - identity gRPC over bufconn: a live token resolves; empty, garbage, session-ID-as-token and revoked tokens are all UNAUTHENTICATED;
+    - gateway against fake backends: the user is forwarded without the token; a spoofed header is overwritten on accounts and stripped on identity; no or invalid session is 401 and accounts is never called; accounts' own spec validates; identity routes are unchanged;
+    - app: creation writes all three, schema-validated; non-member and unknown are not found; one user can own several accounts; rejected input writes nothing;
+    - API: no user header is 401; a replayed key gives the same account; another user's identical key is theirs; non-member 404; unknown country 400;
+    - e2e `TestGateway_CreateAccountThroughGateway_EndToEnd`: real identity + accounts subprocesses; sign in, create an account through the gateway, read it, another user gets 404, a garbage session is 401, and no session token in the gateway log;
+    - packs: KE has its defaults.
+    - **Mutation-checked:** removing the header stripping fails the identity spoof test (on accounts, session resolution overwrites the header anyway); dropping `GetTenant`'s membership check fails the non-member test.
+    - **Order of work:** the gateway tests were written before the code but first run after it; the mutation checks stand in for showing them fail.
+  - Three 2.1 store fixtures named a built-in role "Admin", which the seed now provides; renamed to "Fixture built-in" (a fixture clash, not a weakened test).
+  - **`make check`:** the first run hit another container-startup timeout (Redis in `identity/api`), which passed on rerun. That's three today (NATS twice, Redis once): `testkit`'s container start-up needs a readiness wait, as its own small task.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

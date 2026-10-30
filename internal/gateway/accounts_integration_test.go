@@ -1,0 +1,102 @@
+//go:build integration
+
+package gateway
+
+import (
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+)
+
+// startRealAccounts builds cmd/accounts and runs it as a subprocess
+// against its own Postgres and NATS, returning its base URL.
+func startRealAccounts(t *testing.T) string {
+	t.Helper()
+	root := repoRoot(t)
+
+	binPath := filepath.Join(t.TempDir(), "accounts")
+	build := exec.Command("go", "build", "-o", binPath, "./cmd/accounts") //nolint:gosec // fixed "go build" invocation; binPath is our own t.TempDir() path
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./cmd/accounts failed: %v\n%s", err, out)
+	}
+
+	pg := testkit.StartPostgres(t, testkit.WithMigrations(filepath.Join(root, "migrations/accounts")))
+	natsURL := testkit.StartNATSURL(t)
+	httpAddr := freeTCPAddr(t)
+
+	cmd := exec.Command(binPath) //nolint:gosec // binPath is the binary we just built into our own t.TempDir()
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"ACCOUNTS_DATABASE_URL="+pg.DSN()+"&search_path=accounts,public",
+		"ACCOUNTS_NATS_URL="+natsURL,
+		"ACCOUNTS_HTTP_ADDR="+httpAddr,
+		"ACCOUNTS_PACKS_DIR="+filepath.Join(root, "packs"),
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting accounts subprocess: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	baseURL := "http://" + httpAddr
+	waitForHealthy(t, baseURL, 20*time.Second)
+	return baseURL
+}
+
+// TestGateway_CreateAccountThroughGateway_EndToEnd is task 2.2a's e2e:
+// a user signs up and signs in through identity, then creates their
+// client account through the gateway, which checks the session over
+// identity's gRPC API and forwards the user to accounts. A second
+// user can't read the first user's account.
+func TestGateway_CreateAccountThroughGateway_EndToEnd(t *testing.T) {
+	smtp := startFakeSMTPServer(t)
+	var gatewayLogs syncBuffer
+	identityBaseURL := startRealIdentity(t, smtp.Addr())
+	accountsBaseURL := startRealAccounts(t)
+	r := newTestGatewayWithAccounts(t, identityBaseURL, accountsBaseURL, nil,
+		slog.New(slog.NewJSONHandler(&gatewayLogs, nil)))
+
+	_, adaToken := signUpVerifySetPasswordAndSignIn(t, r, smtp, "ada@example.com")
+	_, bobToken := signUpVerifySetPasswordAndSignIn(t, r, smtp, "bob@example.com")
+
+	status, created := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants", adaToken,
+		map[string]string{"display_name": "Acme Deliveries", "country_code": "KE", "billing_email": "billing@acme.example"}, "create-account")
+	if status != http.StatusCreated {
+		t.Fatalf("create account: got %d %v", status, created)
+	}
+	if created["tier"] != "sandbox" || created["type"] != "direct" || created["timezone"] != "Africa/Nairobi" ||
+		created["default_currency"] != "KES" || created["region"] != "ke" {
+		t.Fatalf("got account %v", created)
+	}
+	id, _ := created["id"].(string)
+
+	status, got := gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, adaToken, nil, "")
+	if status != http.StatusOK || got["display_name"] != "Acme Deliveries" {
+		t.Fatalf("read own account: got %d %v", status, got)
+	}
+	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, bobToken, nil, "")
+	if status != http.StatusNotFound || got["code"] != "VAL-4003" {
+		t.Fatalf("another user's account: got %d %v, want 404 VAL-4003", status, got)
+	}
+	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, "sess_not-a-token", nil, "")
+	if status != http.StatusUnauthorized || got["code"] != "AUTH-4010" {
+		t.Fatalf("garbage session: got %d %v, want 401 AUTH-4010", status, got)
+	}
+
+	for name, secret := range map[string]string{"ada's session token": adaToken, "bob's session token": bobToken} {
+		if strings.Contains(gatewayLogs.String(), secret) {
+			t.Errorf("the gateway log contains %s", name)
+		}
+	}
+}

@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	// vaspro-all:imports-begin
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
 	// vaspro-all:imports-end
@@ -34,6 +35,12 @@ func main() {
 	// vaspro-all:services-begin
 	if svc, err := identity.Bootstrap(ctx); err != nil {
 		logger.Error("vaspro-all: identity: bootstrap", "error", err)
+		os.Exit(1)
+	} else {
+		services = append(services, svc)
+	}
+	if svc, err := accounts.Bootstrap(ctx); err != nil {
+		logger.Error("vaspro-all: accounts: bootstrap", "error", err)
 		os.Exit(1)
 	} else {
 		services = append(services, svc)

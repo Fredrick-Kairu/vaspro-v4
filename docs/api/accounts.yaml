@@ -1,0 +1,168 @@
+openapi: 3.1.0
+info:
+  title: VASPRO accounts API
+  version: "1"
+  description: >
+    Client accounts (tenants), their members and verification tiers
+    (data model §4, system design §2). Every operation is reached
+    through the gateway, which checks the dashboard session
+    (sessionBearer) before accounts sees the request (task 2.2a).
+servers:
+  - url: /
+paths:
+  /v1/accounts/tenants:
+    post:
+      operationId: createTenant
+      summary: Create a client account
+      description: >
+        Onboarding's "create your account" step, called after the user
+        has signed up and verified their email (decision of 30 Oct,
+        2.2's Q1). Creates a direct account in the sandbox tier, with
+        the caller as its Admin. Currency, time zone and data region
+        come from the country's pack; an unsupported country is
+        VAL-4000.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantCreateRequest'
+            example:
+              display_name: "Acme Deliveries"
+              country_code: "KE"
+              legal_name: "Acme Deliveries Limited"
+              billing_email: "billing@acme.example"
+      responses:
+        "201":
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}:
+    get:
+      operationId: getTenant
+      summary: Show a client account the caller belongs to
+      description: VAL-4003 when the account doesn't exist or the caller isn't an active member, alike.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user to accounts.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    TenantCreateRequest:
+      type: object
+      required: [display_name, country_code]
+      properties:
+        display_name:
+          type: string
+        country_code:
+          type: string
+          description: ISO 3166-1 alpha-2; must have a country pack (KE today).
+        legal_name:
+          type: string
+        billing_email:
+          type: string
+    Tenant:
+      type: object
+      required: [id, type, display_name, country_code, timezone, default_currency, region, tier, status, created_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [direct, reseller, sub_account]
+        parent_tenant_id:
+          type: string
+        legal_name:
+          type: string
+        display_name:
+          type: string
+        country_code:
+          type: string
+        timezone:
+          type: string
+        default_currency:
+          type: string
+        region:
+          type: string
+          description: Data residency tag.
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        status:
+          type: string
+          enum: [active, suspended, archived]
+        billing_email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

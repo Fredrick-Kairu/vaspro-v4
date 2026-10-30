@@ -52,6 +52,18 @@ func TestParse_RealKEPack_ParsesCleanly(t *testing.T) {
 	}
 }
 
+// A new account takes its time zone and data residency tag from its
+// country's pack (task 2.2a).
+func TestParse_RealKEPack_HasTenantDefaults(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Timezone != "Africa/Nairobi" || p.DataRegion != "ke" {
+		t.Errorf("Timezone = %q, DataRegion = %q, want Africa/Nairobi and ke", p.Timezone, p.DataRegion)
+	}
+}
+
 func TestParse_MissingRequiredField_RejectedWithClearError(t *testing.T) {
 	schema := readFile(t, realSchemaPath)
 	pack := readFile(t, "testdata/missing_currency.yaml")

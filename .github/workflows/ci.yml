@@ -17,6 +17,11 @@ env:
   # gen-check reports a diff on the version comment alone.
   SQLC_VERSION: "v1.31.1"
   OAPI_CODEGEN_VERSION: "v2.8.0"
+  # buf and its local plugins (task 2.2a). protoc-gen-go must match
+  # google.golang.org/protobuf in go.mod.
+  BUF_VERSION: "v1.74.0"
+  PROTOC_GEN_GO_VERSION: "v1.36.12"
+  PROTOC_GEN_GO_GRPC_VERSION: "v1.6.2"
 
 jobs:
   fast:
@@ -35,11 +40,14 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
             | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
 
-      # make gen-check runs make gen, which needs both generators.
-      - name: Install sqlc and oapi-codegen
+      # make gen-check runs make gen, which needs every generator.
+      - name: Install sqlc, oapi-codegen, buf and protoc plugins
         run: |
           go install "github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}"
           go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}"
+          go install "github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"
+          go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}"
+          go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}"
 
       - name: Install gitleaks
         run: |

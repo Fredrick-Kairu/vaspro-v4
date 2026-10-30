@@ -1,0 +1,12 @@
+# Generated Go sits next to each .proto (proto/<svc>/v1), outside
+# internal/, so any service can import another's client without
+# importing the service itself. Plugins are local and pinned
+# (Makefile's tools target, CI's fast job).
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: proto
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: proto
+    opt: paths=source_relative

@@ -42,7 +42,7 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 // route is the OpenAPI path template (from spec), never the raw URL
 // path: some paths carry a credential — the TOTP and passkey sign-in
 // challenges — and a raw path would write it into every log line.
-func audit(logger *slog.Logger, spec routers.Router) func(http.Handler) http.Handler {
+func audit(logger *slog.Logger, specs []routers.Router) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -50,7 +50,7 @@ func audit(logger *slog.Logger, spec routers.Router) func(http.Handler) http.Han
 			next.ServeHTTP(rec, r)
 
 			attrs := []slog.Attr{
-				slog.String("route", routeTemplate(spec, r)),
+				slog.String("route", routeTemplate(specs, r)),
 				slog.String("method", r.Method),
 				slog.Int("status", rec.status),
 				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
@@ -68,10 +68,11 @@ func audit(logger *slog.Logger, spec routers.Router) func(http.Handler) http.Han
 
 // routeTemplate returns the OpenAPI path template r matches, or
 // "unmatched" — never r.URL.Path, which may contain a credential.
-func routeTemplate(spec routers.Router, r *http.Request) string {
-	route, _, err := spec.FindRoute(r)
-	if err != nil {
-		return "unmatched"
+func routeTemplate(specs []routers.Router, r *http.Request) string {
+	for _, spec := range specs {
+		if route, _, err := spec.FindRoute(r); err == nil {
+			return route.Path
+		}
 	}
-	return route.Path
+	return "unmatched"
 }

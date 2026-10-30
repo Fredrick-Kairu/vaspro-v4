@@ -252,6 +252,7 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 	natsURL := testkit.StartNATSURL(t)
 	redisURL := testkit.StartRedisURL(t)
 	httpAddr := freeTCPAddr(t)
+	grpcAddr := freeTCPAddr(t)
 
 	runCmd := exec.Command(binPath) //nolint:gosec // binPath is the binary we just built into our own t.TempDir()
 	runCmd.Dir = root
@@ -259,6 +260,7 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 		"IDENTITY_DATABASE_URL="+pg.DSN()+"&search_path=identity,public",
 		"IDENTITY_NATS_URL="+natsURL,
 		"IDENTITY_HTTP_ADDR="+httpAddr,
+		"IDENTITY_GRPC_ADDR="+grpcAddr,
 		"IDENTITY_SMTP_ADDR="+smtpAddr,
 		"IDENTITY_TOTP_KMS_KEY="+randomBase64Key(t),
 		"IDENTITY_SIGNING_KEYS_KMS_KEY="+randomBase64Key(t),
@@ -284,8 +286,13 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 
 	baseURL := "http://" + httpAddr
 	waitForHealthy(t, baseURL, 20*time.Second)
+	identityGRPCAddrs.Store(baseURL, grpcAddr)
 	return baseURL
 }
+
+// identityGRPCAddrs maps each identity subprocess's base URL to its gRPC
+// address, so newTestGateway can check sessions against it.
+var identityGRPCAddrs sync.Map
 
 // --- a tiny HTTP JSON helper, local to this test (identity/api's own
 // doJSON isn't importable: it's an unexported test helper in a
@@ -330,12 +337,31 @@ func newTestGateway(t *testing.T, identityBaseURL string, protected []ProtectedR
 // supplied, for a test that needs to read back what the gateway logged.
 func newTestGatewayWithLogger(t *testing.T, identityBaseURL string, protected []ProtectedRoute, logger *slog.Logger) http.Handler {
 	t.Helper()
+	return newTestGatewayWithAccounts(t, identityBaseURL, "http://127.0.0.1:1", protected, logger)
+}
+
+// newTestGatewayWithAccounts is newTestGatewayWithLogger with a real
+// accounts backend; sessions are checked against the identity
+// subprocess's gRPC API.
+func newTestGatewayWithAccounts(t *testing.T, identityBaseURL, accountsBaseURL string, protected []ProtectedRoute, logger *slog.Logger) http.Handler {
+	t.Helper()
 	root := repoRoot(t)
+	grpcAddr, ok := identityGRPCAddrs.Load(identityBaseURL)
+	if !ok {
+		t.Fatalf("no gRPC address recorded for identity at %s", identityBaseURL)
+	}
+	sessions, err := DialGRPCSessions(grpcAddr.(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sessions.Close() })
 	cfg := Config{
 		IdentityBaseURL:     identityBaseURL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
+		AccountsBaseURL:     accountsBaseURL,
+		AccountsOpenAPIPath: filepath.Join(root, "docs/api/accounts.yaml"),
 	}
-	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected)
+	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected, sessions)
 	if err != nil {
 		t.Fatalf("gateway.New: %v", err)
 	}

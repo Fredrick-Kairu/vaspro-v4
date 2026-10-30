@@ -146,7 +146,7 @@ func TestRowLevelSecurity_TenantOwnedTables(t *testing.T) {
 		t.Fatalf("insert service: %v", err)
 	}
 	builtinRole := uuid.New()
-	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, tenant_id, name, permissions) VALUES ($1, NULL, 'Admin', '{sms:send}')`, builtinRole); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, tenant_id, name, permissions) VALUES ($1, NULL, 'Fixture built-in', '{sms:send}')`, builtinRole); err != nil {
 		t.Fatalf("insert built-in role: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestRowLevelSecurity_Roles(t *testing.T) {
 	db := newAccountsDB(t)
 	ctx := context.Background()
 
-	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, tenant_id, name, permissions) VALUES ($1, NULL, 'Admin', '{}')`, uuid.New()); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, tenant_id, name, permissions) VALUES ($1, NULL, 'Fixture built-in', '{}')`, uuid.New()); err != nil {
 		t.Fatalf("insert built-in role: %v", err)
 	}
 	tenantA := mustTenant(t, db.super)
@@ -351,7 +351,7 @@ func TestRowLevelSecurity_Roles(t *testing.T) {
 
 	t.Run("a built-in role is visible to every tenant", func(t *testing.T) {
 		for _, tenant := range []uuid.UUID{tenantA, tenantB} {
-			if n := count(t, tenant, `tenant_id IS NULL`); n != 1 {
+			if n := count(t, tenant, `tenant_id IS NULL AND name = 'Fixture built-in'`); n != 1 {
 				t.Fatalf("tenant %s sees %d built-in roles, want 1", tenant, n)
 			}
 		}
@@ -398,7 +398,7 @@ func TestConstraints_RejectInvalidValues(t *testing.T) {
 		t.Fatalf("insert business profile: %v", err)
 	}
 	role := uuid.New()
-	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, name, permissions) VALUES ($1, 'Admin', '{}')`, role); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, name, permissions) VALUES ($1, 'Fixture built-in', '{}')`, role); err != nil {
 		t.Fatalf("insert role: %v", err)
 	}
 	if _, err := db.super.Exec(ctx, `INSERT INTO services (code, name, default_min_tier) VALUES ('sms', 'SMS', 'starter')`); err != nil {
@@ -438,7 +438,7 @@ func TestConstraints_Uniqueness(t *testing.T) {
 	tenantA := mustTenant(t, db.super)
 	tenantB := mustTenant(t, db.super)
 	role := uuid.New()
-	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, name, permissions) VALUES ($1, 'Admin', '{}')`, role); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, name, permissions) VALUES ($1, 'Fixture built-in', '{}')`, role); err != nil {
 		t.Fatalf("insert role: %v", err)
 	}
 
@@ -460,7 +460,7 @@ func TestConstraints_Uniqueness(t *testing.T) {
 	}
 
 	t.Run("a duplicate built-in role name is rejected (NULLS NOT DISTINCT)", func(t *testing.T) {
-		wantDuplicate(t, exec(`INSERT INTO roles (id, name, permissions) VALUES ($1, 'Admin', '{}')`, uuid.New()))
+		wantDuplicate(t, exec(`INSERT INTO roles (id, name, permissions) VALUES ($1, 'Fixture built-in', '{}')`, uuid.New()))
 	})
 	t.Run("the same role name under two tenants is allowed", func(t *testing.T) {
 		wantOK(t, exec(`INSERT INTO roles (id, tenant_id, name, permissions) VALUES ($1, $2, 'Ops', '{}')`, uuid.New(), tenantA))

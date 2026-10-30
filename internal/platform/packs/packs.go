@@ -22,6 +22,10 @@ type Pack struct {
 	Version     string
 	CountryCode string
 	Currency    money.Currency
+	// Timezone and DataRegion are a new account's defaults (task 2.2a):
+	// accounts.tenants.timezone and .region (data model §4).
+	Timezone    string
+	DataRegion  string
 	Numbering   Numbering
 	Tax         Tax
 	SendWindows SendWindows
@@ -54,6 +58,8 @@ type SendWindows struct {
 type jsonPack struct {
 	Version     string `json:"version"`
 	CountryCode string `json:"country_code"`
+	Timezone    string `json:"timezone"`
+	DataRegion  string `json:"data_region"`
 	Currency    struct {
 		Code     string `json:"code"`
 		Exponent int    `json:"exponent"`
@@ -115,6 +121,8 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		Version:     jp.Version,
 		CountryCode: jp.CountryCode,
 		Currency:    money.Currency{Code: jp.Currency.Code, Exponent: jp.Currency.Exponent},
+		Timezone:    jp.Timezone,
+		DataRegion:  jp.DataRegion,
 		Numbering: Numbering{
 			CountryCode:                     jp.Numbering.CountryCode,
 			TrunkPrefix:                     jp.Numbering.TrunkPrefix,

@@ -46,6 +46,30 @@ func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipPara
 	return i, err
 }
 
+const getActiveMembership = `-- name: GetActiveMembership :one
+SELECT tenant_id, user_id, role_id, status, invited_by, created_at FROM accounts.memberships
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
+`
+
+type GetActiveMembershipParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (AccountsMembership, error) {
+	row := q.db.QueryRow(ctx, getActiveMembership, arg.TenantID, arg.UserID)
+	var i AccountsMembership
+	err := row.Scan(
+		&i.TenantID,
+		&i.UserID,
+		&i.RoleID,
+		&i.Status,
+		&i.InvitedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getMembership = `-- name: GetMembership :one
 SELECT tenant_id, user_id, role_id, status, invited_by, created_at FROM accounts.memberships WHERE tenant_id = $1 AND user_id = $2
 `

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package identity.v1;
+
+option go_package = "github.com/Fredrick-Kairu/vaspro-v4/proto/identity/v1;identityv1";
+
+// IdentityService is identity's internal API for other VASPRO services.
+// It is never exposed to clients.
+service IdentityService {
+  // ResolveSession checks a dashboard session token: the gateway calls
+  // it for every session-bearer request to a service other than
+  // identity (task 2.2a). A missing, unknown, expired or revoked token
+  // returns UNAUTHENTICATED, all alike.
+  rpc ResolveSession(ResolveSessionRequest) returns (ResolveSessionResponse);
+}
+
+message ResolveSessionRequest {
+  // The session token from Authorization: Bearer, never a session ID.
+  string session_token = 1;
+}
+
+message ResolveSessionResponse {
+  string session_id = 1;
+  string user_id = 2;
+}

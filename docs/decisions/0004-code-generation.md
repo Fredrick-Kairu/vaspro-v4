@@ -55,6 +55,15 @@ than once before landing on this (`Makefile`'s own comment on
 and any later one — has to keep using this suffix for that check to mean
 anything.
 
+**Amendment (2026-10-30, task 2.2a).** `protoc-gen-go` and
+`protoc-gen-go-grpc` can't rename their output, so buf's generated files
+keep their standard `*.pb.go` / `*_grpc.pb.go` names; `make gen-check`
+diffs `**/*.pb.go` alongside `**/*_gen.*`. Generated Go sits next to
+its `.proto` under `proto/<svc>/v1/`, outside `internal/`, so one
+service can import another's client without importing the service.
+Tool versions are pinned in CI (`BUF_VERSION`,
+`PROTOC_GEN_GO_VERSION`, `PROTOC_GEN_GO_GRPC_VERSION`).
+
 ## Consequences
 
 - Generated files are never hand-edited — `.claude/rules/api.md`:

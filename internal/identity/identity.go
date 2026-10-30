@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/redis/go-redis/v9"
+	gogrpc "google.golang.org/grpc"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
@@ -28,6 +29,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
+	identitygrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/identity/grpc"
 )
 
 // totpKMSKeyID names the LocalKMS master key TOTP secrets are
@@ -52,8 +54,12 @@ type Config struct {
 	DatabaseURL string `env:"IDENTITY_DATABASE_URL,required"`
 	NATSURL     string `env:"IDENTITY_NATS_URL,required"`
 	HTTPAddr    string `env:"IDENTITY_HTTP_ADDR" envDefault:":8080"`
-	SMTPAddr    string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
-	EmailFrom   string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
+	// GRPCAddr serves identity's internal gRPC API (proto/identity/v1,
+	// task 2.2a) to other services. Plaintext on the internal network
+	// for now; mTLS between services is Phase 17 hardening.
+	GRPCAddr  string `env:"IDENTITY_GRPC_ADDR" envDefault:":9090"`
+	SMTPAddr  string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
+	EmailFrom string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
 
 	// TOTPKMSKey is LocalKMS's master key, base64-encoded, exactly 32
 	// bytes once decoded (AES-256) — encrypts user_totp.secret_ciphertext.
@@ -253,8 +259,23 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("identity: listening on %s: %w", s.cfg.HTTPAddr, err)
 	}
 
+	grpcLn, err := net.Listen("tcp", s.cfg.GRPCAddr)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("identity: listening for gRPC on %s: %w", s.cfg.GRPCAddr, err)
+	}
+	grpcSrv := gogrpc.NewServer()
+	identitygrpc.Register(grpcSrv, s.app)
+	grpcDone := make(chan struct{})
+	go func() {
+		defer close(grpcDone)
+		_ = grpcSrv.Serve(grpcLn)
+	}()
+
 	srv := &http.Server{Handler: s.rtr, ReadHeaderTimeout: 5 * time.Second}
 	err = server.Serve(ctx, srv, ln, 10*time.Second)
+	grpcSrv.GracefulStop()
+	<-grpcDone
 	<-relayDone
 	return err
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
@@ -25,7 +26,7 @@ func TestAudit_LogsRouteTemplateNotRawPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building route table: %v", err)
 	}
-	handler := audit(logger, routes)(okHandler())
+	handler := audit(logger, []routers.Router{routes})(okHandler())
 
 	const challenge = "secret-challenge-token-value"
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/totp-challenges/"+challenge+"/verification", nil)

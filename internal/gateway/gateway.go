@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/getkin/kin-openapi/routers"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 
@@ -45,13 +45,19 @@ const (
 type Config struct {
 	HTTPAddr string `env:"GATEWAY_HTTP_ADDR" envDefault:":8081"`
 
-	// IdentityBaseURL is the one backend this phase has — identity.
-	// A future service adds its own *BaseURL + prefix, not a change to
-	// how this one works.
+	// IdentityBaseURL receives every request no other backend claims.
 	IdentityBaseURL string `env:"GATEWAY_IDENTITY_BASE_URL,required"`
 	// IdentityOpenAPIPath is the spec requireValidRequestShape loads
 	// at startup to validate every request proxied to identity.
 	IdentityOpenAPIPath string `env:"GATEWAY_IDENTITY_OPENAPI_PATH" envDefault:"docs/api/identity.yaml"`
+	// IdentityGRPCAddr is identity's internal gRPC API, used to check
+	// dashboard sessions for every backend but identity (task 2.2a).
+	IdentityGRPCAddr string `env:"GATEWAY_IDENTITY_GRPC_ADDR,required"`
+
+	// AccountsBaseURL receives everything under /v1/accounts/, after
+	// the gateway has checked the session (task 2.2a).
+	AccountsBaseURL     string `env:"GATEWAY_ACCOUNTS_BASE_URL,required"`
+	AccountsOpenAPIPath string `env:"GATEWAY_ACCOUNTS_OPENAPI_PATH" envDefault:"docs/api/accounts.yaml"`
 
 	// RedisURL backs rate-limit counters (RedisRateLimiter) — the
 	// gateway's own connection, not identity's; it owns no schema to
@@ -68,24 +74,30 @@ type Service struct {
 // New builds a Service from already-connected dependencies. protected
 // is the production route table — empty today (see ProtectedRoute's
 // own doc); tests pass their own to exercise the pipeline against a
-// real identity route.
-func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, protected []ProtectedRoute) (*Service, error) {
-	target, err := url.Parse(cfg.IdentityBaseURL)
+// real identity route. sessions checks dashboard sessions for every
+// backend but identity.
+func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, protected []ProtectedRoute, sessions SessionResolver) (*Service, error) {
+	identityTarget, err := url.Parse(cfg.IdentityBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_IDENTITY_BASE_URL: %w", err)
 	}
-	spec, err := loadOpenAPISpec(cfg.IdentityOpenAPIPath)
+	accountsTarget, err := url.Parse(cfg.AccountsBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_ACCOUNTS_BASE_URL: %w", err)
+	}
+	identitySpec, identityRoutes, err := loadSpecAndRoutes(cfg.IdentityOpenAPIPath)
 	if err != nil {
 		return nil, err
 	}
-	specRoutes, err := gorillamux.NewRouter(spec)
+	accountsSpec, accountsRoutes, err := loadSpecAndRoutes(cfg.AccountsOpenAPIPath)
 	if err != nil {
-		return nil, fmt.Errorf("gateway: building openapi route table: %w", err)
+		return nil, err
 	}
 
 	jwks := newJWKSCache(cfg.IdentityBaseURL+"/.well-known/jwks.json", clk)
 	limiter := NewRedisRateLimiter(c)
-	proxyHandler := newReverseProxy(target)
+	identityProxy := requireValidRequestShape(identitySpec)(newReverseProxy(identityTarget))
+	accountsProxy := newReverseProxy(accountsTarget)
 
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
@@ -97,14 +109,24 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	r.Get("/readyz", httpx.Readyz())
 
 	proxied := chi.NewRouter()
-	proxied.Use(audit(logger, specRoutes))
+	proxied.Use(stripForwardedIdentity)
+	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes}))
 	proxied.Use(rateLimit(limiter, rateLimitByIP, globalRateLimit, globalRateWindow))
 	proxied.Use(requireIdempotencyKeyHeader)
-	proxied.Use(requireValidRequestShape(spec))
 
-	mountProtectedRoutes(proxied, protected, jwks, clk, oauthIssuer, oauthAudience, limiter, proxyHandler)
-	proxied.NotFound(proxyHandler.ServeHTTP)
-	proxied.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) { proxyHandler.ServeHTTP(w, r) })
+	// accounts: the session is checked here, then the request is
+	// validated against accounts' own spec and forwarded with the user
+	// (sessionauth.go).
+	proxied.Route("/v1/accounts", func(r chi.Router) {
+		r.Use(requireSessionFor(sessions))
+		r.Use(requireValidRequestShape(accountsSpec))
+		r.Handle("/*", accountsProxy)
+	})
+
+	// identity: everything else. Identity checks its own sessions.
+	mountProtectedRoutes(proxied, protected, jwks, clk, oauthIssuer, oauthAudience, limiter, identityProxy)
+	proxied.NotFound(identityProxy.ServeHTTP)
+	proxied.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) { identityProxy.ServeHTTP(w, r) })
 
 	r.Mount("/", proxied)
 
@@ -122,7 +144,11 @@ func Bootstrap(_ context.Context) (*Service, error) {
 	}
 	c := cache.New(redisOpts)
 
-	return New(cfg, c, clock.Real{}, slog.Default(), nil)
+	sessions, err := DialGRPCSessions(cfg.IdentityGRPCAddr)
+	if err != nil {
+		return nil, err
+	}
+	return New(cfg, c, clock.Real{}, slog.Default(), nil, sessions)
 }
 
 // Router is the gateway's HTTP handler, exported so tests can drive it
