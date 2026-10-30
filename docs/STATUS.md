@@ -1,9 +1,52 @@
 # Build status
 
-**Updated:** 2026-10-29
-**Current phase:** Phase 1: Identity, access and API gateway (Phase 0 complete: tasks 0.1-0.14 done; M0 exit gate not yet fully verified, see Notes)
-**Current task:** Phase 1 closed (`phase-1-done`, 2026-10-27) and merged to `main` (2026-10-29). Next: Phase 2 kickoff.
-**Branch:** main (Phase 2 starts on a new `p2/<short-name>` branch)
+**Updated:** 2026-10-30
+**Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** 2.1 done (2026-10-30). Next: 2.5 tier state machine (moved up, see the plan below).
+**Branch:** `p2/accounts-schema` (branched from `p1/status-merged`, whose STATUS commit isn't on `main` yet, so it rides along in this PR)
+
+## Phase 2 plan (agreed 2026-10-30)
+Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
+
+| # | Task | Tests first |
+|---|---|---|
+| 2.1 | `accounts` migration (data model §4) + starter sqlc queries; no service code yet (1.1's precedent) | migration applies; RLS per tenant-owned table; every CHECK/UNIQUE |
+| 2.5 | Tier state machine (`domain/`), `tier_changes` in the same transaction as the tier | table test of every transition; no tier change without a `tier_changes` row |
+| 2.2 | Scaffold the service; tenant created by an explicit onboarding call; tenant types; `tenant.created`; migrate Phase 1 placeholder tenants | RLS cross-tenant; placeholder rows moved |
+| 2.3 | Memberships, roles, invitations; one email in several accounts | role × permission matrix |
+| 2.4 | Service catalogue, selection, minimum tier per country (from `packs/ke`) | locked service reports the tier it needs |
+| 2.6 | KYC adapter, fake vendor, webhooks; ADR for OD-03's default | idempotent, verified webhooks; out-of-order result never demotes |
+| 2.7 | KYB: business profile, owners, registry lookup adapter | duplicate registration number goes to review |
+| 2.8 | Documents: object storage (SeaweedFS S3) in `platform`, hash, type/size checks, virus-scan hook | wrong type, too large, same hash stored once |
+| 2.9 | Staff review queue; also unlock by staff (carried from Phase 1) | staff-only access; decision promotes or rejects |
+| 2.10 | Data residency tag per tenant | |
+| 2.11 | v3 importers in `tools/migrate-v3` | dry-run counts, flagged records |
+
+**Decisions (2026-10-30):**
+- **Q1 tenant at sign-up:** an explicit onboarding call after email verification (`display_name`, country; currency/timezone/region from the pack), not auto-created from `user.email_verified`. So accounts consumes no identity event in 2.1.
+- **Q2 how identity learns memberships/tier:** to settle in 2.2's plan. My recommendation: a gRPC call from identity to accounts for membership checks (first `proto/`), since removing a member must take effect at once; a copy built from events could serve the token's `kyc_tier` claim later.
+- **Q3 Phase 1 placeholder tenants** (`api_clients`/`smpp_accounts.tenant_id` = the creating user's ID): move them to the user's first real tenant in 2.2 (approved; no real data exists yet).
+- **Q4 staff:** a minimal staff role check for 2.9, no console (the console is Phase 10).
+
+## Done in Phase 2
+- 2.1 `accounts` migration and sqlc queries. `migrations/accounts/20261030090000_init.sql` holds all 12 tables from data model §4, copied exactly, plus `outbox_events` and `idempotency_keys`. There's no `processed_events`: after decision Q1, accounts consumes no events yet. Standard RLS goes on the 7 tables with `tenant_id NOT NULL`; the 3 global tables (`services`, `service_country_rules`, `tier_caps`) have none.
+  - **Two policies data model §4 doesn't spell out, approved in the 2.1 plan:**
+    - `tenants` (no `tenant_id`; the row's `id` is the tenant): `id = cur OR parent_tenant_id = cur` for both USING and WITH CHECK. A reseller sees and creates its sub-accounts. Creating a tenant runs in `WithTenantTx(newID)`.
+    - `roles` (nullable `tenant_id`, NULL = built-in): USING `tenant_id IS NULL OR = cur`, WITH CHECK `= cur`. Built-ins are readable by every tenant and writable by none, so they must be seeded as the migration superuser (2.3).
+    - The cross-tenant "which accounts am I in?" query will need a narrow `WITH INHERIT FALSE` role in 2.3, the 1.8 pattern; under these policies a plain query can't do it.
+  - **sqlc:** second entry in `sqlc.yaml`. Starter queries are one create plus one lookup per table, in `internal/accounts/store/queries/`. Models are schema-prefixed (`AccountsTenant`, `AccountsTier`), like identity's.
+  - **Tests** (`internal/accounts/store/schema_integration_test.go`), run as a non-superuser role:
+    - a goose Down-to-0-then-Up round trip;
+    - `AssertRowLevelSecurity` over the 7 standard tables;
+    - the tenants and roles policies (including a tenant inserting or editing a built-in role, and a tenant inserting an unrelated tenant);
+    - every CHECK, and the unique keys later tasks rely on: memberships PK, `kyc_checks (provider, provider_ref)` with repeatable NULLs, one business profile per tenant but repeatable registration numbers;
+    - tier enum order;
+    - citext `billing_email`;
+    - one sqlc round trip under RLS.
+  - **Mutation-checked:** loosening the roles WITH CHECK and the tenants USING made 6 subtests fail, then I reverted.
+  - `make check` green, after one rerun: the first run hit the known container-startup flake (connection refused) in three identity/testkit packages, which passed alone.
+
+**Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0
 - 0.1 Repository skeleton: `Makefile`, `.golangci.yml` (`gosec` + per-service `depguard` boundary), `.editorconfig`.
@@ -42,7 +85,7 @@
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Phase 2 (accounts, KYC and onboarding): paste the Phase 2 kickoff prompt from ROADMAP §11 in a new conversation. Also carried over: unlock by staff (deferred from Phase 1), `respondProblem` logging unknown errors, and folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3.
+1. Task 2.1, then the Phase 2 plan above in order.
 2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers

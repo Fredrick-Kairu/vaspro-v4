@@ -765,7 +765,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 2.1 `accounts` migrations and queries from data model §4.
+- [x] 2.1 `accounts` migrations and queries from data model §4.
 - [ ] 2.2 Tenant created in the sandbox at sign-up; tenant types (direct, reseller, sub-account).
 - [ ] 2.3 Memberships, roles and invitations; one email can belong to several accounts.
 - [ ] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country.
