@@ -27,3 +27,11 @@ INSERT INTO identity.users (id, email, full_name, phone_e164, password_hash, ema
 VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (email) DO NOTHING
 RETURNING *;
+
+-- name: CreateGoogleUser :one
+-- task 1.16: Google has verified the email (email_verified claim), so
+-- the account starts verified; there is no password until the user
+-- sets one through a password reset.
+INSERT INTO identity.users (id, email, full_name, email_verified_at)
+VALUES ($1, $2, $3, now())
+RETURNING *;

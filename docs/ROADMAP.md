@@ -733,7 +733,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.13 v3 importer: users and profiles. v3 passwords are bcrypt of MD5: verify that way once, then re-hash with Argon2id. Users without a usable email are flagged.
 - [x] 1.14 Design (not enable) the v3 token compatibility route (OD-16).
 - [>] 1.15 OIDC single sign-on for clients who used Okta in v3, if time allows; otherwise in Phase 20. **Deferred to 20.8** (2026-10-23): the design leaves domain verification, tenant binding, account linking and IdP secret storage open, see OQ-03.
-- [ ] 1.16 Sign in with Google (D-22): authorization code flow with PKCE, `state` and `nonce`; ID token checked against Google's keys, issuer and our client ID; sign-up through Google; linking and unlinking from security settings; second factor (TOTP or passkey) enrolled before the first session completes; SSO domains refused and redirected; `identity.user_identities` and `sessions.auth_method`. *Added 30 Oct 2026, after the Phase 1 exit gate; built at the start of Phase 2.*
+- [x] 1.16 Sign in with Google (D-22): authorization code flow with PKCE, `state` and `nonce`; ID token checked against Google's keys, issuer and our client ID; sign-up through Google; linking and unlinking from security settings; second factor (TOTP or passkey) enrolled before the first session completes; SSO domains refused and redirected; `identity.user_identities` and `sessions.auth_method`. *Added 30 Oct 2026, after the Phase 1 exit gate; built at the start of Phase 2.*
 
 **Tests specific to this phase**
 
@@ -755,7 +755,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [x] The e2e scenario above is green. *Task 1.16 (added 30 Oct) adds a second, Google e2e; this line is reopened for it until 1.16 is done.* *Evidence: `internal/gateway` `TestGateway_SignupThroughApiClientAndToken_EndToEnd` (real `cmd/identity` subprocess), `make check` green 2026-10-25.*
+- [x] The e2e scenario above is green. *Evidence: `internal/gateway` `TestGateway_SignupThroughApiClientAndToken_EndToEnd` (real `cmd/identity` subprocess), `make check` green 2026-10-25; the Google e2e added with task 1.16 is `TestGateway_GoogleSignUpThroughTOTPSignIn_EndToEnd` (real `cmd/identity`, `tools/fakes/oidc` as Google), `make check` green 2026-10-30.*
 - [x] A negative-test pass covers every endpoint without a token, with a wrong scope, and with another tenant's IDs. *Evidence: `internal/identity/api` `TestEverySessionBearerOperation_RejectsMissingGarbageAndRevokedTokens`, `TestEveryIDTakingOperation_RejectsAnotherTenantsIDs` and `TestRequireSessionOperations_MatchesSpec` (all driven by `docs/api/identity.yaml`); wrong scope: `internal/gateway` `TestRequireScope`, `TestGateway_MissingScope_Returns403` (no identity operation is scope-gated).*
 - [x] No secret, password or token appears in any log line; a test greps test logs for them. *Evidence: the e2e above greps the gateway's and the identity subprocess's logs for every secret the flow handles; confirmed by mutation (logging the raw path fails it on the TOTP challenge).*
 

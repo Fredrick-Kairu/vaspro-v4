@@ -34,6 +34,13 @@ func randomBase64Key(t *testing.T) string {
 // password reset) doesn't have to reach around the router for it.
 func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 	t.Helper()
+	return newTestRouterWith(t, nil)
+}
+
+// newTestRouterWith is newTestRouter with configure applied to the
+// Config first (task 1.16's Google tests set the GOOGLE_* fields).
+func newTestRouterWith(t *testing.T, configure func(*identity.Config)) (http.Handler, *email.Sender) {
+	t.Helper()
 	ctx := t.Context()
 
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/identity"))
@@ -54,6 +61,9 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 		WebAuthnRPDisplayName: "VASPRO Test",
 		WebAuthnOrigins:       []string{"https://localhost"},
 		RedisURL:              testkit.StartRedisURL(t),
+	}
+	if configure != nil {
+		configure(&cfg)
 	}
 	sender := &email.Sender{}
 	svc, err := identity.New(cfg, pool, nil, sender)

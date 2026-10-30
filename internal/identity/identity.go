@@ -91,6 +91,16 @@ type Config struct {
 	// RedisURL caches identity.sessions (1.5) — ResolveSession's
 	// per-request check tries it before Postgres.
 	RedisURL string `env:"IDENTITY_REDIS_URL,required"`
+
+	// Sign in with Google (task 1.16). Optional: with no client ID,
+	// Google sign-in is off and its routes return VAL-4003.
+	// GoogleRedirectURL is the dashboard page Google sends the browser
+	// back to; it must be registered with Google exactly. GoogleIssuer
+	// is only overridden in tests (tools/fakes/oidc).
+	GoogleClientID     string `env:"IDENTITY_GOOGLE_CLIENT_ID"`
+	GoogleClientSecret string `env:"IDENTITY_GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURL  string `env:"IDENTITY_GOOGLE_REDIRECT_URL"`
+	GoogleIssuer       string `env:"IDENTITY_GOOGLE_ISSUER" envDefault:"https://accounts.google.com"`
 }
 
 // Service wires identity's dependencies together and runs them.
@@ -142,6 +152,18 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 	}
 	c := cache.New(redisOpts)
 
+	var oidcProvider adapters.OIDCProvider
+	if cfg.GoogleClientID != "" {
+		if cfg.GoogleRedirectURL == "" {
+			return nil, fmt.Errorf("identity: IDENTITY_GOOGLE_REDIRECT_URL is required when IDENTITY_GOOGLE_CLIENT_ID is set")
+		}
+		issuer := cfg.GoogleIssuer
+		if issuer == "" {
+			issuer = "https://accounts.google.com"
+		}
+		oidcProvider = adapters.NewGoogleOIDC(issuer, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL)
+	}
+
 	a := app.New(app.Deps{
 		Pool:             pool,
 		Email:            email,
@@ -152,6 +174,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		ChallengeKey:     challengeKey,
 		WebAuthn:         wa,
 		Cache:            c,
+		OIDC:             oidcProvider,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)

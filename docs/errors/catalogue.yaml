@@ -84,6 +84,46 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4018
+    status: 401
+    title: External sign-in failed
+    cause: The Sign in with Google flow failed - an unknown, reused or mismatched state; a failed code exchange; an ID token with a bad signature, wrong issuer or audience, past expiry or another flow's nonce; or an unverified Google email at sign-up. Deliberately not distinguished.
+    fix: Start Sign in with Google again from the beginning.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4019
+    status: 403
+    title: Sign in with your organisation's single sign-on
+    cause: The email's domain has an enabled single sign-on connection, so Sign in with Google isn't allowed for it.
+    fix: Sign in through your organisation's single sign-on.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4020
+    status: 409
+    title: Account exists; link Google first
+    cause: The Google account isn't linked to anyone, but its email belongs to an existing VASPRO account. VASPRO never links accounts silently.
+    fix: Sign in with your password or passkey, then link Google from security settings.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4021
+    status: 409
+    title: Google account linked to another user
+    cause: The Google account being linked is already linked to a different VASPRO user.
+    fix: Unlink it from the other account first, or link a different Google account.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4022
+    status: 409
+    title: Can't remove your only way to sign in
+    cause: Unlinking Google would leave the account with no password and no passkey.
+    fix: Set a password or register a passkey, then unlink Google.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service

@@ -76,35 +76,47 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 	code = strings.TrimSpace(code)
 
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := store.New(tx)
-
-		row, err := q.GetUserTOTP(ctx, userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrTwoFactorInvalid
-		}
-		if err != nil {
-			return fmt.Errorf("app: looking up TOTP enrollment: %w", err)
-		}
-
-		secret, err := s.envelope.Open(ctx, s.totpKeyID, row.SecretCiphertext)
-		if err != nil {
-			return fmt.Errorf("app: decrypting TOTP secret: %w", err)
-		}
-
-		accepted, err := s.acceptTOTPCode(ctx, q, userID, string(secret), code)
+		confirmed, err := s.confirmTOTPEnrollment(ctx, store.New(tx), userID, code)
 		if err != nil {
 			return err
 		}
-		if !accepted {
-			// No write happened yet in this branch, so returning the
-			// sentinel directly (rather than the commit-after-the-fact
-			// pattern SignIn/CompleteTOTPChallenge need) is safe here —
-			// there's nothing for the rollback to lose.
+		if !confirmed {
+			// No write happened on this path, so returning the sentinel
+			// directly (rather than the commit-after-the-fact pattern
+			// SignIn/CompleteTOTPChallenge need) is safe here.
 			return ErrTwoFactorInvalid
 		}
-
-		return q.ConfirmUserTOTP(ctx, userID)
+		return nil
 	})
+}
+
+// confirmTOTPEnrollment checks code against userID's pending TOTP
+// secret and, if it's valid, marks the enrollment confirmed. It reports
+// false, writing nothing, for a wrong code or no pending enrollment.
+// Shared by ConfirmTOTPEnrollment and Google sign-up's TOTP enrolment
+// (task 1.16).
+func (s *Service) confirmTOTPEnrollment(ctx context.Context, q *store.Queries, userID uuid.UUID, code string) (bool, error) {
+	row, err := q.GetUserTOTP(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("app: looking up TOTP enrollment: %w", err)
+	}
+
+	secret, err := s.envelope.Open(ctx, s.totpKeyID, row.SecretCiphertext)
+	if err != nil {
+		return false, fmt.Errorf("app: decrypting TOTP secret: %w", err)
+	}
+
+	accepted, err := s.acceptTOTPCode(ctx, q, userID, string(secret), code)
+	if err != nil || !accepted {
+		return false, err
+	}
+	if err := q.ConfirmUserTOTP(ctx, userID); err != nil {
+		return false, fmt.Errorf("app: confirming TOTP enrollment: %w", err)
+	}
+	return true, nil
 }
 
 // acceptTOTPCode reports whether code is valid for secret now and, if

@@ -115,6 +115,9 @@ type SessionSummary struct {
 	LastSeenAt time.Time
 	ExpiresAt  time.Time
 	Current    bool
+	// AuthMethod is how the session signed in: password, passkey or
+	// google (sessions.auth_method, task 1.16).
+	AuthMethod string
 }
 
 // ListSessions returns userID's active sessions (revoked or expired
@@ -138,6 +141,7 @@ func (s *Service) ListSessions(ctx context.Context, userID, currentSessionID uui
 			LastSeenAt: row.LastSeenAt,
 			ExpiresAt:  row.ExpiresAt,
 			Current:    row.ID == currentSessionID,
+			AuthMethod: row.AuthMethod,
 		}
 		if row.Ip != nil {
 			summary.IP = row.Ip.String()

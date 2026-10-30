@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-30
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 1.16 Sign in with Google (added to Phase 1 by the 30 Oct roadmap update, D-22), then 2.5. 2.1 done (2026-10-30).
+**Current task:** 1.16 done (2026-10-30). Next: 2.5 tier state machine. 2.1 done (2026-10-30).
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -53,6 +53,42 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - one sqlc round trip under RLS.
   - **Mutation-checked:** loosening the roles WITH CHECK and the tenants USING made 6 subtests fail, then I reverted.
   - `make check` green, after one rerun: the first run hit the known container-startup flake (connection refused) in three identity/testkit packages, which passed alone.
+
+- 1.16 Sign in with Google (D-22), built at the start of Phase 2 because the 30 Oct roadmap update added it to Phase 1.
+  - **Shape.** Google proves the first factor only.
+    - A callback (`POST /v1/auth/google/sessions`) never returns a session. It returns either a challenge (finished by the existing TOTP verification, or a new Google passkey challenge) or an enrolment token, when the account has no second factor yet; the first session exists only once TOTP or a passkey is enrolled.
+    - Sessions record `auth_method` (`password`, `passkey`, `google`). The TOTP challenge token carries the first factor's method, so the session it completes records `google`.
+    - Google never sets `step_up_at`.
+    - 13 operations under `/v1/auth/google/…`.
+    - Five new codes: `AUTH-4018` failed flow or token, `AUTH-4019` SSO domain, `AUTH-4020` account exists so link first, `AUTH-4021` linked to someone else, `AUTH-4022` only way in. `AUTH-4017` stays reserved by ADR 0006.
+  - **Flow state** (state, nonce, PKCE verifier, intent, and the user for a link) lives in Redis for 10 minutes and is taken with GETDEL, so a state works once. Each nonce belongs to one state, so a replayed ID token fails too.
+  - **Matching** is on `sub` in the new `identity.user_identities` table. An unlinked Google account whose email belongs to an existing user gets AUTH-4020, and nothing is linked.
+  - **Linking** needs session + step-up, and the link callback must come from the same user who started it. This blocks an attacker's link flow being completed in a victim's session.
+  - **Unlinking** is refused when the user has no password and no passkey.
+  - **SSO domain check:** `sso_connections` has FORCE RLS, so the cross-tenant lookup uses a new NOLOGIN `identity_sso_domain_lookup` role (`WITH INHERIT FALSE`, used only through `WithRoleTx`), 1.8's pattern. This role is a deviation from data model §3. SSO itself is still deferred to 20.8, so a match is a refusal, not a redirect.
+  - **Migration** `20261030120000_add_google_sign_in.sql` adds `user_identities` (copied from data model §3), `sessions.auth_method`, and the role. Existing session rows were backfilled to `password` (approved; dev and test data only).
+  - **`auth_method`** is also in `listSessions`' `SessionSummary`: the e2e needs it, and users see how each session signed in.
+  - **Dependencies:** `coreos/go-oidc/v3 v3.21.0`, `golang.org/x/oauth2 v0.37.0` (already an indirect dependency at v0.36), and `go-jose/v4 v4.1.4` as an indirect dependency.
+  - **Config:** `IDENTITY_GOOGLE_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_ISSUER`. All optional: with no client ID, Google is off and its routes return VAL-4003. Google's discovery document is fetched lazily, so identity starts even if Google is unreachable.
+  - **`tools/fakes/oidc`** is a real HTTP OIDC provider: discovery, JWKS, a token endpoint that checks PKCE, and RS256 ID tokens with tamper options. The real go-oidc adapter runs unchanged against it.
+  - **Refactors, behaviour unchanged:** `finishPasskeyLogin`, `storeNewPasskey` and `confirmTOTPEnrollment` were split out of existing code for reuse.
+  - **Tests.**
+    - App level:
+      - tampered or foreign-key signature, expired token, wrong audience or issuer, foreign nonce, unknown or reused state, a link state used for sign-in, unverified email;
+      - Google + TOTP and Google + passkey both give `auth_method=google` and no step-up;
+      - an enrolment token is refused once a factor exists;
+      - a sign-in challenge is not an enrolment token;
+      - no silent linking, and a changed Google email still matches by sub;
+      - the link flow can't be completed by another user, and a sub linked elsewhere is refused;
+      - unlinking the only way in is refused;
+      - an enabled SSO domain is refused, a disabled one isn't;
+      - password and passkey sessions record their method.
+    - HTTP-level error codes.
+    - Store: constraints, and the SSO role only inside `WithRoleTx`.
+    - Gateway e2e `TestGateway_GoogleSignUpThroughTOTPSignIn_EndToEnd`, with a log grep for ID tokens, codes, states, the enrolment token, TOTP codes and recovery codes. The PKCE verifier isn't grepped: the test never sees it, because it stays in Redis.
+    - **Mutation-checked:** dropping the nonce comparison, ignoring the challenge's method, skipping the link-owner check, and letting an enrolment token ignore an existing factor each failed the intended assertion.
+  - **Order of work:** the use cases were written before their tests, not tests first; the mutation checks stand in for showing the tests fail first.
+  - **For frontend track F1:** the API is cookieless, so the dashboard must keep `state` from `createGoogleAuthorization` and check that the callback returns the same value before calling `createGoogleSession` (login CSRF). The link flow is already protected server-side.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

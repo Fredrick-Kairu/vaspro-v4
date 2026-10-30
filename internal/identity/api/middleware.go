@@ -111,6 +111,10 @@ var requireSessionOperations = map[string]bool{
 	"UpdateSmppAccountStatus":               true,
 	"CreateSmppAccountPassword":             true,
 	"ListSecurityEvents":                    true,
+	"CreateGoogleLinkAuthorization":         true,
+	"CreateGoogleLink":                      true,
+	"GetGoogleLink":                         true,
+	"DeleteGoogleLink":                      true,
 }
 
 // requireSession reads Authorization: Bearer <session_token> and resolves
@@ -160,6 +164,8 @@ var requireStepUpOperations = map[string]bool{
 	"CreateApiClientSecret":     true,
 	"CreateSmppAccount":         true,
 	"CreateSmppAccountPassword": true,
+	// Linking Google adds a way to sign in (task 1.16).
+	"CreateGoogleLinkAuthorization": true,
 }
 
 // requireStepUp rejects a request whose session hasn't proved MFA

@@ -602,6 +602,324 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/google/authorizations:
+    post:
+      operationId: createGoogleAuthorization
+      summary: Begin signing in (or signing up) with Google
+      description: >
+        Task 1.16 (D-22). Returns the Google authorization URL to send
+        the browser to, and the state Google will hand back. The
+        dashboard must keep state and check the callback returns the
+        same value before calling createGoogleSession (login CSRF: the
+        API is cookieless, so only the browser can tie a callback to
+        the flow it started). PKCE and the nonce are kept server-side.
+        VAL-4003 when Google sign-in isn't configured.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Authorization begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleAuthorization'
+              example:
+                authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=...&nonce=...&code_challenge=...&code_challenge_method=S256"
+                state: "n3Vq0b8xQh2c6J9rT1yWmA5sLzKpE7uDfGiHoR4vX0c"
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/sessions:
+    post:
+      operationId: createGoogleSession
+      summary: Finish the Google redirect
+      description: >
+        Exchanges the code and verifies Google's ID token (signature,
+        issuer, audience, expiry, nonce). Never returns a session:
+        either a challenge (finish with createTotpChallengeVerification
+        or the Google passkey challenge) or, when the account has no
+        second factor yet, an enrollment_token for the Google
+        enrollment endpoints. AUTH-4018 for any failed flow or token;
+        AUTH-4019 for a domain that signs in with SSO; AUTH-4020 when
+        the Google email belongs to an account that hasn't linked
+        Google (sign in the usual way and link it first).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleCallbackRequest'
+            example:
+              code: "4/0AeaYSHB-example-code"
+              state: "n3Vq0b8xQh2c6J9rT1yWmA5sLzKpE7uDfGiHoR4vX0c"
+      responses:
+        "200":
+          description: Google step done; a second factor comes next.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleSignInResult'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/passkey-challenges:
+    post:
+      operationId: createGooglePasskeyChallenge
+      summary: Begin a passkey as the second factor after Google
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleChallengeRequest'
+            example:
+              challenge: "eyJ1c2VyX2lkIjoi...signed"
+      responses:
+        "200":
+          description: Passkey assertion begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremonyOptions'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/passkey-challenges/verification:
+    post:
+      operationId: createGooglePasskeyChallengeVerification
+      summary: Finish a passkey second factor after Google
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GooglePasskeyChallengeVerificationRequest'
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/enrollments/totp:
+    post:
+      operationId: createGoogleTotpEnrollment
+      summary: Begin TOTP enrollment for a Google account with no second factor
+      description: >
+        The enrollment token proves a Google sign-in just passed for an
+        account with no TOTP or passkey; it is refused once one exists.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleEnrollmentRequest'
+            example:
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+      responses:
+        "200":
+          description: Enrollment started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollmentResult'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/enrollments/totp/confirmation:
+    post:
+      operationId: createGoogleTotpEnrollmentConfirmation
+      summary: Confirm TOTP enrollment and create the first session
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleTotpEnrollmentConfirmationRequest'
+            example:
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+              code: "042918"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/enrollments/passkey:
+    post:
+      operationId: createGooglePasskeyEnrollment
+      summary: Begin passkey enrollment for a Google account with no second factor
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleEnrollmentRequest'
+            example:
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+      responses:
+        "200":
+          description: Registration begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremonyOptions'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/enrollments/passkey/confirmation:
+    post:
+      operationId: createGooglePasskeyEnrollmentConfirmation
+      summary: Finish passkey enrollment and create the first session
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GooglePasskeyEnrollmentConfirmationRequest'
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResult'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/link-authorizations:
+    post:
+      operationId: createGoogleLinkAuthorization
+      summary: Begin linking a Google account to the signed-in account
+      description: >
+        Requires Authorization: Bearer <session_token> and step-up MFA
+        within the last 5 minutes (AUTH-4012): linking adds a way to
+        sign in. Finish with createGoogleLink in the same session.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Authorization begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleAuthorization'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/auth/google/link:
+    post:
+      operationId: createGoogleLink
+      summary: Finish linking a Google account
+      description: >
+        The flow must have been started by this same account
+        (AUTH-4018 otherwise). AUTH-4021 if the Google account is
+        linked to someone else.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleCallbackRequest'
+            example:
+              code: "4/0AeaYSHB-example-code"
+              state: "n3Vq0b8xQh2c6J9rT1yWmA5sLzKpE7uDfGiHoR4vX0c"
+      responses:
+        "200":
+          description: Linked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkedIdentity'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: getGoogleLink
+      summary: Show the linked Google account
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The linked Google account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkedIdentity'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteGoogleLink
+      summary: Unlink the Google account
+      description: AUTH-4022 when Google is the account's only way to sign in (no password and no passkey).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Unlinked.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/auth/api-clients:
     post:
       operationId: createApiClient
@@ -1231,6 +1549,10 @@ components:
         current:
           type: boolean
           description: True for the session bound to the bearer token used on this request.
+        auth_method:
+          type: string
+          enum: [password, passkey, google, sso]
+          description: How the session signed in.
     SessionList:
       type: object
       properties:
@@ -1510,6 +1832,99 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JwkKey'
+    GoogleAuthorization:
+      type: object
+      required: [authorization_url, state]
+      properties:
+        authorization_url:
+          type: string
+        state:
+          type: string
+          description: Single use; expires after 10 minutes.
+    GoogleCallbackRequest:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+        state:
+          type: string
+    GoogleSignInResult:
+      type: object
+      properties:
+        challenge:
+          type: string
+          description: Set when the account has a second factor. Finish with createTotpChallengeVerification or createGooglePasskeyChallenge.
+        second_factors:
+          type: array
+          items:
+            type: string
+            enum: [totp, passkey]
+        enrollment_token:
+          type: string
+          description: Set when the account has no second factor yet; enrol one through the Google enrollment endpoints. Expires after 15 minutes.
+    GoogleChallengeRequest:
+      type: object
+      required: [challenge]
+      properties:
+        challenge:
+          type: string
+    GooglePasskeyChallengeVerificationRequest:
+      type: object
+      required: [challenge, session, credential]
+      properties:
+        challenge:
+          type: string
+        session:
+          type: string
+          description: The session value createGooglePasskeyChallenge returned.
+        credential:
+          type: object
+          description: The navigator.credentials.get() response, passed through as-is.
+    GoogleEnrollmentRequest:
+      type: object
+      required: [enrollment_token]
+      properties:
+        enrollment_token:
+          type: string
+    GoogleTotpEnrollmentConfirmationRequest:
+      type: object
+      required: [enrollment_token, code]
+      properties:
+        enrollment_token:
+          type: string
+        code:
+          type: string
+    GooglePasskeyEnrollmentConfirmationRequest:
+      type: object
+      required: [enrollment_token, session, credential]
+      properties:
+        enrollment_token:
+          type: string
+        session:
+          type: string
+        name:
+          type: string
+        credential:
+          type: object
+          description: The navigator.credentials.create() response, passed through as-is.
+    LinkedIdentity:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [google]
+        email:
+          type: string
+          description: The email Google reported when the account was linked.
+        hosted_domain:
+          type: string
+        linked_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

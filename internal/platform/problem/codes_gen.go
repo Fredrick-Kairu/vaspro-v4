@@ -24,6 +24,11 @@ const (
 	AUTH4014 Code = "AUTH-4014"
 	AUTH4015 Code = "AUTH-4015"
 	AUTH4016 Code = "AUTH-4016"
+	AUTH4018 Code = "AUTH-4018"
+	AUTH4019 Code = "AUTH-4019"
+	AUTH4020 Code = "AUTH-4020"
+	AUTH4021 Code = "AUTH-4021"
+	AUTH4022 Code = "AUTH-4022"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -94,6 +99,46 @@ var registry = map[Code]entry{
 		Title:     "Credential environment mismatch",
 		Cause:     "A sandbox credential's token was used to call a route that only live credentials may reach.",
 		Fix:       "Use a live credential, or call the route from a sandbox-eligible context.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4018: {
+		Status:    401,
+		Title:     "External sign-in failed",
+		Cause:     "The Sign in with Google flow failed - an unknown, reused or mismatched state; a failed code exchange; an ID token with a bad signature, wrong issuer or audience, past expiry or another flow's nonce; or an unverified Google email at sign-up. Deliberately not distinguished.",
+		Fix:       "Start Sign in with Google again from the beginning.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4019: {
+		Status:    403,
+		Title:     "Sign in with your organisation's single sign-on",
+		Cause:     "The email's domain has an enabled single sign-on connection, so Sign in with Google isn't allowed for it.",
+		Fix:       "Sign in through your organisation's single sign-on.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4020: {
+		Status:    409,
+		Title:     "Account exists; link Google first",
+		Cause:     "The Google account isn't linked to anyone, but its email belongs to an existing VASPRO account. VASPRO never links accounts silently.",
+		Fix:       "Sign in with your password or passkey, then link Google from security settings.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4021: {
+		Status:    409,
+		Title:     "Google account linked to another user",
+		Cause:     "The Google account being linked is already linked to a different VASPRO user.",
+		Fix:       "Unlink it from the other account first, or link a different Google account.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4022: {
+		Status:    409,
+		Title:     "Can't remove your only way to sign in",
+		Cause:     "Unlinking Google would leave the account with no password and no passkey.",
+		Fix:       "Set a password or register a passkey, then unlink Google.",
 		Retryable: false,
 		Billable:  false,
 	},

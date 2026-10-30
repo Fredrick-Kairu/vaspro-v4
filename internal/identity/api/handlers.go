@@ -401,6 +401,7 @@ func sessionSummaryResponse(s *app.SessionSummary) SessionSummary {
 		LastSeenAt: &s.LastSeenAt,
 		ExpiresAt:  &s.ExpiresAt,
 		Current:    &s.Current,
+		AuthMethod: (*SessionSummaryAuthMethod)(&s.AuthMethod),
 	}
 	if s.IP != "" {
 		summary.Ip = &s.IP
@@ -471,6 +472,16 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4011, "the two-factor code is invalid or has expired")
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
+	case errors.Is(err, app.ErrExternalSignInFailed):
+		return problem.New(problem.AUTH4018, "Sign in with Google failed; start again")
+	case errors.Is(err, app.ErrSSORequired):
+		return problem.New(problem.AUTH4019, "this email's domain signs in with single sign-on")
+	case errors.Is(err, app.ErrAccountExistsLinkRequired):
+		return problem.New(problem.AUTH4020, "an account with this email exists; sign in and link Google from security settings")
+	case errors.Is(err, app.ErrIdentityLinkedElsewhere):
+		return problem.New(problem.AUTH4021, "this Google account is linked to another user")
+	case errors.Is(err, app.ErrOnlySignInMethod):
+		return problem.New(problem.AUTH4022, "Google is this account's only way to sign in; set a password or add a passkey first")
 	default:
 		return err
 	}

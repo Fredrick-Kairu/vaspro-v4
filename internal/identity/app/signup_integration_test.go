@@ -22,6 +22,7 @@ import (
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
@@ -61,6 +62,13 @@ func randomKey(t *testing.T) []byte {
 var sixDigitCode = regexp.MustCompile(`^[0-9]{6}$`)
 
 func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock, *cache.Cache) {
+	t.Helper()
+	return newTestServiceWithOIDC(t, nil)
+}
+
+// newTestServiceWithOIDC is newTestService with Sign in with Google
+// wired to provider (task 1.16); nil leaves Google off.
+func newTestServiceWithOIDC(t *testing.T, provider adapters.OIDCProvider) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock, *cache.Cache) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -109,6 +117,7 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 		ChallengeKey:     randomKey(t),
 		WebAuthn:         wa,
 		Cache:            c,
+		OIDC:             provider,
 	})
 	return svc, pool, sender, clk, c
 }

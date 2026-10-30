@@ -182,36 +182,9 @@ func (s *Service) FinishPasskeyRegistration(ctx context.Context, userID uuid.UUI
 	var summary *PasskeySummary
 
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := store.New(tx)
-
-		user, err := s.loadWebAuthnUser(ctx, q, userID)
+		row, err := s.storeNewPasskey(ctx, store.New(tx), userID, session, name, parsedResponse)
 		if err != nil {
 			return err
-		}
-
-		credential, err := s.webauthn.CreateCredential(user, *session, parsedResponse)
-		if err != nil {
-			return fmt.Errorf("%w: %v", ErrValidation, err)
-		}
-
-		id, err := ids.New()
-		if err != nil {
-			return fmt.Errorf("app: generating passkey id: %w", err)
-		}
-
-		row, err := q.CreatePasskey(ctx, store.CreatePasskeyParams{
-			ID:                id,
-			UserID:            userID,
-			CredentialID:      credential.ID,
-			PublicKey:         credential.PublicKey,
-			Name:              pgtype.Text{String: name, Valid: name != ""},
-			Flags:             int16(credential.Flags.MsgpByte()),
-			AttestationType:   credential.AttestationType,
-			AttestationFormat: credential.AttestationFormat,
-			Transports:        transportsToStrings(credential.Transport),
-		})
-		if err != nil {
-			return fmt.Errorf("app: storing passkey: %w", err)
 		}
 
 		s2 := passkeySummary(row)
@@ -222,6 +195,42 @@ func (s *Service) FinishPasskeyRegistration(ctx context.Context, userID uuid.UUI
 		return nil, err
 	}
 	return summary, nil
+}
+
+// storeNewPasskey verifies a registration response against session and
+// stores the credential for userID. Shared by FinishPasskeyRegistration
+// and Google sign-up's passkey enrolment (task 1.16).
+func (s *Service) storeNewPasskey(ctx context.Context, q *store.Queries, userID uuid.UUID, session *webauthn.SessionData, name string, parsedResponse *protocol.ParsedCredentialCreationData) (store.IdentityUserPasskey, error) {
+	user, err := s.loadWebAuthnUser(ctx, q, userID)
+	if err != nil {
+		return store.IdentityUserPasskey{}, err
+	}
+
+	credential, err := s.webauthn.CreateCredential(user, *session, parsedResponse)
+	if err != nil {
+		return store.IdentityUserPasskey{}, fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+
+	id, err := ids.New()
+	if err != nil {
+		return store.IdentityUserPasskey{}, fmt.Errorf("app: generating passkey id: %w", err)
+	}
+
+	row, err := q.CreatePasskey(ctx, store.CreatePasskeyParams{
+		ID:                id,
+		UserID:            userID,
+		CredentialID:      credential.ID,
+		PublicKey:         credential.PublicKey,
+		Name:              pgtype.Text{String: name, Valid: name != ""},
+		Flags:             int16(credential.Flags.MsgpByte()),
+		AttestationType:   credential.AttestationType,
+		AttestationFormat: credential.AttestationFormat,
+		Transports:        transportsToStrings(credential.Transport),
+	})
+	if err != nil {
+		return store.IdentityUserPasskey{}, fmt.Errorf("app: storing passkey: %w", err)
+	}
+	return row, nil
 }
 
 // ListPasskeys returns userID's passkeys, oldest first.
@@ -366,7 +375,14 @@ func (s *Service) CompletePasskeyLogin(ctx context.Context, challengeToken strin
 	if err != nil {
 		return nil, ErrBadCredentials
 	}
+	return s.finishPasskeyLogin(ctx, session, userID, rawCredential, ip, userAgent, authMethodPasskey)
+}
 
+// finishPasskeyLogin validates rawCredential against session for
+// userID and creates a session recording authMethod: passkey for a
+// plain passkey sign-in, google when the passkey is the second factor
+// after Sign in with Google (task 1.16).
+func (s *Service) finishPasskeyLogin(ctx context.Context, session *webauthn.SessionData, userID uuid.UUID, rawCredential []byte, ip net.IP, userAgent, authMethod string) (*Session, error) {
 	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(rawCredential)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
@@ -436,7 +452,7 @@ func (s *Service) CompletePasskeyLogin(ctx context.Context, challengeToken strin
 		}
 
 		var alertNewIP bool
-		result, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent)
+		result, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent, authMethod)
 		if err != nil {
 			return err
 		}

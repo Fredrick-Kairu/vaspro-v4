@@ -112,7 +112,7 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 		}
 
 		if totpEnrolled {
-			challenge, err := s.issueChallenge(user.ID)
+			challenge, err := s.issueChallenge(user.ID, authMethodPassword)
 			if err != nil {
 				return err
 			}
@@ -120,7 +120,7 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 			return nil
 		}
 
-		session, alertNewIP, err := s.createSession(ctx, q, user.ID, ip, userAgent)
+		session, alertNewIP, err := s.createSession(ctx, q, user.ID, ip, userAgent, authMethodPassword)
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (s *Service) SignIn(ctx context.Context, rawEmail, password string, ip net.
 // recovery code, an expired/malformed challenge, and a locked-out
 // account all return the same ErrTwoFactorInvalid.
 func (s *Service) CompleteTOTPChallenge(ctx context.Context, challenge, code string, ip net.IP, userAgent string) (*Session, error) {
-	userID, err := s.verifyChallenge(challenge)
+	userID, method, err := s.verifyChallenge(challenge)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Service) CompleteTOTPChallenge(ctx context.Context, challenge, code str
 		}
 
 		var alertNewIP bool
-		session, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent)
+		session, alertNewIP, err = s.createSession(ctx, q, userID, ip, userAgent, method)
 		if err != nil {
 			return err
 		}

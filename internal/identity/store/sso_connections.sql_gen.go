@@ -45,6 +45,26 @@ func (q *Queries) CreateSSOConnection(ctx context.Context, arg CreateSSOConnecti
 	return i, err
 }
 
+const getEnabledSSOConnectionByDomain = `-- name: GetEnabledSSOConnectionByDomain :one
+SELECT id, tenant_id, protocol, domain, config, enabled FROM identity.sso_connections WHERE domain = $1 AND enabled
+`
+
+// Cross-tenant by design: runs only inside WithRoleTx as
+// identity_sso_domain_lookup (migration 20261030120000).
+func (q *Queries) GetEnabledSSOConnectionByDomain(ctx context.Context, domain string) (IdentitySsoConnection, error) {
+	row := q.db.QueryRow(ctx, getEnabledSSOConnectionByDomain, domain)
+	var i IdentitySsoConnection
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Protocol,
+		&i.Domain,
+		&i.Config,
+		&i.Enabled,
+	)
+	return i, err
+}
+
 const getSSOConnectionByDomain = `-- name: GetSSOConnectionByDomain :one
 SELECT id, tenant_id, protocol, domain, config, enabled FROM identity.sso_connections WHERE domain = $1
 `

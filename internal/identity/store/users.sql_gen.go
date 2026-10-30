@@ -12,6 +12,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createGoogleUser = `-- name: CreateGoogleUser :one
+INSERT INTO identity.users (id, email, full_name, email_verified_at)
+VALUES ($1, $2, $3, now())
+RETURNING id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at
+`
+
+type CreateGoogleUserParams struct {
+	ID       uuid.UUID `json:"id"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+}
+
+// task 1.16: Google has verified the email (email_verified claim), so
+// the account starts verified; there is no password until the user
+// sets one through a password reset.
+func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserParams) (IdentityUser, error) {
+	row := q.db.QueryRow(ctx, createGoogleUser, arg.ID, arg.Email, arg.FullName)
+	var i IdentityUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+		&i.PhoneE164,
+		&i.PhoneVerifiedAt,
+		&i.PasswordHash,
+		&i.Status,
+		&i.Locale,
+		&i.LastSignInAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO identity.users (id, email, full_name, phone_e164)
 VALUES ($1, $2, $3, $4)

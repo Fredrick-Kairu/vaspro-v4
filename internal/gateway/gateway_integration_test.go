@@ -235,8 +235,9 @@ func startRealIdentity(t *testing.T, smtpAddr string) string {
 
 // startRealIdentityWithLogs is startRealIdentity that also copies the
 // subprocess's stdout and stderr into logs, for a test that needs to
-// read back what identity logged.
-func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer) string {
+// read back what identity logged. extraEnv is appended to the
+// subprocess's environment (task 1.16's e2e sets IDENTITY_GOOGLE_*).
+func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, extraEnv ...string) string {
 	t.Helper()
 	root := repoRoot(t)
 
@@ -266,6 +267,7 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer) st
 		"IDENTITY_WEBAUTHN_ORIGINS=https://localhost",
 		"IDENTITY_REDIS_URL="+redisURL,
 	)
+	runCmd.Env = append(runCmd.Env, extraEnv...)
 	runCmd.Stdout = os.Stdout
 	runCmd.Stderr = os.Stderr
 	if logs != nil {

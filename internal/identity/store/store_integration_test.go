@@ -82,9 +82,10 @@ func TestCreateSession_GetSessionByID_RoundTrip(t *testing.T) {
 	}
 
 	created, err := q.CreateSession(ctx, store.CreateSessionParams{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(time.Hour),
+		ID:         uuid.New(),
+		UserID:     user.ID,
+		ExpiresAt:  time.Now().Add(time.Hour),
+		AuthMethod: "password",
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -118,10 +119,11 @@ func TestSessions_TokenHashUnique(t *testing.T) {
 	}
 	create := func(tokenHash []byte) error {
 		_, err := q.CreateSession(ctx, store.CreateSessionParams{
-			ID:        uuid.New(),
-			UserID:    user.ID,
-			ExpiresAt: time.Now().Add(time.Hour),
-			TokenHash: tokenHash,
+			ID:         uuid.New(),
+			UserID:     user.ID,
+			ExpiresAt:  time.Now().Add(time.Hour),
+			TokenHash:  tokenHash,
+			AuthMethod: "password",
 		})
 		return err
 	}
