@@ -29,6 +29,9 @@ type CreateTierChangeParams struct {
 	ChangedBy  pgtype.UUID  `json:"changed_by"`
 }
 
+// Never set created_at: the tenants_tier_change_recorded trigger relies
+// on its default, now(), to prove the row is from the same transaction
+// as the tier update (migration 20261030140000).
 func (q *Queries) CreateTierChange(ctx context.Context, arg CreateTierChangeParams) (AccountsTierChange, error) {
 	row := q.db.QueryRow(ctx, createTierChange,
 		arg.ID,

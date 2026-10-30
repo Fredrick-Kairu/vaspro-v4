@@ -1,0 +1,279 @@
+//go:build integration
+
+package app_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
+	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+)
+
+// harness runs app.Service as a non-superuser role, so RLS applies the
+// way it will in production; super arranges fixtures and reads back.
+type harness struct {
+	svc   *app.Service
+	app   *vasdb.Pool
+	super *vasdb.Pool
+}
+
+func newHarness(t *testing.T) harness {
+	t.Helper()
+	ctx := context.Background()
+	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/accounts"))
+	const setup = `
+		CREATE ROLE accounts_role LOGIN PASSWORD 'accounts_role';
+		GRANT USAGE ON SCHEMA accounts TO accounts_role;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounts TO accounts_role;
+	`
+	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
+		t.Fatalf("setting up accounts_role: %v", err)
+	}
+	super, err := vasdb.NewPool(ctx, pg.DSN()+"&search_path=accounts,public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(super.Close)
+	appPool, err := vasdb.NewPool(ctx, pg.RoleDSN("accounts_role", "accounts_role")+"&search_path=accounts,public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(appPool.Close)
+	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC())})
+	return harness{svc: svc, app: appPool, super: super}
+}
+
+func (h harness) newTenant(t *testing.T, status string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	if _, err := h.super.Exec(context.Background(), `
+		INSERT INTO tenants (id, display_name, country_code, timezone, default_currency, region, status)
+		VALUES ($1, 'Acme', 'KE', 'Africa/Nairobi', 'KES', 'ke', $2)`, id, status); err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	return id
+}
+
+func (h harness) newCheck(t *testing.T, tenant uuid.UUID, kind, status string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	if _, err := store.New(h.super).CreateKycCheck(context.Background(), store.CreateKycCheckParams{
+		ID: id, TenantID: tenant, Kind: kind, SubjectID: uuid.New(), Provider: "fake", Status: status,
+	}); err != nil {
+		t.Fatalf("insert kyc check: %v", err)
+	}
+	return id
+}
+
+func (h harness) tierOf(t *testing.T, tenant uuid.UUID) string {
+	t.Helper()
+	var tier string
+	if err := h.super.QueryRow(context.Background(), `SELECT tier FROM tenants WHERE id = $1`, tenant).Scan(&tier); err != nil {
+		t.Fatal(err)
+	}
+	return tier
+}
+
+func (h harness) count(t *testing.T, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := h.super.QueryRow(context.Background(), query, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestChangeTier_PromotionWritesTierRowAndEventTogether(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	tenant := h.newTenant(t, domain.TenantActive)
+	check := h.newCheck(t, tenant, domain.KYCKindIndividual, "passed")
+
+	err := h.svc.ChangeTier(ctx, app.ChangeTierRequest{
+		TenantID: tenant, To: domain.TierStarter, Reason: "individual KYC passed", KYCCheckID: &check,
+	})
+	if err != nil {
+		t.Fatalf("ChangeTier: %v", err)
+	}
+	if got := h.tierOf(t, tenant); got != "starter" {
+		t.Fatalf("tier %q, want starter", got)
+	}
+	var row store.AccountsTierChange
+	err = h.super.QueryRow(ctx, `SELECT id, tenant_id, from_tier, to_tier, reason, kyc_check_id, changed_by, created_at FROM tier_changes WHERE tenant_id = $1`, tenant).
+		Scan(&row.ID, &row.TenantID, &row.FromTier, &row.ToTier, &row.Reason, &row.KycCheckID, &row.ChangedBy, &row.CreatedAt)
+	if err != nil {
+		t.Fatalf("reading tier_changes: %v", err)
+	}
+	if row.FromTier != "sandbox" || row.ToTier != "starter" || row.KycCheckID != (pgtype.UUID{Bytes: check, Valid: true}) || row.ChangedBy.Valid {
+		t.Fatalf("got tier change %+v", row)
+	}
+	data := assertTierChangedEventValid(t, h, tenant)
+	if data["from_tier"] != "sandbox" || data["to_tier"] != "starter" || data["kyc_check_id"] != check.String() {
+		t.Fatalf("got event data %v", data)
+	}
+}
+
+func TestChangeTier_StaffPromotesStraightToFinancial(t *testing.T) {
+	h := newHarness(t)
+	tenant := h.newTenant(t, domain.TenantActive)
+	staffID := uuid.New()
+	if err := h.svc.ChangeTier(context.Background(), app.ChangeTierRequest{
+		TenantID: tenant, To: domain.TierFinancial, Reason: "existing client, documents on file", ChangedBy: &staffID,
+	}); err != nil {
+		t.Fatalf("ChangeTier: %v", err)
+	}
+	if got := h.tierOf(t, tenant); got != "financial" {
+		t.Fatalf("tier %q, want financial", got)
+	}
+	data := assertTierChangedEventValid(t, h, tenant)
+	if data["changed_by"] != staffID.String() {
+		t.Fatalf("got event data %v, want changed_by %s", data, staffID)
+	}
+}
+
+func TestChangeTier_RefusedChangesWriteNothing(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	staffID := uuid.New()
+
+	other := h.newTenant(t, domain.TenantActive)
+	otherCheck := h.newCheck(t, other, domain.KYCKindIndividual, "passed")
+
+	cases := []struct {
+		name   string
+		status string
+		req    func(tenant uuid.UUID) app.ChangeTierRequest
+		want   error
+	}{
+		{"a check skipping tiers", domain.TenantActive, func(tenant uuid.UUID) app.ChangeTierRequest {
+			c := h.newCheck(t, tenant, domain.KYCKindBusiness, "passed")
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierBusiness, Reason: "kyb", KYCCheckID: &c}
+		}, domain.ErrSkipsTiers},
+		{"a check that hasn't passed", domain.TenantActive, func(tenant uuid.UUID) app.ChangeTierRequest {
+			c := h.newCheck(t, tenant, domain.KYCKindIndividual, "review")
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "kyc", KYCCheckID: &c}
+		}, app.ErrCheckNotUsable},
+		{"another tenant's check", domain.TenantActive, func(tenant uuid.UUID) app.ChangeTierRequest {
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "kyc", KYCCheckID: &otherCheck}
+		}, app.ErrCheckNotUsable},
+		{"a check that doesn't exist", domain.TenantActive, func(tenant uuid.UUID) app.ChangeTierRequest {
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "kyc", KYCCheckID: ptr(uuid.New())}
+		}, app.ErrCheckNotUsable},
+		{"no evidence", domain.TenantActive, func(tenant uuid.UUID) app.ChangeTierRequest {
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "because"}
+		}, domain.ErrNoEvidence},
+		{"promoting a suspended tenant", domain.TenantSuspended, func(tenant uuid.UUID) app.ChangeTierRequest {
+			return app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "reviewed", ChangedBy: &staffID}
+		}, domain.ErrPromotionWhileInactive},
+		{"a tenant that doesn't exist", domain.TenantActive, func(uuid.UUID) app.ChangeTierRequest {
+			return app.ChangeTierRequest{TenantID: uuid.New(), To: domain.TierStarter, Reason: "reviewed", ChangedBy: &staffID}
+		}, app.ErrNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenant := h.newTenant(t, tc.status)
+			err := h.svc.ChangeTier(ctx, tc.req(tenant))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+			if got := h.tierOf(t, tenant); got != "sandbox" {
+				t.Fatalf("tier changed to %q", got)
+			}
+			if n := h.count(t, `SELECT count(*) FROM tier_changes WHERE tenant_id = $1`, tenant); n != 0 {
+				t.Fatalf("%d tier_changes rows written", n)
+			}
+			if n := h.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id = $1`, tenant); n != 0 {
+				t.Fatalf("%d events written", n)
+			}
+		})
+	}
+}
+
+func TestChangeTier_DemotionByReverification(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	tenant := h.newTenant(t, domain.TenantActive)
+	staffID := uuid.New()
+	if err := h.svc.ChangeTier(ctx, app.ChangeTierRequest{TenantID: tenant, To: domain.TierBusiness, Reason: "reviewed", ChangedBy: &staffID}); err != nil {
+		t.Fatal(err)
+	}
+	failed := h.newCheck(t, tenant, domain.KYCKindBusiness, "failed")
+	if err := h.svc.ChangeTier(ctx, app.ChangeTierRequest{TenantID: tenant, To: domain.TierStarter, Reason: "directors changed; KYB failed", KYCCheckID: &failed}); err != nil {
+		t.Fatalf("demotion: %v", err)
+	}
+	if got := h.tierOf(t, tenant); got != "starter" {
+		t.Fatalf("tier %q, want starter", got)
+	}
+	if n := h.count(t, `SELECT count(*) FROM tier_changes WHERE tenant_id = $1`, tenant); n != 2 {
+		t.Fatalf("%d tier_changes rows, want 2", n)
+	}
+}
+
+// assertTierChangedEventValid checks the newest tenant.tier_changed
+// event for tenant against docs/events/tenant.tier_changed.schema.json
+// (ROADMAP §8.3) and returns its data.
+func assertTierChangedEventValid(t *testing.T, h harness, tenant uuid.UUID) map[string]any {
+	t.Helper()
+	var payload []byte
+	err := h.super.QueryRow(context.Background(),
+		`SELECT payload FROM outbox_events WHERE event_type = 'tenant.tier_changed' AND aggregate_id = $1 ORDER BY occurred_at DESC LIMIT 1`, tenant).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("no tenant.tier_changed event in the outbox")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env platformevents.Envelope
+	if err := json.Unmarshal(payload, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.TenantID != tenant {
+		t.Fatalf("envelope tenant %s, want %s", env.TenantID, tenant)
+	}
+	const path = "../../../docs/events/tenant.tier_changed.schema.json"
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource("tenant.tier_changed.schema.json", doc); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := c.Compile("tenant.tier_changed.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(env.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(instance); err != nil {
+		t.Fatalf("event data %s fails its schema: %v", env.Data, err)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

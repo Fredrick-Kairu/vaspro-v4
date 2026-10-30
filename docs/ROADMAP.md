@@ -777,7 +777,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [ ] 2.2 Tenant created in the sandbox at sign-up; tenant types (direct, reseller, sub-account).
 - [ ] 2.3 Memberships, roles and invitations; one email can belong to several accounts.
 - [ ] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country.
-- [ ] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
+- [x] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
 - [ ] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided.
 - [ ] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter.
 - [ ] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications.

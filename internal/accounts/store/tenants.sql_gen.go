@@ -92,3 +92,49 @@ func (q *Queries) GetTenantByID(ctx context.Context, id uuid.UUID) (AccountsTena
 	)
 	return i, err
 }
+
+const getTenantForUpdate = `-- name: GetTenantForUpdate :one
+SELECT id, type, parent_tenant_id, legal_name, display_name, country_code, timezone, default_currency, region, tier, status, billing_email, version, created_at, updated_at FROM accounts.tenants WHERE id = $1 FOR UPDATE
+`
+
+// Locks the row so two tier changes for one tenant can't interleave.
+func (q *Queries) GetTenantForUpdate(ctx context.Context, id uuid.UUID) (AccountsTenant, error) {
+	row := q.db.QueryRow(ctx, getTenantForUpdate, id)
+	var i AccountsTenant
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.ParentTenantID,
+		&i.LegalName,
+		&i.DisplayName,
+		&i.CountryCode,
+		&i.Timezone,
+		&i.DefaultCurrency,
+		&i.Region,
+		&i.Tier,
+		&i.Status,
+		&i.BillingEmail,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateTenantTier = `-- name: UpdateTenantTier :exec
+UPDATE accounts.tenants
+SET tier = $2, version = version + 1, updated_at = now()
+WHERE id = $1
+`
+
+type UpdateTenantTierParams struct {
+	ID   uuid.UUID    `json:"id"`
+	Tier AccountsTier `json:"tier"`
+}
+
+// Only valid alongside CreateTierChange in the same transaction: the
+// tenants_tier_change_recorded trigger refuses it otherwise.
+func (q *Queries) UpdateTenantTier(ctx context.Context, arg UpdateTenantTierParams) error {
+	_, err := q.db.Exec(ctx, updateTenantTier, arg.ID, arg.Tier)
+	return err
+}

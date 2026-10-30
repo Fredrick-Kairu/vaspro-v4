@@ -6,3 +6,14 @@ RETURNING *;
 
 -- name: GetTenantByID :one
 SELECT * FROM accounts.tenants WHERE id = $1;
+
+-- name: GetTenantForUpdate :one
+-- Locks the row so two tier changes for one tenant can't interleave.
+SELECT * FROM accounts.tenants WHERE id = $1 FOR UPDATE;
+
+-- name: UpdateTenantTier :exec
+-- Only valid alongside CreateTierChange in the same transaction: the
+-- tenants_tier_change_recorded trigger refuses it otherwise.
+UPDATE accounts.tenants
+SET tier = $2, version = version + 1, updated_at = now()
+WHERE id = $1;

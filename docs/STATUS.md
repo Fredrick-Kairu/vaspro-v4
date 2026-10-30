@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-30
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 1.16 done (2026-10-30). Next: 2.5 tier state machine. 2.1 done (2026-10-30).
+**Current task:** 2.5 done (2026-10-30). Next: 2.2 tenant at sign-up (decide Q2 in its plan). Also done: 2.1, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -89,6 +89,30 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Mutation-checked:** dropping the nonce comparison, ignoring the challenge's method, skipping the link-owner check, and letting an enrolment token ignore an existing factor each failed the intended assertion.
   - **Order of work:** the use cases were written before their tests, not tests first; the mutation checks stand in for showing the tests fail first.
   - **For frontend track F1:** the API is cookieless, so the dashboard must keep `state` from `createGoogleAuthorization` and check that the callback returns the same value before calling `createGoogleSession` (login CSRF). The link flow is already protected server-side.
+
+- 2.5 Tier state machine.
+  - **Rules** (agreed 30 Oct; `internal/accounts/domain/tier.go`, pure):
+    - every change needs a reason and evidence (a KYC check, a staff member, or both);
+    - a passed check promotes exactly one tier, and only to the tier its kind unlocks (`individual` → starter, `business` → business);
+    - staff promote any number of tiers, and only staff reach financial (existing clients with documents on file, the v3 import, top-tier services after review);
+    - demotions go any number of tiers down, backed by staff or a failed or expired check (re-verification);
+    - a suspended or archived tenant can only be demoted.
+  - **`app.Service.ChangeTier`** (`internal/accounts/app`, the service's first app code; not wired into any process until 2.2) does everything in one `WithTenantTx`:
+    1. locks the tenant (`GetTenantForUpdate`);
+    2. checks the KYC check is the tenant's own and its status fits: passed for a promotion, failed or expired for a demotion;
+    3. validates the change;
+    4. writes `tenants.tier`, the `tier_changes` row and `tenant.tier_changed` (new schema in `docs/events/`) together.
+    A refused change writes nothing. `ChangedBy` is trusted as staff for now; 2.9's API adds the staff-role check (decision Q4).
+  - **Database enforcement** (migration `20261030140000_enforce_tier_changes.sql`, an addition to data model §4, approved in the plan):
+    - a deferred constraint trigger refuses a `tenants.tier` change at commit unless a matching `tier_changes` row has `created_at = now()`, i.e. comes from the same transaction (so nothing may set `tier_changes.created_at` explicitly; noted on the query);
+    - a `BEFORE INSERT` trigger keeps every new tenant in sandbox, so the v3 import (2.11) must also go through `tier_changes`.
+  - **Tests:**
+    - a table test of named behaviours, plus an exhaustive invariant test over every from × to × evidence × status;
+    - store tests for the trigger: no row, wrong row, a row from an earlier transaction, either order, other column updates, inserting above sandbox;
+    - app tests for the write-together path, every refusal writing nothing, a demotion by re-verification, and event schema validation.
+    - All were shown failing first (168 domain assertions against a stub; the store and app tests before the trigger and the use case existed).
+    - **Mutation-checked:** dropping the trigger's `created_at = now()`, the one-step rule, and the check-status rule each failed the intended test.
+  - **`make check`:** the first run failed on `platform/testkit`'s `TestStartNATS_PublishAndConsumeRoundTrips` (`bus: connecting: EOF`) and passed on rerun. This is the second NATS container-startup flake today. `StartNATSURL` probably returns before the server accepts connections under load: worth a readiness wait in its own small task.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
