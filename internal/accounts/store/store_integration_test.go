@@ -72,3 +72,42 @@ func TestCreateTenant_ThroughGeneratedQueries_UnderRLS(t *testing.T) {
 		t.Fatalf("round trip: %v", err)
 	}
 }
+
+// TestListSubAccounts_UnderRLS: a reseller's transaction lists its own
+// sub-accounts, and naming another reseller's id finds nothing.
+func TestListSubAccounts_UnderRLS(t *testing.T) {
+	db := newAccountsDB(t)
+	ctx := context.Background()
+	reseller := mustTenant(t, db.super)
+	other := mustTenant(t, db.super)
+	subs := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, id := range subs {
+		if err := insertTenant(ctx, db.super, id, &reseller); err != nil {
+			t.Fatal(err)
+		}
+	}
+	otherSub := uuid.New()
+	if err := insertTenant(ctx, db.super, otherSub, &other); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(as, parent uuid.UUID) []store.AccountsTenant {
+		t.Helper()
+		var rows []store.AccountsTenant
+		err := db.app.WithTenantTx(ctx, as, func(ctx context.Context, tx pgx.Tx) error {
+			var err error
+			rows, err = store.New(tx).ListSubAccounts(ctx, pgtype.UUID{Bytes: parent, Valid: true})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	if got := list(reseller, reseller); len(got) != 2 {
+		t.Fatalf("reseller listed %d sub-accounts, want 2", len(got))
+	}
+	if got := list(reseller, other); len(got) != 0 {
+		t.Fatalf("reseller listed %d of another reseller's sub-accounts, want 0", len(got))
+	}
+}

@@ -132,6 +132,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: KYC-4021
+    status: 403
+    title: Not an active reseller account
+    cause: Only an active reseller account can create sub-accounts; this account is direct or a sub-account, or it is suspended or archived.
+    fix: Ask VASPRO staff to make the account a reseller (it needs the Financial tier), or reactivate it.
+    retryable: false
+    billable: false
+
   - code: VAL-4000
     status: 400
     title: Request failed validation

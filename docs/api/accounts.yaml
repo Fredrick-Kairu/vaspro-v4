@@ -53,7 +53,11 @@ paths:
     get:
       operationId: getTenant
       summary: Show a client account the caller belongs to
-      description: VAL-4003 when the account doesn't exist or the caller isn't an active member, alike.
+      description: >
+        The caller must be an active member of the account, or, for a
+        sub-account, an active member of its reseller (task 2.2b).
+        VAL-4003 when the account doesn't exist or the caller can't see
+        it, alike.
       security:
         - sessionBearer: []
       parameters:
@@ -75,6 +79,75 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/sub-accounts:
+    post:
+      operationId: createSubAccount
+      summary: Create a sub-account under a reseller
+      description: >
+        A reseller's member creates an account for one of the reseller's
+        clients (task 2.2b). The sub-account starts in the sandbox tier
+        and earns tiers through its own verification. It takes the
+        reseller's country, currency, time zone and data region. The
+        reseller's members reach it through the reseller; it gets no
+        members of its own until it invites them. The reseller must be
+        active and on the Financial tier: KYC-4021 when the account
+        isn't an active reseller, KYC-4020 when a reseller has dropped
+        below Financial. VAL-4003 when the caller isn't a member.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubAccountCreateRequest'
+            example:
+              display_name: "Kilimo Traders"
+              legal_name: "Kilimo Traders Limited"
+      responses:
+        "201":
+          description: Sub-account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSubAccounts
+      summary: List a reseller's sub-accounts
+      description: >
+        Oldest first. The caller must be an active member of the
+        account; VAL-4003 otherwise. An account that isn't a reseller
+        has none.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The sub-accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubAccountList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -85,6 +158,12 @@ components:
         <session_token>) from identity's sign-in. The gateway resolves
         it and forwards the user to accounts.
   parameters:
+    TenantID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -113,6 +192,24 @@ components:
           type: string
         billing_email:
           type: string
+    SubAccountCreateRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+        legal_name:
+          type: string
+        billing_email:
+          type: string
+    SubAccountList:
+      type: object
+      required: [sub_accounts]
+      properties:
+        sub_accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
     Tenant:
       type: object
       required: [id, type, display_name, country_code, timezone, default_currency, region, tier, status, created_at]

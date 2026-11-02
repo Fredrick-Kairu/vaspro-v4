@@ -33,6 +33,7 @@ const (
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
+	KYC4021  Code = "KYC-4021"
 	LIM4501  Code = "LIM-4501"
 	PAY6501  Code = "PAY-6501"
 	RATE4290 Code = "RATE-4290"
@@ -171,6 +172,14 @@ var registry = map[Code]entry{
 		Title:     "Account tier too low for this service",
 		Cause:     "The tenant hasn't completed the KYC tier this service requires in this country.",
 		Fix:       "Complete the next tier's verification, then retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	KYC4021: {
+		Status:    403,
+		Title:     "Not an active reseller account",
+		Cause:     "Only an active reseller account can create sub-accounts; this account is direct or a sub-account, or it is suspended or archived.",
+		Fix:       "Ask VASPRO staff to make the account a reseller (it needs the Financial tier), or reactivate it.",
 		Retryable: false,
 		Billable:  false,
 	},

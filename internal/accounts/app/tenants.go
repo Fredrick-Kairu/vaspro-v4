@@ -130,31 +130,70 @@ func (s *Service) CreateTenant(ctx context.Context, userID uuid.UUID, in domain.
 	return created, nil
 }
 
-// GetTenant returns tenantID if userID is an active member of it; a
-// tenant that doesn't exist and one the user isn't in are both
-// ErrNotFound.
+// GetTenant returns tenantID if userID is an active member of it, or,
+// for a sub-account, an active member of its reseller (agreed 2 Nov,
+// OQ-04; any role for now, task 2.3 narrows it). A tenant that doesn't
+// exist and one the user can't see are both ErrNotFound. A sub-account's
+// own members don't reach its reseller or siblings: only the parent
+// link grants access, and only downwards.
 func (s *Service) GetTenant(ctx context.Context, userID, tenantID uuid.UUID) (*Tenant, error) {
-	var tenant *Tenant
+	var (
+		row    store.AccountsTenant
+		member bool
+	)
 	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if _, err := q.GetActiveMembership(ctx, store.GetActiveMembershipParams{TenantID: tenantID, UserID: userID}); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrNotFound
-			}
-			return fmt.Errorf("app: checking membership: %w", err)
-		}
-		row, err := q.GetTenantByID(ctx, tenantID)
+		var err error
+		row, err = q.GetTenantByID(ctx, tenantID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {
 			return fmt.Errorf("app: loading tenant: %w", err)
 		}
-		tenant = tenantFromRow(row)
-		return nil
+		member, err = isMember(ctx, q, tenantID, userID)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return tenant, nil
+	if !member {
+		if !row.ParentTenantID.Valid {
+			return nil, ErrNotFound
+		}
+		// The parent's memberships are only visible in its own tenant
+		// transaction.
+		parentID := uuid.UUID(row.ParentTenantID.Bytes)
+		if err := s.pool.WithTenantTx(ctx, parentID, func(ctx context.Context, tx pgx.Tx) error {
+			return requireMember(ctx, store.New(tx), parentID, userID)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return tenantFromRow(row), nil
+}
+
+// isMember reports whether userID is an active member of tenantID; q
+// must run in tenantID's transaction.
+func isMember(ctx context.Context, q *store.Queries, tenantID, userID uuid.UUID) (bool, error) {
+	_, err := q.GetActiveMembership(ctx, store.GetActiveMembershipParams{TenantID: tenantID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("app: checking membership: %w", err)
+	}
+	return true, nil
+}
+
+// requireMember is isMember with ErrNotFound for a non-member.
+func requireMember(ctx context.Context, q *store.Queries, tenantID, userID uuid.UUID) error {
+	ok, err := isMember(ctx, q, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
 }

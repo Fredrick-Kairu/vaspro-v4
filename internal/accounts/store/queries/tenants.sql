@@ -17,3 +17,12 @@ SELECT * FROM accounts.tenants WHERE id = $1 FOR UPDATE;
 UPDATE accounts.tenants
 SET tier = $2, version = version + 1, updated_at = now()
 WHERE id = $1;
+
+-- name: UpdateTenantType :exec
+UPDATE accounts.tenants
+SET type = $2, version = version + 1, updated_at = now()
+WHERE id = $1;
+
+-- name: ListSubAccounts :many
+-- ids are UUIDv7, so this is oldest first.
+SELECT * FROM accounts.tenants WHERE parent_tenant_id = $1 ORDER BY id;

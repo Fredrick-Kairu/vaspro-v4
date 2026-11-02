@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
@@ -104,6 +105,110 @@ func TestAccountsAPI(t *testing.T) {
 		status, got := do(t, r, http.MethodPost, "/v1/accounts/tenants", ada, "create-zz",
 			map[string]string{"display_name": "Acme", "country_code": "ZZ"})
 		if status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+}
+
+// makeReseller stands in for staff (task 2.9 adds the route): it moves
+// tenant to financial with its tier_changes row, then to reseller, in
+// one transaction as the tier trigger requires.
+func makeReseller(t *testing.T, pool *vasdb.Pool, tenant string) {
+	t.Helper()
+	err := pgx.BeginFunc(context.Background(), pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `UPDATE tenants SET tier = 'financial', type = 'reseller' WHERE id = $1`, tenant); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO tier_changes (id, tenant_id, from_tier, to_tier, reason, changed_by)
+			VALUES ($1, $2, 'sandbox', 'financial', 'fixture', $3)`, uuid.New(), tenant, uuid.New())
+		return err
+	})
+	if err != nil {
+		t.Fatalf("making %s a reseller: %v", tenant, err)
+	}
+}
+
+func TestSubAccountsAPI(t *testing.T) {
+	r, pool := newRouter(t)
+	ada, bob := uuid.New(), uuid.New()
+
+	_, reseller := do(t, r, http.MethodPost, "/v1/accounts/tenants", ada, "reseller", map[string]string{"display_name": "Agency", "country_code": "KE"})
+	resellerID, _ := reseller["id"].(string)
+	makeReseller(t, pool, resellerID)
+	_, direct := do(t, r, http.MethodPost, "/v1/accounts/tenants", ada, "direct", map[string]string{"display_name": "Plain", "country_code": "KE"})
+	directID, _ := direct["id"].(string)
+	subsPath := "/v1/accounts/tenants/" + resellerID + "/sub-accounts"
+	body := map[string]string{"display_name": "Kilimo Traders"}
+
+	status, sub := do(t, r, http.MethodPost, subsPath, ada, "sub-1", body)
+	if status != http.StatusCreated || sub["type"] != "sub_account" || sub["parent_tenant_id"] != resellerID ||
+		sub["tier"] != "sandbox" || sub["default_currency"] != "KES" {
+		t.Fatalf("create sub-account: got %d %v", status, sub)
+	}
+	subID, _ := sub["id"].(string)
+
+	t.Run("replaying the Idempotency-Key returns the same sub-account", func(t *testing.T) {
+		status, again := do(t, r, http.MethodPost, subsPath, ada, "sub-1", body)
+		if status != http.StatusCreated || again["id"] != subID {
+			t.Fatalf("got %d %v, want %s", status, again, subID)
+		}
+	})
+	t.Run("the reseller's member reads the sub-account", func(t *testing.T) {
+		status, got := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+subID, ada, "", nil)
+		if status != http.StatusOK || got["id"] != subID {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("listing returns it", func(t *testing.T) {
+		status, got := do(t, r, http.MethodGet, subsPath, ada, "", nil)
+		list, _ := got["sub_accounts"].([]any)
+		if status != http.StatusOK || len(list) != 1 || list[0].(map[string]any)["id"] != subID {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a non-member gets 404 VAL-4003 for create, list and read", func(t *testing.T) {
+		for _, c := range []struct{ method, path, key string }{
+			{http.MethodPost, subsPath, "bob-sub"},
+			{http.MethodGet, subsPath, ""},
+			{http.MethodGet, "/v1/accounts/tenants/" + subID, ""},
+		} {
+			var b any
+			if c.method == http.MethodPost {
+				b = body
+			}
+			if status, got := do(t, r, c.method, c.path, bob, c.key, b); status != http.StatusNotFound || got["code"] != "VAL-4003" {
+				t.Fatalf("%s %s: got %d %v", c.method, c.path, status, got)
+			}
+		}
+	})
+	t.Run("a direct account is 403 KYC-4021", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPost, "/v1/accounts/tenants/"+directID+"/sub-accounts", ada, "direct-sub", body)
+		if status != http.StatusForbidden || got["code"] != "KYC-4021" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a blank display name is 400 VAL-4000", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPost, subsPath, ada, "no-name", map[string]string{"display_name": " "})
+		if status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a reseller below financial is 403 KYC-4020", func(t *testing.T) {
+		err := pgx.BeginFunc(context.Background(), pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(context.Background(), `UPDATE tenants SET tier = 'business' WHERE id = $1`, resellerID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(context.Background(), `
+				INSERT INTO tier_changes (id, tenant_id, from_tier, to_tier, reason, changed_by)
+				VALUES ($1, $2, 'financial', 'business', 'fixture', $3)`, uuid.New(), resellerID, uuid.New())
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, got := do(t, r, http.MethodPost, subsPath, ada, "sub-after-demotion", body)
+		if status != http.StatusForbidden || got["code"] != "KYC-4020" {
 			t.Fatalf("got %d %v", status, got)
 		}
 	})

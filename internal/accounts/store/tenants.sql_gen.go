@@ -121,6 +121,47 @@ func (q *Queries) GetTenantForUpdate(ctx context.Context, id uuid.UUID) (Account
 	return i, err
 }
 
+const listSubAccounts = `-- name: ListSubAccounts :many
+SELECT id, type, parent_tenant_id, legal_name, display_name, country_code, timezone, default_currency, region, tier, status, billing_email, version, created_at, updated_at FROM accounts.tenants WHERE parent_tenant_id = $1 ORDER BY id
+`
+
+// ids are UUIDv7, so this is oldest first.
+func (q *Queries) ListSubAccounts(ctx context.Context, parentTenantID pgtype.UUID) ([]AccountsTenant, error) {
+	rows, err := q.db.Query(ctx, listSubAccounts, parentTenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsTenant
+	for rows.Next() {
+		var i AccountsTenant
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.ParentTenantID,
+			&i.LegalName,
+			&i.DisplayName,
+			&i.CountryCode,
+			&i.Timezone,
+			&i.DefaultCurrency,
+			&i.Region,
+			&i.Tier,
+			&i.Status,
+			&i.BillingEmail,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateTenantTier = `-- name: UpdateTenantTier :exec
 UPDATE accounts.tenants
 SET tier = $2, version = version + 1, updated_at = now()
@@ -136,5 +177,21 @@ type UpdateTenantTierParams struct {
 // tenants_tier_change_recorded trigger refuses it otherwise.
 func (q *Queries) UpdateTenantTier(ctx context.Context, arg UpdateTenantTierParams) error {
 	_, err := q.db.Exec(ctx, updateTenantTier, arg.ID, arg.Tier)
+	return err
+}
+
+const updateTenantType = `-- name: UpdateTenantType :exec
+UPDATE accounts.tenants
+SET type = $2, version = version + 1, updated_at = now()
+WHERE id = $1
+`
+
+type UpdateTenantTypeParams struct {
+	ID   uuid.UUID          `json:"id"`
+	Type AccountsTenantType `json:"type"`
+}
+
+func (q *Queries) UpdateTenantType(ctx context.Context, arg UpdateTenantTypeParams) error {
+	_, err := q.db.Exec(ctx, updateTenantType, arg.ID, arg.Type)
 	return err
 }

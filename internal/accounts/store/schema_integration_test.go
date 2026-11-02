@@ -70,8 +70,8 @@ type execer interface {
 
 func insertTenant(ctx context.Context, db execer, id uuid.UUID, parent *uuid.UUID) error {
 	_, err := db.Exec(ctx, `
-		INSERT INTO tenants (id, parent_tenant_id, display_name, country_code, timezone, default_currency, region)
-		VALUES ($1, $2, 'Test tenant', 'KE', 'Africa/Nairobi', 'KES', 'ke')`, id, parent)
+		INSERT INTO tenants (id, type, parent_tenant_id, display_name, country_code, timezone, default_currency, region)
+		VALUES ($1, CASE WHEN $2::uuid IS NULL THEN 'direct' ELSE 'sub_account' END::tenant_type, $2, 'Test tenant', 'KE', 'Africa/Nairobi', 'KES', 'ke')`, id, parent)
 	return err
 }
 
@@ -411,6 +411,8 @@ func TestConstraints_RejectInvalidValues(t *testing.T) {
 		args []any
 	}{
 		{"tenants.status", `UPDATE tenants SET status = 'deleted' WHERE id = $1`, []any{tenant}},
+		{"tenants: a sub-account needs a parent", `UPDATE tenants SET type = 'sub_account' WHERE id = $1`, []any{tenant}},
+		{"tenants: only a sub-account has a parent", `INSERT INTO tenants (id, type, parent_tenant_id, display_name, country_code, timezone, default_currency, region) VALUES ($1, 'reseller', $2, 'X', 'KE', 'Africa/Nairobi', 'KES', 'ke')`, []any{uuid.New(), tenant}},
 		{"memberships.status", `INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'pending')`, []any{tenant, uuid.New(), role}},
 		{"tenant_services.status", `INSERT INTO tenant_services (tenant_id, service_code, status) VALUES ($1, 'sms', 'disabled')`, []any{tenant}},
 		{"tier_caps.period", `INSERT INTO tier_caps (country_code, tier, metric, period, value) VALUES ('KE', 'starter', 'sms_per_day', 'week', 100)`, nil},

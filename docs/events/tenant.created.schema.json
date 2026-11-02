@@ -12,7 +12,10 @@
     "display_name": {"type": "string", "minLength": 1},
     "country_code": {"type": "string", "pattern": "^[A-Z]{2}$"},
     "tier": {"type": "string", "enum": ["sandbox"]},
-    "created_by": {"type": "string", "format": "uuid", "description": "The user who created the account and became its Admin."}
+    "created_by": {"type": "string", "format": "uuid", "description": "The user who created the account: its Admin for a direct account, a member of the reseller for a sub-account (task 2.2b)."}
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "if": {"properties": {"type": {"const": "sub_account"}}},
+  "then": {"required": ["parent_tenant_id"]},
+  "else": {"not": {"required": ["parent_tenant_id"]}}
 }

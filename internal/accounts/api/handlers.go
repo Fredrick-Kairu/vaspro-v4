@@ -51,6 +51,42 @@ func (h *Handlers) GetTenant(ctx context.Context, request GetTenantRequestObject
 	return GetTenant200JSONResponse(tenantResponse(tenant)), nil
 }
 
+func (h *Handlers) CreateSubAccount(ctx context.Context, request CreateSubAccountRequestObject) (CreateSubAccountResponseObject, error) {
+	parentID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	body := request.Body
+	in := app.SubAccountInput{DisplayName: body.DisplayName}
+	if body.LegalName != nil {
+		in.LegalName = *body.LegalName
+	}
+	if body.BillingEmail != nil {
+		in.BillingEmail = *body.BillingEmail
+	}
+	sub, err := h.app.CreateSubAccount(ctx, callerFromContext(ctx), parentID, in)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateSubAccount201JSONResponse(tenantResponse(sub)), nil
+}
+
+func (h *Handlers) ListSubAccounts(ctx context.Context, request ListSubAccountsRequestObject) (ListSubAccountsResponseObject, error) {
+	parentID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	subs, err := h.app.ListSubAccounts(ctx, callerFromContext(ctx), parentID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := SubAccountList{SubAccounts: make([]Tenant, 0, len(subs))}
+	for _, sub := range subs {
+		resp.SubAccounts = append(resp.SubAccounts, tenantResponse(sub))
+	}
+	return ListSubAccounts200JSONResponse(resp), nil
+}
+
 func tenantResponse(t *app.Tenant) Tenant {
 	resp := Tenant{
 		Id:              t.ID.String(),
@@ -85,6 +121,12 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
+	case errors.Is(err, domain.ErrNotReseller):
+		return problem.New(problem.KYC4021, "only a reseller account can create sub-accounts")
+	case errors.Is(err, domain.ErrTenantNotActive):
+		return problem.New(problem.KYC4021, "the account is suspended or archived")
+	case errors.Is(err, domain.ErrResellerNeedsFinancial):
+		return problem.New(problem.KYC4020, "reseller accounts need the Financial tier")
 	default:
 		return err
 	}

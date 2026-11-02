@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.2a done (2026-10-30), then the testkit readiness fix (2026-11-02). Next: 2.2b reseller and sub-account types, then 2.2c tenant selection. Also done: 2.1, 2.5, 1.16.
+**Current task:** 2.2b done (2026-11-02). Next: 2.2c tenant selection. Also done: 2.1, 2.5, 2.2a, the testkit readiness fix, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -155,6 +155,35 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
   - Redis: the module's own port wait gives up after 10s, too short for a loaded Docker daemon.
   - **Fix:** `testkit.waitUntilReady` (unit-tested: retries, per-attempt timeout, and an error naming the service and its last error). Every `Start*` helper now proves readiness the way its callers connect: a pgx ping, a NATS handshake and flush, a Redis ping, an AMQP dial, within 30s. Redis gets the 60s start-up budget Postgres has.
   - **Verification:** three full `go test -tags=integration -count=1 ./...` runs in a row, all green (34 packages each), then `make check`. A flake can't be proved gone; if one recurs, the error now names the service and its last connection error.
+
+- 2.2b Reseller and sub-account tenant types. The design gives only the schema and "the Financial tier unlocks reseller accounts"; the rest was answered by you on 2 Nov and recorded as OQ-04.
+  - **Rules** (`internal/accounts/domain/reseller.go`, pure):
+    - `CanBecomeReseller`: only an active direct account on Financial, with a reason;
+    - `CanCreateSubAccount`: only an active reseller still on Financial.
+    - Two levels only: a sub-account never becomes a reseller.
+    - A reseller that drops below Financial, or is suspended or archived, keeps its sub-accounts but can't add new ones.
+  - **`app.MakeReseller`** (no route until 2.9's staff check, like `ChangeTier`): locks the tenant, checks the rules, writes the type and a new `tenant.type_changed` event together. `ChangedBy` is trusted as staff for now.
+  - **`app.CreateSubAccount`**, in the reseller's tenant transaction:
+    - requires an active membership in the reseller;
+    - locks the reseller's row so a demotion can't interleave;
+    - writes a sandbox sub-account with the reseller's country, currency, time zone and region, plus `tenant.created` with `parent_tenant_id`.
+    - It adds no membership: the tenants RLS policy (2.1) already lets the reseller's transaction insert and see its children.
+  - **Access:** `GetTenant` also lets an active member of a sub-account's reseller read it, through a second, read-only transaction in the parent (its memberships are only visible there). Any role grants this until 2.3's permission matrix. A sub-account's own members can't see the reseller or siblings.
+  - **`ListSubAccounts`**: members of the reseller only, oldest first. It returns the whole list, with no cursor yet, like Phase 1's lists. `.claude/rules/api.md` asks for cursors, so this needs adding once a reseller can have many.
+  - **Contract:**
+    - `POST`/`GET /v1/accounts/tenants/{id}/sub-accounts` (`createSubAccount` with an Idempotency-Key scoped by user, `listSubAccounts`);
+    - new code **KYC-4021** (403, not an active reseller); a reseller below Financial is the existing KYC-4020;
+    - `tenant.type_changed` schema; `tenant.created` now requires `parent_tenant_id` exactly when the type is `sub_account`.
+    - The gateway needed no change.
+  - **Migration** `20261102090000_tenant_type_parent.sql` (an addition to data model §4, approved in the plan): `CHECK ((type = 'sub_account') = (parent_tenant_id IS NOT NULL))`. Nothing is rewritten. The store fixture `insertTenant` now sets `sub_account` whenever it gives a parent, which the CHECK requires (a fixture fix, not a weakened test).
+  - **Tests:**
+    - domain: named cases plus every type × tier × status;
+    - store: the CHECK both ways; `ListSubAccounts` under RLS;
+    - app: `MakeReseller` writes the type and a schema-valid event, and each refusal writes nothing; `CreateSubAccount` writes a sandbox sub-account with no membership and a schema-valid event; every refusal (non-member, unknown, direct, sub-account, demoted, suspended, bad input) writes nothing; an access matrix of 8 cases; listing;
+    - API: create, replay, read through the parent, list, 404 for a non-member on all three operations, 400, 403 KYC-4021 and KYC-4020.
+    - No gateway e2e: making a reseller has no route until 2.9.
+    - **Order of work:** the domain and app tests were seen failing first against stubs. The API tests could only compile once the handlers existed.
+    - **Mutation-checked:** removing the parent route, the Financial check and the CHECK each failed its intended tests. **Not covered:** the row lock on the reseller during `CreateSubAccount`. No test races a demotion against a create, because that can't be made deterministic cheaply.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

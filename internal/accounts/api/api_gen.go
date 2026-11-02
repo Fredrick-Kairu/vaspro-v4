@@ -92,6 +92,18 @@ type Problem struct {
 	Type      string  `json:"type"`
 }
 
+// SubAccountCreateRequest defines model for SubAccountCreateRequest.
+type SubAccountCreateRequest struct {
+	BillingEmail *string `json:"billing_email,omitempty"`
+	DisplayName  string  `json:"display_name"`
+	LegalName    *string `json:"legal_name,omitempty"`
+}
+
+// SubAccountList defines model for SubAccountList.
+type SubAccountList struct {
+	SubAccounts []Tenant `json:"sub_accounts"`
+}
+
 // Tenant defines model for Tenant.
 type Tenant struct {
 	BillingEmail    *string   `json:"billing_email,omitempty"`
@@ -133,14 +145,26 @@ type TenantCreateRequest struct {
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
+// TenantID defines model for TenantID.
+type TenantID = string
+
 // CreateTenantParams defines parameters for CreateTenant.
 type CreateTenantParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateSubAccountParams defines parameters for CreateSubAccount.
+type CreateSubAccountParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreateRequest
+
+// CreateSubAccountJSONRequestBody defines body for CreateSubAccount for application/json ContentType.
+type CreateSubAccountJSONRequestBody = SubAccountCreateRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -150,6 +174,12 @@ type ServerInterface interface {
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(w http.ResponseWriter, r *http.Request, id string)
+	// ListSubAccounts List a reseller's sub-accounts
+	// (GET /v1/accounts/tenants/{id}/sub-accounts)
+	ListSubAccounts(w http.ResponseWriter, r *http.Request, id TenantID)
+	// CreateSubAccount Create a sub-account under a reseller
+	// (POST /v1/accounts/tenants/{id}/sub-accounts)
+	CreateSubAccount(w http.ResponseWriter, r *http.Request, id TenantID, params CreateSubAccountParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -165,6 +195,18 @@ func (_ Unimplemented) CreateTenant(w http.ResponseWriter, r *http.Request, para
 // GetTenant Show a client account the caller belongs to
 // (GET /v1/accounts/tenants/{id})
 func (_ Unimplemented) GetTenant(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListSubAccounts List a reseller's sub-accounts
+// (GET /v1/accounts/tenants/{id}/sub-accounts)
+func (_ Unimplemented) ListSubAccounts(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSubAccount Create a sub-account under a reseller
+// (POST /v1/accounts/tenants/{id}/sub-accounts)
+func (_ Unimplemented) CreateSubAccount(w http.ResponseWriter, r *http.Request, id TenantID, params CreateSubAccountParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -239,6 +281,86 @@ func (siw *ServerInterfaceWrapper) GetTenant(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetTenant(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSubAccounts operation middleware
+func (siw *ServerInterfaceWrapper) ListSubAccounts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSubAccounts(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSubAccount operation middleware
+func (siw *ServerInterfaceWrapper) CreateSubAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSubAccountParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSubAccount(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -366,6 +488,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}", wrapper.GetTenant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/sub-accounts", wrapper.ListSubAccounts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/sub-accounts", wrapper.CreateSubAccount)
 	})
 
 	return r
@@ -512,6 +640,174 @@ func (response GetTenantdefaultApplicationProblemPlusJSONResponse) VisitGetTenan
 	return err
 }
 
+type ListSubAccountsRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type ListSubAccountsResponseObject interface {
+	VisitListSubAccountsResponse(w http.ResponseWriter) error
+}
+
+type ListSubAccounts200JSONResponse SubAccountList
+
+func (response ListSubAccounts200JSONResponse) VisitListSubAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubAccounts401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListSubAccounts401ApplicationProblemPlusJSONResponse) VisitListSubAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubAccounts404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSubAccounts404ApplicationProblemPlusJSONResponse) VisitListSubAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSubAccountsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListSubAccountsdefaultApplicationProblemPlusJSONResponse) VisitListSubAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccountRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params CreateSubAccountParams
+	Body   *CreateSubAccountJSONRequestBody
+}
+
+type CreateSubAccountResponseObject interface {
+	VisitCreateSubAccountResponse(w http.ResponseWriter) error
+}
+
+type CreateSubAccount201JSONResponse Tenant
+
+func (response CreateSubAccount201JSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccount400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSubAccount400ApplicationProblemPlusJSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccount401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSubAccount401ApplicationProblemPlusJSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSubAccount403ApplicationProblemPlusJSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccount404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSubAccount404ApplicationProblemPlusJSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSubAccountdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateSubAccountdefaultApplicationProblemPlusJSONResponse) VisitCreateSubAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// CreateTenant Create a client account
@@ -520,6 +816,12 @@ type StrictServerInterface interface {
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error)
+	// ListSubAccounts List a reseller's sub-accounts
+	// (GET /v1/accounts/tenants/{id}/sub-accounts)
+	ListSubAccounts(ctx context.Context, request ListSubAccountsRequestObject) (ListSubAccountsResponseObject, error)
+	// CreateSubAccount Create a sub-account under a reseller
+	// (POST /v1/accounts/tenants/{id}/sub-accounts)
+	CreateSubAccount(ctx context.Context, request CreateSubAccountRequestObject) (CreateSubAccountResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -613,6 +915,66 @@ func (sh *strictHandler) GetTenant(w http.ResponseWriter, r *http.Request, id st
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTenantResponseObject); ok {
 		if err := validResponse.VisitGetTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSubAccounts operation middleware
+func (sh *strictHandler) ListSubAccounts(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request ListSubAccountsRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSubAccounts(ctx, request.(ListSubAccountsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSubAccounts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSubAccountsResponseObject); ok {
+		if err := validResponse.VisitListSubAccountsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSubAccount operation middleware
+func (sh *strictHandler) CreateSubAccount(w http.ResponseWriter, r *http.Request, id TenantID, params CreateSubAccountParams) {
+	var request CreateSubAccountRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body CreateSubAccountJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSubAccount(ctx, request.(CreateSubAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSubAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSubAccountResponseObject); ok {
+		if err := validResponse.VisitCreateSubAccountResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
