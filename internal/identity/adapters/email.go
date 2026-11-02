@@ -30,6 +30,11 @@ type EmailSender interface {
 	// blocks the sign-in that triggered it (app.Service's own call
 	// site deliberately doesn't propagate this one's error).
 	SendLoginAlert(ctx context.Context, to, fullName, ip string, occurredAt time.Time) error
+	// SendInvitation tells to that inviterName invited them to the
+	// account accountName (task 2.3b). The same email goes to an
+	// address with a VASPRO login and one without: it says to sign in,
+	// or sign up with this address, and then accept.
+	SendInvitation(ctx context.Context, to, accountName, inviterName string) error
 }
 
 // SMTPSender sends over plain SMTP — no auth, no TLS. That's exactly
@@ -76,6 +81,17 @@ func (s *SMTPSender) SendStepUpCode(_ context.Context, to, fullName, code string
 	)
 	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
 		return fmt.Errorf("adapters: sending step-up email: %w", err)
+	}
+	return nil
+}
+
+func (s *SMTPSender) SendInvitation(_ context.Context, to, accountName, inviterName string) error {
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: You're invited to %s on VASPRO\r\n\r\nHi,\r\n\r\n%s invited you to join the account %s on VASPRO.\r\n\r\nSign in, or sign up with this email address if you don't have a VASPRO login yet, then accept the invitation from your list of accounts.\r\n\r\nIf you weren't expecting this, you can ignore it.\r\n",
+		s.from, to, accountName, inviterName, accountName,
+	)
+	if err := smtp.SendMail(s.addr, nil, s.from, []string{to}, []byte(msg)); err != nil {
+		return fmt.Errorf("adapters: sending invitation email: %w", err)
 	}
 	return nil
 }

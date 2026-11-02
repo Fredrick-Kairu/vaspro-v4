@@ -8,11 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
 )
@@ -32,6 +34,10 @@ type Member struct {
 	Status    string
 	InvitedBy *uuid.UUID
 	CreatedAt time.Time
+	// Email and FullName come from identity (task 2.3b); empty when it
+	// can't be reached.
+	Email    string
+	FullName string
 }
 
 func memberFromRow(row store.AccountsMembership) Member {
@@ -87,6 +93,11 @@ func (s *Service) ListMembers(ctx context.Context, userID, tenantID uuid.UUID) (
 	if err != nil {
 		return nil, err
 	}
+	ptrs := make([]*Member, len(members))
+	for i := range members {
+		ptrs[i] = &members[i]
+	}
+	s.addUserDetails(ctx, ptrs)
 	return members, nil
 }
 
@@ -94,7 +105,12 @@ func (s *Service) ListMembers(ctx context.Context, userID, tenantID uuid.UUID) (
 // membership.role_changed (domain.CheckMembershipChange: members:manage,
 // built-in roles only, and an account always keeps an active Admin).
 func (s *Service) ChangeMemberRole(ctx context.Context, actor, tenantID, target, roleID uuid.UUID) (*Member, error) {
-	return s.changeMembership(ctx, actor, tenantID, target, &roleID)
+	m, err := s.changeMembership(ctx, actor, tenantID, target, &roleID)
+	if err != nil {
+		return nil, err
+	}
+	s.addUserDetails(ctx, []*Member{m})
+	return m, nil
 }
 
 // RemoveMember removes target from tenantID, or lets a member leave
@@ -110,12 +126,18 @@ func (s *Service) RemoveMember(ctx context.Context, actor, tenantID, target uuid
 // for a sub-account, the reseller's. The account row is locked so two
 // Admins demoting each other at once can't leave it with none.
 func (s *Service) changeMembership(ctx context.Context, actor, tenantID, target uuid.UUID, newRole *uuid.UUID) (*Member, error) {
-	_, perms, err := s.authorize(ctx, actor, tenantID, "")
-	if err != nil {
-		return nil, err
-	}
-	canManage := domain.Allows(perms, domain.PermMembersManage)
 	leaving := newRole == nil && actor == target
+	canManage := false
+	if !leaving {
+		// Leaving needs no permission, and an invitee declines by
+		// leaving before they're active (task 2.3b); their own
+		// membership is looked up below either way.
+		_, perms, err := s.authorize(ctx, actor, tenantID, "")
+		if err != nil {
+			return nil, err
+		}
+		canManage = domain.Allows(perms, domain.PermMembersManage)
+	}
 	if !leaving && !canManage {
 		// Before looking the target up, so a member without the
 		// permission learns nothing about who else is in the account.
@@ -123,9 +145,11 @@ func (s *Service) changeMembership(ctx context.Context, actor, tenantID, target 
 	}
 
 	var result *Member
-	err = s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if _, err := q.GetTenantForUpdate(ctx, tenantID); err != nil {
+		if _, err := q.GetTenantForUpdate(ctx, tenantID); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
 			return fmt.Errorf("app: locking tenant: %w", err)
 		}
 		current, err := q.GetMembership(ctx, store.GetMembershipParams{TenantID: tenantID, UserID: target})
@@ -217,4 +241,145 @@ func (s *Service) MyMemberships(ctx context.Context, userID uuid.UUID) ([]MyMemb
 		return nil, err
 	}
 	return out, nil
+}
+
+var (
+	// ErrStepUpRequired means the session hasn't stepped up recently
+	// enough to add users (system design §3). api/ maps it to AUTH-4012.
+	ErrStepUpRequired = errors.New("app: a fresh step-up is required")
+	// ErrAlreadyMember means the invitee is already an active member.
+	// api/ maps it to VAL-4005.
+	ErrAlreadyMember = errors.New("app: already an active member")
+)
+
+// Invite invites email to tenantID with a built-in role (task 2.3b,
+// OQ-05). actor needs members:manage and a fresh step-up on sessionID.
+// Identity finds or creates the user for the address, the same way
+// whether or not it was registered; the membership is "invited" (a
+// removed member or a pending invitation is invited again, with the
+// new role) and membership.invited is written; then identity emails the
+// invitation. Inviting an active member is ErrAlreadyMember.
+func (s *Service) Invite(ctx context.Context, actor, sessionID, tenantID uuid.UUID, email string, roleID uuid.UUID) (*Member, error) {
+	tenant, _, err := s.authorize(ctx, actor, tenantID, domain.PermMembersManage)
+	if err != nil {
+		return nil, err
+	}
+	if !domain.IsBuiltinRole(roleID) {
+		return nil, domain.ErrNotBuiltinRole
+	}
+	if s.identity == nil {
+		return nil, errors.New("app: identity isn't configured")
+	}
+	fresh, err := s.identity.IsStepUpFresh(ctx, actor, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !fresh {
+		return nil, ErrStepUpRequired
+	}
+	inviteeID, err := s.identity.EnsureInvitee(ctx, email)
+	if errors.Is(err, adapters.ErrInvalidEmail) {
+		return nil, fmt.Errorf("%w: email is not a valid address", ErrValidation)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var invited Member
+	err = s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
+		if _, err := q.GetTenantForUpdate(ctx, tenantID); err != nil {
+			return fmt.Errorf("app: locking tenant: %w", err)
+		}
+		current, err := q.GetMembership(ctx, store.GetMembershipParams{TenantID: tenantID, UserID: inviteeID})
+		if err == nil && current.Status == "active" {
+			return ErrAlreadyMember
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("app: loading membership: %w", err)
+		}
+		row, err := q.InviteMembership(ctx, store.InviteMembershipParams{
+			TenantID: tenantID, UserID: inviteeID, RoleID: roleID, InvitedBy: pgtype.UUID{Bytes: actor, Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("app: inviting: %w", err)
+		}
+		invited = memberFromRow(row)
+		return s.writeMembershipEvent(ctx, tx, tenantID, "membership.invited", map[string]any{
+			"tenant_id": tenantID, "user_id": inviteeID, "role_id": roleID, "invited_by": actor,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.identity.SendInvitation(ctx, inviteeID, actor, tenant.DisplayName); err != nil {
+		// The invitation is recorded; inviting again sends it again.
+		return nil, err
+	}
+	s.addUserDetails(ctx, []*Member{&invited})
+	return &invited, nil
+}
+
+// AcceptInvitation makes userID's invitation to tenantID an active
+// membership and writes membership.joined. Anything but an invitation
+// is ErrNotFound. Declining is leaving (RemoveMember on yourself).
+func (s *Service) AcceptInvitation(ctx context.Context, userID, tenantID uuid.UUID) (*Member, error) {
+	var joined Member
+	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
+		row, err := q.ActivateMembership(ctx, store.ActivateMembershipParams{TenantID: tenantID, UserID: userID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("app: accepting: %w", err)
+		}
+		joined = memberFromRow(row)
+		return s.writeMembershipEvent(ctx, tx, tenantID, "membership.joined", map[string]any{
+			"tenant_id": tenantID, "user_id": userID, "role_id": row.RoleID,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.addUserDetails(ctx, []*Member{&joined})
+	return &joined, nil
+}
+
+func (s *Service) writeMembershipEvent(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, eventType string, data map[string]any) error {
+	eventID, err := ids.New()
+	if err != nil {
+		return fmt.Errorf("app: generating event id: %w", err)
+	}
+	env, err := platformevents.New(eventID, eventType, 1, tenantID, s.clk.Now(), "", data)
+	if err != nil {
+		return fmt.Errorf("app: building %s event: %w", eventType, err)
+	}
+	return outbox.Write(ctx, tx, "tenant", tenantID, env)
+}
+
+// addUserDetails fills in members' emails and names from identity. A
+// member list is still useful without them, so if identity can't be
+// reached they're left empty rather than failing the request.
+func (s *Service) addUserDetails(ctx context.Context, members []*Member) {
+	if s.identity == nil || len(members) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, len(members))
+	for i, m := range members {
+		ids[i] = m.UserID
+	}
+	users, err := s.identity.GetUsers(ctx, ids)
+	if err != nil {
+		return
+	}
+	byID := make(map[uuid.UUID]adapters.User, len(users))
+	for _, u := range users {
+		byID[u.ID] = u
+	}
+	for _, m := range members {
+		if u, ok := byID[m.UserID]; ok {
+			m.Email, m.FullName = u.Email, u.FullName
+		}
+	}
 }

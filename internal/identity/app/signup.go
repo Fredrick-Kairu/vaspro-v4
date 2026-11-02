@@ -71,6 +71,14 @@ func (s *Service) SignUp(ctx context.Context, rawEmail, fullName string, rawPhon
 			}
 			userID = existing.ID
 			sendFullName = existing.FullName
+			if existing.FullName == "" {
+				// Invited before signing up (task 2.3b): the invitation
+				// created the user without a name.
+				if err := q.SetUserFullNameIfEmpty(ctx, store.SetUserFullNameIfEmptyParams{ID: existing.ID, FullName: fullName}); err != nil {
+					return fmt.Errorf("app: setting the invited user's name: %w", err)
+				}
+				sendFullName = fullName
+			}
 		case errors.Is(err, pgx.ErrNoRows):
 			id, err := ids.New()
 			if err != nil {

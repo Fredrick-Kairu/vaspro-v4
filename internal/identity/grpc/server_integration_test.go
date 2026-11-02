@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	gogrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -120,4 +121,106 @@ func TestResolveSession(t *testing.T) {
 			t.Fatalf("got %v, want Unauthenticated", err)
 		}
 	})
+}
+
+// signInAs is signIn for any address.
+func signInAs(t *testing.T, svc *app.Service, sender *email.Sender, addr string) (session *app.Session, userID string) {
+	t.Helper()
+	ctx := context.Background()
+	const password = "a-strong-password"
+	if err := svc.SignUp(ctx, addr, "Test User", nil); err != nil {
+		t.Fatal(err)
+	}
+	sent, _ := sender.LastOfKind(email.KindVerification)
+	if err := svc.VerifyEmail(ctx, addr, sent.Code); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RequestPasswordReset(ctx, addr); err != nil {
+		t.Fatal(err)
+	}
+	sent, _ = sender.LastOfKind(email.KindPasswordReset)
+	if err := svc.ConfirmPasswordReset(ctx, addr, sent.Code, password); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.SignIn(ctx, addr, password, nil, "test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, uid, err := svc.ResolveSession(ctx, result.Session.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.Session, uid.String()
+}
+
+func TestIsStepUpFresh(t *testing.T) {
+	client, svc, sender := newClient(t)
+	ctx := context.Background()
+	session, user := signInAs(t, svc, sender, "ada@example.com")
+	other, otherUser := signInAs(t, svc, sender, "bob@example.com")
+
+	fresh := func(sessionID, userID string) bool {
+		t.Helper()
+		resp, err := client.IsStepUpFresh(ctx, &identityv1.IsStepUpFreshRequest{SessionId: sessionID, UserId: userID})
+		if err != nil {
+			t.Fatalf("IsStepUpFresh: %v", err)
+		}
+		return resp.GetFresh()
+	}
+	if fresh(session.ID.String(), user) {
+		t.Fatal("fresh before any step-up")
+	}
+	if err := svc.RequestStepUpEmail(ctx, uuid.MustParse(user)); err != nil {
+		t.Fatal(err)
+	}
+	sent, _ := sender.LastOfKind(email.KindStepUp)
+	if err := svc.ConfirmStepUpEmail(ctx, uuid.MustParse(user), session.ID, sent.Code); err != nil {
+		t.Fatal(err)
+	}
+	if !fresh(session.ID.String(), user) {
+		t.Fatal("not fresh right after stepping up")
+	}
+	if fresh(session.ID.String(), otherUser) {
+		t.Fatal("ada's session is fresh when asked as bob's")
+	}
+	if fresh(other.ID.String(), otherUser) {
+		t.Fatal("bob's session is fresh without stepping up")
+	}
+	if _, err := client.IsStepUpFresh(ctx, &identityv1.IsStepUpFreshRequest{SessionId: "x", UserId: user}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("a malformed session id: got %v, want InvalidArgument", err)
+	}
+}
+
+func TestEnsureInviteeAndGetUsers(t *testing.T) {
+	client, svc, sender := newClient(t)
+	ctx := context.Background()
+	_, ada := signInAs(t, svc, sender, "ada@example.com")
+
+	resp, err := client.EnsureInvitee(ctx, &identityv1.EnsureInviteeRequest{Email: "carol@example.com"})
+	if err != nil || resp.GetUserId() == "" {
+		t.Fatalf("EnsureInvitee: %+v, %v", resp, err)
+	}
+	if _, ok := sender.LastOfKind(email.KindInvitation); ok {
+		t.Fatal("EnsureInvitee sent an email; only SendInvitation should")
+	}
+	if _, err := client.SendInvitation(ctx, &identityv1.SendInvitationRequest{UserId: resp.GetUserId(), InvitedByUserId: ada, AccountName: "Acme"}); err != nil {
+		t.Fatalf("SendInvitation: %v", err)
+	}
+	if sent, _ := sender.LastOfKind(email.KindInvitation); sent.To != "carol@example.com" || sent.AccountName != "Acme" {
+		t.Fatalf("got email %+v", sent)
+	}
+	if _, err := client.SendInvitation(ctx, &identityv1.SendInvitationRequest{UserId: uuid.NewString(), InvitedByUserId: ada, AccountName: "Acme"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("an unknown invitee: got %v, want NotFound", err)
+	}
+	if _, err := client.EnsureInvitee(ctx, &identityv1.EnsureInviteeRequest{Email: "nope"}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("a malformed email: got %v, want InvalidArgument", err)
+	}
+
+	users, err := client.GetUsers(ctx, &identityv1.GetUsersRequest{UserIds: []string{ada, resp.GetUserId(), uuid.NewString()}})
+	if err != nil || len(users.GetUsers()) != 2 {
+		t.Fatalf("GetUsers: %+v, %v", users, err)
+	}
+	if _, err := client.GetUsers(ctx, &identityv1.GetUsersRequest{UserIds: []string{"x"}}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("a malformed id: got %v, want InvalidArgument", err)
+	}
 }

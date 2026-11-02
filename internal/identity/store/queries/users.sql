@@ -35,3 +35,11 @@ RETURNING *;
 INSERT INTO identity.users (id, email, full_name, email_verified_at)
 VALUES ($1, $2, $3, now())
 RETURNING *;
+
+-- name: SetUserFullNameIfEmpty :exec
+-- An invited user (task 2.3b) is created with no name; sign-up fills it.
+UPDATE identity.users SET full_name = $2, updated_at = now(), version = version + 1
+WHERE id = $1 AND full_name = '';
+
+-- name: ListUsersByIDs :many
+SELECT id, email, full_name FROM identity.users WHERE id = ANY(@ids::uuid[]) ORDER BY id;

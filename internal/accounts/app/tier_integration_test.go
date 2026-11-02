@@ -23,14 +23,16 @@ import (
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
 )
 
 // harness runs app.Service as a non-superuser role, so RLS applies the
 // way it will in production; super arranges fixtures and reads back.
 type harness struct {
-	svc   *app.Service
-	app   *vasdb.Pool
-	super *vasdb.Pool
+	svc      *app.Service
+	app      *vasdb.Pool
+	super    *vasdb.Pool
+	identity *identityusers.Fake
 }
 
 func newHarness(t *testing.T) harness {
@@ -60,8 +62,9 @@ func newHarness(t *testing.T) harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke}})
-	return harness{svc: svc, app: appPool, super: super}
+	identity := &identityusers.Fake{}
+	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke}, Identity: identity})
+	return harness{svc: svc, app: appPool, super: super, identity: identity}
 }
 
 func (h harness) newTenant(t *testing.T, status string) uuid.UUID {

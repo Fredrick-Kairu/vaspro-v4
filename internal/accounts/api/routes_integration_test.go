@@ -17,10 +17,20 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
 )
 
 func newRouter(t *testing.T) (http.Handler, *vasdb.Pool) {
 	t.Helper()
+	r, pool, _ := newRouterWithIdentity(t)
+	return r, pool
+}
+
+// newRouterWithIdentity is newRouter that also returns the identity
+// fake behind invitations (task 2.3b).
+func newRouterWithIdentity(t *testing.T) (http.Handler, *vasdb.Pool, *identityusers.Fake) {
+	t.Helper()
+	identity := &identityusers.Fake{}
 	ctx := context.Background()
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/accounts"))
 	pool, err := vasdb.NewPool(ctx, pg.DSN()+"&search_path=accounts,public")
@@ -28,14 +38,20 @@ func newRouter(t *testing.T) (http.Handler, *vasdb.Pool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	svc, err := accounts.New(accounts.Config{PacksDir: "../../../packs"}, pool, nil)
+	svc, err := accounts.New(accounts.Config{PacksDir: "../../../packs"}, pool, nil, identity)
 	if err != nil {
 		t.Fatalf("accounts.New: %v", err)
 	}
-	return svc.Router(), pool
+	return svc.Router(), pool, identity
 }
 
 func do(t *testing.T, r http.Handler, method, path string, user uuid.UUID, key string, body any) (int, map[string]any) {
+	t.Helper()
+	return doInSession(t, r, method, path, user, uuid.Nil, key, body)
+}
+
+// doInSession is do with the session the gateway would also forward.
+func doInSession(t *testing.T, r http.Handler, method, path string, user, session uuid.UUID, key string, body any) (int, map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -45,6 +61,9 @@ func do(t *testing.T, r http.Handler, method, path string, user uuid.UUID, key s
 	req.Header.Set("Content-Type", "application/json")
 	if user != uuid.Nil {
 		req.Header.Set("X-Vaspro-User-Id", user.String())
+	}
+	if session != uuid.Nil {
+		req.Header.Set("X-Vaspro-Session-Id", session.String())
 	}
 	if key != "" {
 		req.Header.Set("Idempotency-Key", key)
@@ -296,6 +315,82 @@ func TestMembersAPI(t *testing.T) {
 		if status != http.StatusOK || len(list) != 1 || list[0].(map[string]any)["tenant_id"] != tenant ||
 			list[0].(map[string]any)["role_id"] != domain.BuiltinAdminRoleID.String() {
 			t.Fatalf("got %d %v", status, got)
+		}
+	})
+}
+
+func TestInvitationsAPI(t *testing.T) {
+	r, pool, identity := newRouterWithIdentity(t)
+	admin := identity.AddUser("ada@example.com", "Ada Lovelace")
+	viewer := identity.AddUser("vic@example.com", "Vic")
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	invitePath := "/v1/accounts/tenants/" + tenant + "/invitations"
+	invite := map[string]string{"email": "bob@example.com", "role_id": domain.BuiltinDeveloperRoleID.String()}
+
+	t.Run("without a fresh step-up it is 401 AUTH-4012", func(t *testing.T) {
+		status, got := doInSession(t, r, http.MethodPost, invitePath, admin, uuid.New(), "stale", invite)
+		if status != http.StatusUnauthorized || got["code"] != "AUTH-4012" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	session := uuid.New()
+	identity.StepUp(admin, session)
+	t.Run("a Viewer is 403 AUTH-4024", func(t *testing.T) {
+		vs := uuid.New()
+		identity.StepUp(viewer, vs)
+		status, got := doInSession(t, r, http.MethodPost, invitePath, viewer, vs, "viewer-invite", invite)
+		if status != http.StatusForbidden || got["code"] != "AUTH-4024" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("an Admin invites: 201, invited, with the email", func(t *testing.T) {
+		status, got := doInSession(t, r, http.MethodPost, invitePath, admin, session, "invite-bob", invite)
+		if status != http.StatusCreated || got["status"] != "invited" || got["email"] != "bob@example.com" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("an active member is 409 VAL-4005", func(t *testing.T) {
+		status, got := doInSession(t, r, http.MethodPost, invitePath, admin, session, "invite-vic",
+			map[string]string{"email": "vic@example.com", "role_id": domain.BuiltinViewerRoleID.String()})
+		if status != http.StatusConflict || got["code"] != "VAL-4005" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a malformed address is 400 VAL-4000", func(t *testing.T) {
+		status, got := doInSession(t, r, http.MethodPost, invitePath, admin, session, "invite-bad",
+			map[string]string{"email": "nope", "role_id": domain.BuiltinViewerRoleID.String()})
+		if status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("the invitee accepts, then reads the account; accepting again is 404", func(t *testing.T) {
+		_, mine := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+tenant+"/members", admin, "", nil)
+		var bobID string
+		for _, m := range mine["members"].([]any) {
+			if m.(map[string]any)["email"] == "bob@example.com" {
+				bobID, _ = m.(map[string]any)["user_id"].(string)
+			}
+		}
+		bobUUID := uuid.MustParse(bobID)
+		acceptPath := "/v1/accounts/me/memberships/" + tenant + "/acceptance"
+		if status, got := do(t, r, http.MethodPost, acceptPath, bobUUID, "accept", nil); status != http.StatusOK || got["status"] != "active" {
+			t.Fatalf("got %d %v", status, got)
+		}
+		if status, _ := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+tenant, bobUUID, "", nil); status != http.StatusOK {
+			t.Fatalf("reading the account after accepting: %d", status)
+		}
+		if status, got := do(t, r, http.MethodPost, acceptPath, bobUUID, "accept-again", nil); status != http.StatusNotFound || got["code"] != "VAL-4003" {
+			t.Fatalf("accepting again: got %d %v", status, got)
+		}
+	})
+	t.Run("members carry names and emails", func(t *testing.T) {
+		_, got := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+tenant+"/members", admin, "", nil)
+		for _, m := range got["members"].([]any) {
+			if m.(map[string]any)["email"] == nil {
+				t.Fatalf("a member without an email: %v", got)
+			}
 		}
 	})
 }

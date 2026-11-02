@@ -196,6 +196,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4005
+    status: 409
+    title: Already a member
+    cause: The person invited is already an active member of this account.
+    fix: Change their role instead of inviting them again.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

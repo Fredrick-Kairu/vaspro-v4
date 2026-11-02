@@ -47,6 +47,7 @@ const (
 	VAL4002  Code = "VAL-4002"
 	VAL4003  Code = "VAL-4003"
 	VAL4004  Code = "VAL-4004"
+	VAL4005  Code = "VAL-4005"
 )
 
 var registry = map[Code]entry{
@@ -287,6 +288,14 @@ var registry = map[Code]entry{
 		Title:     "An account needs an Admin",
 		Cause:     "This change would leave the account without an active Admin.",
 		Fix:       "Make another member an Admin first.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4005: {
+		Status:    409,
+		Title:     "Already a member",
+		Cause:     "The person invited is already an active member of this account.",
+		Fix:       "Change their role instead of inviting them again.",
 		Retryable: false,
 		Billable:  false,
 	},

@@ -22,9 +22,23 @@ import (
 // rule (Config's doc), not something accounts can check.
 const HeaderUserID = "X-Vaspro-User-Id"
 
+// HeaderSessionID is the session the gateway resolved, forwarded with
+// the user; accounts asks identity whether its step-up is fresh before
+// adding users (task 2.3b).
+const HeaderSessionID = "X-Vaspro-Session-Id"
+
 const idempotencyKeyTTL = 24 * time.Hour
 
 type callerKey struct{}
+
+type sessionKey struct{}
+
+// sessionFromContext is the forwarded session, or uuid.Nil (which is
+// never stepped up).
+func sessionFromContext(ctx context.Context) uuid.UUID {
+	id, _ := ctx.Value(sessionKey{}).(uuid.UUID)
+	return id
+}
 
 func callerFromContext(ctx context.Context) uuid.UUID {
 	id, _ := ctx.Value(callerKey{}).(uuid.UUID)
@@ -44,6 +58,9 @@ func requireCaller(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), callerKey{}, userID)
+		if sessionID, err := uuid.Parse(r.Header.Get(HeaderSessionID)); err == nil {
+			ctx = context.WithValue(ctx, sessionKey{}, sessionID)
+		}
 		ctx = vaslog.WithTenantID(ctx, userID.String())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

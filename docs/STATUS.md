@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.3a done (2026-11-02). Next: 2.3b invitations. Also done: 2.1, 2.2, 2.5, the testkit readiness fix, 1.16.
+**Current task:** 2.3 done (2.3b, 2026-11-02). Next: 2.4 service catalogue and selection. Also done: 2.1, 2.2, 2.5, the testkit readiness fix, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -257,6 +257,39 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Order of work:** the domain, app and gRPC tests were seen failing first; the API tests compiled only once the handlers existed.
     - **Mutation-checked:** removing the last-Admin check failed the domain and app tests; letting `*` allow names outside the catalogue failed `TestAllows` (`app.authorize` also rejects unknown names before `Allows`, so the gRPC and app tests stayed green); ignoring the permission in `SessionTenant` failed the app test and the spec-driven AUTH-4024 test.
   - **`make check`:** the first run failed in three packages with `postgres not ready after 30s ... connection refused`. Three Postgres containers' port forwards never came up during a run that started about 300 containers on an 8 GB Docker VM. The readiness wait reported it clearly, but it can't fix a forward that never opens. The rerun was green. This looks like Docker running out of resources under the full parallel run. Limiting package parallelism for `test-int` (for example `go test -p 4`) is the likely fix, as its own small task.
+
+- 2.3b Invitations (OQ-05). This finishes ROADMAP 2.3.
+  - **identity gRPC** (`proto/identity/v1`), four new RPCs:
+    - `EnsureInvitee(email)` finds the user, or creates an unverified one with no name (with `user.registered`, as sign-up does), and returns a user ID either way, so nobody learns whether the address was registered;
+    - `SendInvitation(user, inviter, account)` sends the invitation email (new `EmailSender.SendInvitation`; the same text for everyone: sign in, or sign up with this address, then accept) and logs `user_invited` in the inviter's security events;
+    - `IsStepUpFresh(session, user)` is never fresh for someone else's session;
+    - `GetUsers(ids)` returns emails and names, leaving out unknown IDs.
+    - **Planned as one RPC, built as two:** a single `EnsureInvitee` that also emailed would have sent an invitation before accounts found the person already a member. So the email now goes only after accounts has recorded the invitation.
+  - **Sign-up:** an invited, unverified user who signs up gets the name they give (only while the stored one is empty).
+  - **accounts:**
+    - `adapters.Identity` over gRPC, configured by the new required `ACCOUNTS_IDENTITY_GRPC_ADDR` (dialled lazily); fake `tools/fakes/identityusers`. The API now reads the gateway's `X-Vaspro-Session-Id`.
+    - `POST /v1/accounts/tenants/{id}/invitations` (`createInvitation`) needs `members:manage` and a fresh step-up (AUTH-4012 otherwise; system design §3 "add users"). It writes an `invited` membership and `membership.invited`, then identity sends the email.
+      - Inviting again re-sends with the new role; a removed member can be invited again; an active member is the new **VAL-4005** (409).
+      - If the email fails after the membership is written, the call errors and inviting again sends it.
+    - `POST /v1/accounts/me/memberships/{tenantId}/acceptance` (`acceptInvitation`): only an invitation can be accepted (VAL-4003 otherwise); it writes `membership.joined`.
+    - **Declining is leaving:** someone leaving no longer needs to be an active member first, so an invitee can decline. Leaving an account that doesn't exist is 404 rather than a 500.
+    - An invited Admin doesn't count toward the last-Admin rule until they accept.
+    - Member lists and responses carry `email` and `full_name` from identity, left out if identity can't be reached.
+  - **Wiring:** identity and accounts dial each other lazily. The gateway e2es choose identity's gRPC port before starting either service; `startRealIdentityWithLogs` takes an `IDENTITY_GRPC_ADDR` override.
+  - **Tests:**
+    - identity app: existing user unchanged, new address becomes an unverified user, the same email in both cases, bad address, unknown invitee or inviter, the security log, an invited user signing up (name set) and signing in, `GetUsers`.
+    - identity gRPC: each RPC, including `IsStepUpFresh` refusing another user's session and `EnsureInvitee` sending no email.
+    - accounts app: invite, re-invite, a new address, refusals (no permission, stale step-up, stranger, active member, custom role, bad address) writing nothing, the invitee locked out until they accept, accept (only invitations, once), the last-Admin rule with an invited Admin, decline then re-invite, names and emails including identity down.
+    - accounts API: every code.
+    - **gateway e2e** `TestGateway_InviteThroughGateway_EndToEnd`, with real identity and accounts:
+      - no step-up is 401;
+      - ada invites bob (registered) and carol (not), and both emails name the account;
+      - bob sees the invitation, accepts, selects the account and creates an API client as a Developer;
+      - carol signs up with the invited address and accepts;
+      - ada's list shows all three, active, with emails;
+      - no session token appears in either log.
+    - **Order of work:** identity's app and gRPC tests and accounts' app tests were seen failing first against stubs; the API tests and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** skipping the step-up check failed the app and API tests; accepting from any status failed both; counting invited Admins failed the last-Admin test.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

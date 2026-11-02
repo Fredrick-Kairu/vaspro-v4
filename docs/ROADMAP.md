@@ -775,7 +775,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 - [x] 2.1 `accounts` migrations and queries from data model §4.
 - [x] 2.2 Tenant created in the sandbox at sign-up; tenant types (direct, reseller, sub-account). *Done 2026-11-02 in three commits. 2.2a: account creation by an explicit onboarding call (decision Q1), gateway session auth, first gRPC (`TestGateway_CreateAccountThroughGateway_EndToEnd`). 2.2b: reseller and sub-account types (`TestSubAccountAccess`, `TestCreateSubAccount_Refusals`). 2.2c: a session selects its account, and credentials belong to it; Phase 1 placeholders revoked (`TestGateway_SignupThroughApiClientAndToken_EndToEnd` checks the token's `tid`; `TestRevokePlaceholderCredentials_RevokesEveryRowCreatedBefore`).*
-- [ ] 2.3 Memberships, roles and invitations; one email can belong to several accounts. *In progress: 2.3a done (roles, permissions, member management, "my accounts"); 2.3b invitations next.*
+- [x] 2.3 Memberships, roles and invitations; one email can belong to several accounts. *Done 2026-11-02 in two commits (OQ-05). 2.3a: four built-in roles over a permission catalogue, enforced in accounts and identity; member management; "my accounts" (`TestBuiltinRoles_PermissionMatrix`, the phase's role × permission matrix). 2.3b: invitations by email through identity, step-up to add users, accept or decline (`TestGateway_InviteThroughGateway_EndToEnd`).*
 - [ ] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country.
 - [x] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
 - [ ] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided.

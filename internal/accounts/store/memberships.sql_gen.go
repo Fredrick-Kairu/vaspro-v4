@@ -13,6 +13,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activateMembership = `-- name: ActivateMembership :one
+UPDATE accounts.memberships SET status = 'active'
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'invited'
+RETURNING tenant_id, user_id, role_id, status, invited_by, created_at
+`
+
+type ActivateMembershipParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ActivateMembership(ctx context.Context, arg ActivateMembershipParams) (AccountsMembership, error) {
+	row := q.db.QueryRow(ctx, activateMembership, arg.TenantID, arg.UserID)
+	var i AccountsMembership
+	err := row.Scan(
+		&i.TenantID,
+		&i.UserID,
+		&i.RoleID,
+		&i.Status,
+		&i.InvitedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const countActiveMembersWithRole = `-- name: CountActiveMembersWithRole :one
 SELECT count(*) FROM accounts.memberships
 WHERE tenant_id = $1 AND role_id = $2 AND status = 'active'
@@ -99,6 +124,42 @@ type GetMembershipParams struct {
 
 func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (AccountsMembership, error) {
 	row := q.db.QueryRow(ctx, getMembership, arg.TenantID, arg.UserID)
+	var i AccountsMembership
+	err := row.Scan(
+		&i.TenantID,
+		&i.UserID,
+		&i.RoleID,
+		&i.Status,
+		&i.InvitedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const inviteMembership = `-- name: InviteMembership :one
+INSERT INTO accounts.memberships (tenant_id, user_id, role_id, status, invited_by)
+VALUES ($1, $2, $3, 'invited', $4)
+ON CONFLICT (tenant_id, user_id) DO UPDATE
+SET role_id = EXCLUDED.role_id, status = 'invited', invited_by = EXCLUDED.invited_by
+RETURNING tenant_id, user_id, role_id, status, invited_by, created_at
+`
+
+type InviteMembershipParams struct {
+	TenantID  uuid.UUID   `json:"tenant_id"`
+	UserID    uuid.UUID   `json:"user_id"`
+	RoleID    uuid.UUID   `json:"role_id"`
+	InvitedBy pgtype.UUID `json:"invited_by"`
+}
+
+// A new invitation, or a removed or still-invited member invited again
+// (task 2.3b); the caller has already refused an active member.
+func (q *Queries) InviteMembership(ctx context.Context, arg InviteMembershipParams) (AccountsMembership, error) {
+	row := q.db.QueryRow(ctx, inviteMembership,
+		arg.TenantID,
+		arg.UserID,
+		arg.RoleID,
+		arg.InvitedBy,
+	)
 	var i AccountsMembership
 	err := row.Scan(
 		&i.TenantID,

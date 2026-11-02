@@ -34,3 +34,17 @@ FROM accounts.memberships m
 JOIN accounts.tenants t ON t.id = m.tenant_id
 WHERE m.user_id = $1 AND m.status IN ('active', 'invited')
 ORDER BY m.created_at, m.tenant_id;
+
+-- name: InviteMembership :one
+-- A new invitation, or a removed or still-invited member invited again
+-- (task 2.3b); the caller has already refused an active member.
+INSERT INTO accounts.memberships (tenant_id, user_id, role_id, status, invited_by)
+VALUES ($1, $2, $3, 'invited', $4)
+ON CONFLICT (tenant_id, user_id) DO UPDATE
+SET role_id = EXCLUDED.role_id, status = 'invited', invited_by = EXCLUDED.invited_by
+RETURNING *;
+
+-- name: ActivateMembership :one
+UPDATE accounts.memberships SET status = 'active'
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'invited'
+RETURNING *;

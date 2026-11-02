@@ -286,6 +286,82 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/invitations:
+    post:
+      operationId: createInvitation
+      summary: Invite someone to an account by email
+      description: >
+        Needs members:manage and a fresh step-up (system design §3:
+        adding users), AUTH-4012 otherwise. Identity finds the person
+        or creates an unverified user for the address and emails the
+        invitation, the same way whether or not the address was
+        registered (task 2.3b). The membership is "invited" until they
+        sign in and accept. Inviting someone already invited sends it
+        again with the new role; inviting an active member is VAL-4005;
+        a removed member can be invited again.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationRequest'
+            example:
+              email: "grace@example.com"
+              role_id: "019a0000-0000-7000-8000-000000000002"
+      responses:
+        "201":
+          description: Invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/me/memberships/{tenantId}/acceptance:
+    post:
+      operationId: acceptInvitation
+      summary: Accept an invitation
+      description: >
+        The caller's invited membership becomes active (task 2.3b). Only
+        an invitation can be accepted; anything else is VAL-4003. To
+        decline, leave the account (removeMember on yourself).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Now an active member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -369,6 +445,12 @@ components:
           enum: [invited, active]
         invited_by:
           type: string
+        email:
+          type: string
+          description: From identity; left out if identity can't be reached.
+        full_name:
+          type: string
+          description: From identity; empty until an invited person signs up.
         created_at:
           type: string
           format: date-time
@@ -380,6 +462,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Member'
+    InvitationRequest:
+      type: object
+      required: [email, role_id]
+      properties:
+        email:
+          type: string
+        role_id:
+          type: string
     MemberUpdateRequest:
       type: object
       required: [role_id]

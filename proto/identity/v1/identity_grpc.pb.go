@@ -20,6 +20,10 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	IdentityService_ResolveSession_FullMethodName = "/identity.v1.IdentityService/ResolveSession"
+	IdentityService_EnsureInvitee_FullMethodName  = "/identity.v1.IdentityService/EnsureInvitee"
+	IdentityService_SendInvitation_FullMethodName = "/identity.v1.IdentityService/SendInvitation"
+	IdentityService_IsStepUpFresh_FullMethodName  = "/identity.v1.IdentityService/IsStepUpFresh"
+	IdentityService_GetUsers_FullMethodName       = "/identity.v1.IdentityService/GetUsers"
 )
 
 // IdentityServiceClient is the client API for IdentityService service.
@@ -34,6 +38,23 @@ type IdentityServiceClient interface {
 	// identity (task 2.2a). A missing, unknown, expired or revoked token
 	// returns UNAUTHENTICATED, all alike.
 	ResolveSession(ctx context.Context, in *ResolveSessionRequest, opts ...grpc.CallOption) (*ResolveSessionResponse, error)
+	// EnsureInvitee finds the user with an email, or creates an unverified
+	// one (as sign-up does), for an invitation to an account (task 2.3b).
+	// Every case returns a user ID, so the caller can't tell whether the
+	// address was registered. A malformed email is INVALID_ARGUMENT.
+	EnsureInvitee(ctx context.Context, in *EnsureInviteeRequest, opts ...grpc.CallOption) (*EnsureInviteeResponse, error)
+	// SendInvitation emails a user that someone invited them to an
+	// account, once accounts has recorded the invitation (task 2.3b). The
+	// same email goes to everyone: sign in, or sign up with this address,
+	// then accept. An unknown user is NOT_FOUND.
+	SendInvitation(ctx context.Context, in *SendInvitationRequest, opts ...grpc.CallOption) (*SendInvitationResponse, error)
+	// IsStepUpFresh reports whether a session's step-up MFA is recent
+	// enough for a sensitive action (task 1.6), such as adding users. A
+	// session that isn't the user's own active one is never fresh.
+	IsStepUpFresh(ctx context.Context, in *IsStepUpFreshRequest, opts ...grpc.CallOption) (*IsStepUpFreshResponse, error)
+	// GetUsers returns the email and name of each known user ID, for
+	// showing an account's members. Unknown IDs are left out.
+	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error)
 }
 
 type identityServiceClient struct {
@@ -54,6 +75,46 @@ func (c *identityServiceClient) ResolveSession(ctx context.Context, in *ResolveS
 	return out, nil
 }
 
+func (c *identityServiceClient) EnsureInvitee(ctx context.Context, in *EnsureInviteeRequest, opts ...grpc.CallOption) (*EnsureInviteeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnsureInviteeResponse)
+	err := c.cc.Invoke(ctx, IdentityService_EnsureInvitee_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityServiceClient) SendInvitation(ctx context.Context, in *SendInvitationRequest, opts ...grpc.CallOption) (*SendInvitationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendInvitationResponse)
+	err := c.cc.Invoke(ctx, IdentityService_SendInvitation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityServiceClient) IsStepUpFresh(ctx context.Context, in *IsStepUpFreshRequest, opts ...grpc.CallOption) (*IsStepUpFreshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsStepUpFreshResponse)
+	err := c.cc.Invoke(ctx, IdentityService_IsStepUpFresh_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityServiceClient) GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUsersResponse)
+	err := c.cc.Invoke(ctx, IdentityService_GetUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IdentityServiceServer is the server API for IdentityService service.
 // All implementations must embed UnimplementedIdentityServiceServer
 // for forward compatibility.
@@ -66,6 +127,23 @@ type IdentityServiceServer interface {
 	// identity (task 2.2a). A missing, unknown, expired or revoked token
 	// returns UNAUTHENTICATED, all alike.
 	ResolveSession(context.Context, *ResolveSessionRequest) (*ResolveSessionResponse, error)
+	// EnsureInvitee finds the user with an email, or creates an unverified
+	// one (as sign-up does), for an invitation to an account (task 2.3b).
+	// Every case returns a user ID, so the caller can't tell whether the
+	// address was registered. A malformed email is INVALID_ARGUMENT.
+	EnsureInvitee(context.Context, *EnsureInviteeRequest) (*EnsureInviteeResponse, error)
+	// SendInvitation emails a user that someone invited them to an
+	// account, once accounts has recorded the invitation (task 2.3b). The
+	// same email goes to everyone: sign in, or sign up with this address,
+	// then accept. An unknown user is NOT_FOUND.
+	SendInvitation(context.Context, *SendInvitationRequest) (*SendInvitationResponse, error)
+	// IsStepUpFresh reports whether a session's step-up MFA is recent
+	// enough for a sensitive action (task 1.6), such as adding users. A
+	// session that isn't the user's own active one is never fresh.
+	IsStepUpFresh(context.Context, *IsStepUpFreshRequest) (*IsStepUpFreshResponse, error)
+	// GetUsers returns the email and name of each known user ID, for
+	// showing an account's members. Unknown IDs are left out.
+	GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error)
 	mustEmbedUnimplementedIdentityServiceServer()
 }
 
@@ -78,6 +156,18 @@ type UnimplementedIdentityServiceServer struct{}
 
 func (UnimplementedIdentityServiceServer) ResolveSession(context.Context, *ResolveSessionRequest) (*ResolveSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveSession not implemented")
+}
+func (UnimplementedIdentityServiceServer) EnsureInvitee(context.Context, *EnsureInviteeRequest) (*EnsureInviteeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EnsureInvitee not implemented")
+}
+func (UnimplementedIdentityServiceServer) SendInvitation(context.Context, *SendInvitationRequest) (*SendInvitationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendInvitation not implemented")
+}
+func (UnimplementedIdentityServiceServer) IsStepUpFresh(context.Context, *IsStepUpFreshRequest) (*IsStepUpFreshResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method IsStepUpFresh not implemented")
+}
+func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUsers not implemented")
 }
 func (UnimplementedIdentityServiceServer) mustEmbedUnimplementedIdentityServiceServer() {}
 func (UnimplementedIdentityServiceServer) testEmbeddedByValue()                         {}
@@ -118,6 +208,78 @@ func _IdentityService_ResolveSession_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_EnsureInvitee_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnsureInviteeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).EnsureInvitee(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_EnsureInvitee_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).EnsureInvitee(ctx, req.(*EnsureInviteeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityService_SendInvitation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendInvitationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).SendInvitation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_SendInvitation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).SendInvitation(ctx, req.(*SendInvitationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityService_IsStepUpFresh_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IsStepUpFreshRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).IsStepUpFresh(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_IsStepUpFresh_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).IsStepUpFresh(ctx, req.(*IsStepUpFreshRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).GetUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_GetUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).GetUsers(ctx, req.(*GetUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IdentityService_ServiceDesc is the grpc.ServiceDesc for IdentityService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -128,6 +290,22 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveSession",
 			Handler:    _IdentityService_ResolveSession_Handler,
+		},
+		{
+			MethodName: "EnsureInvitee",
+			Handler:    _IdentityService_EnsureInvitee_Handler,
+		},
+		{
+			MethodName: "SendInvitation",
+			Handler:    _IdentityService_SendInvitation_Handler,
+		},
+		{
+			MethodName: "IsStepUpFresh",
+			Handler:    _IdentityService_IsStepUpFresh_Handler,
+		},
+		{
+			MethodName: "GetUsers",
+			Handler:    _IdentityService_GetUsers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

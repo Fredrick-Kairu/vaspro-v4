@@ -24,6 +24,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/server"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
 	accountsgrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/grpc"
@@ -47,6 +48,10 @@ type Config struct {
 	// task 2.2c) to other services, plaintext on the internal network
 	// for now (mTLS between services is Phase 17).
 	GRPCAddr string `env:"ACCOUNTS_GRPC_ADDR" envDefault:":9091"`
+	// IdentityGRPCAddr is identity's internal gRPC API (task 2.3b):
+	// invitations, step-up checks and members' names. Dialled lazily,
+	// so accounts starts while identity is down.
+	IdentityGRPCAddr string `env:"ACCOUNTS_IDENTITY_GRPC_ADDR,required"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country.
 	PacksDir string `env:"ACCOUNTS_PACKS_DIR" envDefault:"packs"`
 }
@@ -61,12 +66,12 @@ type Service struct {
 }
 
 // New builds a Service from already-connected dependencies.
-func New(cfg Config, pool *db.Pool, b *bus.Bus) (*Service, error) {
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) (*Service, error) {
 	loaded, err := loadPacks(cfg.PacksDir)
 	if err != nil {
 		return nil, err
 	}
-	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded})
+	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
@@ -105,7 +110,11 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accounts: connecting to nats: %w", err)
 	}
-	return New(cfg, pool, b)
+	identity, err := adapters.DialIdentity(cfg.IdentityGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	return New(cfg, pool, b, identity)
 }
 
 // Router is accounts' HTTP handler, exported for tests.

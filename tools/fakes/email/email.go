@@ -16,17 +16,21 @@ const (
 	KindPasswordReset = "password_reset"
 	KindStepUp        = "step_up"
 	KindLoginAlert    = "login_alert"
+	KindInvitation    = "invitation"
 )
 
 // Sent is one recorded call to Sender. Code is set for the three
-// code-based kinds; IP/OccurredAt are set for KindLoginAlert instead.
+// code-based kinds; IP/OccurredAt are set for KindLoginAlert, and
+// AccountName/InviterName for KindInvitation, instead.
 type Sent struct {
-	Kind       string
-	To         string
-	FullName   string
-	Code       string
-	IP         string
-	OccurredAt time.Time
+	Kind        string
+	To          string
+	FullName    string
+	Code        string
+	IP          string
+	OccurredAt  time.Time
+	AccountName string
+	InviterName string
 }
 
 // Sender is a fake adapters.EmailSender: thread-safe, keeps every call
@@ -53,6 +57,11 @@ func (s *Sender) SendStepUpCode(_ context.Context, to, fullName, code string) er
 
 func (s *Sender) SendLoginAlert(_ context.Context, to, fullName, ip string, occurredAt time.Time) error {
 	s.record(Sent{Kind: KindLoginAlert, To: to, FullName: fullName, IP: ip, OccurredAt: occurredAt})
+	return nil
+}
+
+func (s *Sender) SendInvitation(_ context.Context, to, accountName, inviterName string) error {
+	s.record(Sent{Kind: KindInvitation, To: to, AccountName: accountName, InviterName: inviterName})
 	return nil
 }
 

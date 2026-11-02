@@ -166,8 +166,42 @@ func (h *Handlers) RemoveMember(ctx context.Context, request RemoveMemberRequest
 	return RemoveMember204Response{}, nil
 }
 
+func (h *Handlers) CreateInvitation(ctx context.Context, request CreateInvitationRequestObject) (CreateInvitationResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	roleID, err := uuid.Parse(request.Body.RoleId)
+	if err != nil {
+		return nil, toProblem(domain.ErrNotBuiltinRole)
+	}
+	m, err := h.app.Invite(ctx, callerFromContext(ctx), sessionFromContext(ctx), tenantID, request.Body.Email, roleID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateInvitation201JSONResponse(memberResponse(m)), nil
+}
+
+func (h *Handlers) AcceptInvitation(ctx context.Context, request AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error) {
+	tenantID, err := uuid.Parse(request.TenantId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	m, err := h.app.AcceptInvitation(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return AcceptInvitation200JSONResponse(memberResponse(m)), nil
+}
+
 func memberResponse(m *app.Member) Member {
 	resp := Member{UserId: m.UserID.String(), RoleId: m.RoleID.String(), Status: MemberStatus(m.Status), CreatedAt: m.CreatedAt}
+	if m.Email != "" {
+		resp.Email = &m.Email
+	}
+	if m.FullName != "" {
+		resp.FullName = &m.FullName
+	}
 	if m.InvitedBy != nil {
 		invitedBy := m.InvitedBy.String()
 		resp.InvitedBy = &invitedBy
@@ -209,6 +243,10 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
+	case errors.Is(err, app.ErrStepUpRequired):
+		return problem.New(problem.AUTH4012, "adding users needs a fresh step-up")
+	case errors.Is(err, app.ErrAlreadyMember):
+		return problem.New(problem.VAL4005, "already an active member of this account")
 	case errors.Is(err, domain.ErrPermissionDenied):
 		return problem.New(problem.AUTH4024, "your role in this account doesn't allow this")
 	case errors.Is(err, domain.ErrLastAdmin):

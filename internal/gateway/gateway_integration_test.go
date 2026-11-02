@@ -255,7 +255,10 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 	natsURL := testkit.StartNATSURL(t)
 	redisURL := testkit.StartRedisURL(t)
 	httpAddr := freeTCPAddr(t)
-	grpcAddr := freeTCPAddr(t)
+	grpcAddr := envValue(extraEnv, "IDENTITY_GRPC_ADDR")
+	if grpcAddr == "" {
+		grpcAddr = freeTCPAddr(t)
+	}
 
 	runCmd := exec.Command(binPath) //nolint:gosec // binPath is the binary we just built into our own t.TempDir()
 	runCmd.Dir = root
@@ -296,13 +299,16 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 	return baseURL
 }
 
-func hasEnv(env []string, key string) bool {
+func hasEnv(env []string, key string) bool { return envValue(env, key) != "" }
+
+// envValue is key's value in env, or "".
+func envValue(env []string, key string) string {
 	for _, kv := range env {
-		if strings.HasPrefix(kv, key+"=") {
-			return true
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
 		}
 	}
-	return false
+	return ""
 }
 
 // identityGRPCAddrs maps each identity subprocess's base URL to its gRPC
@@ -441,8 +447,10 @@ func (c *totpCodes) next(t *testing.T) string {
 func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	smtp := startFakeSMTPServer(t)
 	var identityLogs, gatewayLogs syncBuffer
-	accountsBaseURL, accountsGRPC := startRealAccounts(t)
-	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), &identityLogs, "IDENTITY_ACCOUNTS_GRPC_ADDR="+accountsGRPC)
+	identityGRPC := freeTCPAddr(t)
+	accountsBaseURL, accountsGRPC := startRealAccounts(t, identityGRPC)
+	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), &identityLogs,
+		"IDENTITY_ACCOUNTS_GRPC_ADDR="+accountsGRPC, "IDENTITY_GRPC_ADDR="+identityGRPC)
 
 	// The synthetic protected route this task's own tests use to prove
 	// the JWT/scope/env/ip-allowlist pipeline: a real, already-existing

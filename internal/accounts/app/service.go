@@ -9,6 +9,8 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/adapters"
 )
 
 // ErrNotFound covers a tenant that doesn't exist and one the caller's
@@ -23,18 +25,22 @@ type Service struct {
 	pool  *db.Pool
 	clk   clock.Clock
 	packs map[string]*packs.Pack
+	// identity finds invitees, sends invitations, checks step-up and
+	// names members (task 2.3b).
+	identity adapters.Identity
 }
 
 // Deps is everything New needs. Packs is every loaded country pack,
 // keyed by country code: a new account takes its currency, time zone
 // and data region from its country's pack.
 type Deps struct {
-	Pool  *db.Pool
-	Clock clock.Clock
-	Packs map[string]*packs.Pack
+	Pool     *db.Pool
+	Clock    clock.Clock
+	Packs    map[string]*packs.Pack
+	Identity adapters.Identity
 }
 
 // New builds a Service.
 func New(d Deps) *Service {
-	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs}
+	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs, identity: d.Identity}
 }
