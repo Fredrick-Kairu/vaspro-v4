@@ -26,6 +26,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/store"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantaccess"
 )
 
 // testTOTPKeyID is the LocalKMS key ID newTestService's Envelope
@@ -69,6 +70,14 @@ func newTestService(t *testing.T) (*app.Service, *vasdb.Pool, *email.Sender, *te
 // newTestServiceWithOIDC is newTestService with Sign in with Google
 // wired to provider (task 1.16); nil leaves Google off.
 func newTestServiceWithOIDC(t *testing.T, provider adapters.OIDCProvider) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock, *cache.Cache) {
+	t.Helper()
+	return newTestServiceWith(t, provider, &tenantaccess.Fake{AllowAll: true})
+}
+
+// newTestServiceWith is newTestService with Google wired to provider
+// (nil for off) and accounts' access check answered by access (task
+// 2.2c); the other constructors let every user into every account.
+func newTestServiceWith(t *testing.T, provider adapters.OIDCProvider, access adapters.TenantAccess) (*app.Service, *vasdb.Pool, *email.Sender, *testkit.Clock, *cache.Cache) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -118,6 +127,7 @@ func newTestServiceWithOIDC(t *testing.T, provider adapters.OIDCProvider) (*app.
 		WebAuthn:         wa,
 		Cache:            c,
 		OIDC:             provider,
+		TenantAccess:     access,
 	})
 	return svc, pool, sender, clk, c
 }

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	gogrpc "google.golang.org/grpc"
+
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
+	accountsgrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/grpc"
 )
 
 // Config is accounts' process configuration (platform/config.Load).
@@ -40,6 +43,10 @@ type Config struct {
 	DatabaseURL string `env:"ACCOUNTS_DATABASE_URL,required"`
 	NATSURL     string `env:"ACCOUNTS_NATS_URL,required"`
 	HTTPAddr    string `env:"ACCOUNTS_HTTP_ADDR" envDefault:":8082"`
+	// GRPCAddr serves accounts' internal gRPC API (proto/accounts/v1,
+	// task 2.2c) to other services, plaintext on the internal network
+	// for now (mTLS between services is Phase 17).
+	GRPCAddr string `env:"ACCOUNTS_GRPC_ADDR" envDefault:":9091"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country.
 	PacksDir string `env:"ACCOUNTS_PACKS_DIR" envDefault:"packs"`
 }
@@ -49,6 +56,7 @@ type Service struct {
 	cfg  Config
 	pool *db.Pool
 	bus  *bus.Bus
+	app  *app.Service
 	rtr  http.Handler
 }
 
@@ -62,7 +70,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus) (*Service, error) {
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
-	return &Service{cfg: cfg, pool: pool, bus: b, rtr: rtr}, nil
+	return &Service{cfg: cfg, pool: pool, bus: b, app: a, rtr: rtr}, nil
 }
 
 // loadPacks loads every country pack under dir, keyed by country code.
@@ -105,8 +113,8 @@ func (s *Service) Router() http.Handler { return s.rtr }
 
 func relaySubject(eventType string) string { return "accounts." + eventType }
 
-// Run starts the HTTP server and the outbox relay, and blocks until ctx
-// is cancelled.
+// Run starts the HTTP and gRPC servers and the outbox relay, and blocks
+// until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
 	if err := s.bus.EnsureStream(ctx, "ACCOUNTS_EVENTS", []string{"accounts.>"}); err != nil {
 		return fmt.Errorf("accounts: ensuring stream: %w", err)
@@ -132,8 +140,23 @@ func (s *Service) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("accounts: listening on %s: %w", s.cfg.HTTPAddr, err)
 	}
+	grpcLn, err := net.Listen("tcp", s.cfg.GRPCAddr)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("accounts: listening for gRPC on %s: %w", s.cfg.GRPCAddr, err)
+	}
+	grpcSrv := gogrpc.NewServer()
+	accountsgrpc.Register(grpcSrv, s.app)
+	grpcDone := make(chan struct{})
+	go func() {
+		defer close(grpcDone)
+		_ = grpcSrv.Serve(grpcLn)
+	}()
+
 	srv := &http.Server{Handler: s.rtr, ReadHeaderTimeout: 5 * time.Second}
 	err = server.Serve(ctx, srv, ln, 10*time.Second)
+	grpcSrv.GracefulStop()
+	<-grpcDone
 	<-relayDone
 	return err
 }

@@ -249,7 +249,32 @@ func (h *Handlers) DeleteSessions(ctx context.Context, request DeleteSessionsReq
 	return DeleteSessions204Response{}, nil
 }
 
+// sessionTenant is the account this request's session has selected,
+// re-checked with accounts (app.SessionTenant), and the user acting in
+// it. Every API client and SMPP account handler calls it first, so a
+// session with no account selected is AUTH-4023 before anything else.
+func (h *Handlers) sessionTenant(ctx context.Context) (tenantID, userID uuid.UUID, err error) {
+	userID = sessionUserIDFromContext(ctx)
+	tenantID, err = h.app.SessionTenant(ctx, userID, sessionIDFromContext(ctx))
+	return tenantID, userID, err
+}
+
+func (h *Handlers) SelectSessionTenant(ctx context.Context, request SelectSessionTenantRequestObject) (SelectSessionTenantResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Body.TenantId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.SelectSessionTenant(ctx, sessionUserIDFromContext(ctx), sessionIDFromContext(ctx), tenantID); err != nil {
+		return nil, toProblem(err)
+	}
+	return SelectSessionTenant200JSONResponse{TenantId: tenantID.String()}, nil
+}
+
 func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientRequestObject) (CreateApiClientResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	body := request.Body
 	var ipAllowlist []string
 	if body.IpAllowlist != nil {
@@ -261,7 +286,7 @@ func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientR
 	}
 	result, err := h.app.CreateApiClient(
 		ctx,
-		sessionUserIDFromContext(ctx),
+		tenantID, userID,
 		body.Name,
 		string(body.Environment),
 		body.Scopes,
@@ -278,7 +303,11 @@ func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientR
 }
 
 func (h *Handlers) ListApiClients(ctx context.Context, request ListApiClientsRequestObject) (ListApiClientsResponseObject, error) {
-	clients, err := h.app.ListApiClients(ctx, sessionUserIDFromContext(ctx))
+	tenantID, _, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	clients, err := h.app.ListApiClients(ctx, tenantID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -290,11 +319,15 @@ func (h *Handlers) ListApiClients(ctx context.Context, request ListApiClientsReq
 }
 
 func (h *Handlers) GetApiClient(ctx context.Context, request GetApiClientRequestObject) (GetApiClientResponseObject, error) {
+	tenantID, _, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	clientID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	detail, err := h.app.GetApiClient(ctx, sessionUserIDFromContext(ctx), clientID)
+	detail, err := h.app.GetApiClient(ctx, tenantID, clientID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -314,22 +347,30 @@ func (h *Handlers) GetApiClient(ctx context.Context, request GetApiClientRequest
 }
 
 func (h *Handlers) RevokeApiClient(ctx context.Context, request RevokeApiClientRequestObject) (RevokeApiClientResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	clientID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	if err := h.app.RevokeApiClient(ctx, sessionUserIDFromContext(ctx), clientID); err != nil {
+	if err := h.app.RevokeApiClient(ctx, tenantID, userID, clientID); err != nil {
 		return nil, toProblem(err)
 	}
 	return RevokeApiClient204Response{}, nil
 }
 
 func (h *Handlers) CreateApiClientSecret(ctx context.Context, request CreateApiClientSecretRequestObject) (CreateApiClientSecretResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	clientID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	secret, err := h.app.RotateApiClientSecret(ctx, sessionUserIDFromContext(ctx), clientID)
+	secret, err := h.app.RotateApiClientSecret(ctx, tenantID, userID, clientID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -337,6 +378,10 @@ func (h *Handlers) CreateApiClientSecret(ctx context.Context, request CreateApiC
 }
 
 func (h *Handlers) RevokeApiClientSecret(ctx context.Context, request RevokeApiClientSecretRequestObject) (RevokeApiClientSecretResponseObject, error) {
+	tenantID, _, err := h.sessionTenant(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	clientID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
@@ -345,7 +390,7 @@ func (h *Handlers) RevokeApiClientSecret(ctx context.Context, request RevokeApiC
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	if err := h.app.RevokeApiClientSecret(ctx, sessionUserIDFromContext(ctx), clientID, secretID); err != nil {
+	if err := h.app.RevokeApiClientSecret(ctx, tenantID, clientID, secretID); err != nil {
 		return nil, toProblem(err)
 	}
 	return RevokeApiClientSecret204Response{}, nil
@@ -409,6 +454,10 @@ func sessionSummaryResponse(s *app.SessionSummary) SessionSummary {
 	if s.UserAgent != "" {
 		summary.UserAgent = &s.UserAgent
 	}
+	if s.TenantID != nil {
+		tenantID := s.TenantID.String()
+		summary.TenantId = &tenantID
+	}
 	return summary
 }
 
@@ -470,6 +519,8 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4010, "invalid email or password")
 	case errors.Is(err, app.ErrTwoFactorInvalid):
 		return problem.New(problem.AUTH4011, "the two-factor code is invalid or has expired")
+	case errors.Is(err, app.ErrNoTenantSelected):
+		return problem.New(problem.AUTH4023, "select an account you belong to")
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
 	case errors.Is(err, app.ErrExternalSignInFailed):

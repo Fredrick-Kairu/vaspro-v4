@@ -245,6 +245,33 @@ func (q *Queries) SetSessionStepUp(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const setSessionTenant = `-- name: SetSessionTenant :execrows
+UPDATE identity.sessions SET tenant_id = $1
+WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL AND expires_at > $4::timestamptz
+`
+
+type SetSessionTenantParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       uuid.UUID   `json:"id"`
+	UserID   uuid.UUID   `json:"user_id"`
+	Now      time.Time   `json:"now"`
+}
+
+// Selects the account an active session works in (task 2.2c); only the
+// session's own user can, and the caller has already asked accounts.
+func (q *Queries) SetSessionTenant(ctx context.Context, arg SetSessionTenantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSessionTenant,
+		arg.TenantID,
+		arg.ID,
+		arg.UserID,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateSessionLastSeenAt = `-- name: UpdateSessionLastSeenAt :exec
 UPDATE identity.sessions SET last_seen_at = now() WHERE id = $1
 `

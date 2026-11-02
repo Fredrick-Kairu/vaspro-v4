@@ -225,6 +225,44 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/sessions/current/tenant:
+    put:
+      operationId: selectSessionTenant
+      summary: Select the account this session works in
+      description: >
+        API clients and SMPP accounts belong to a client account, so a
+        session selects one before managing them (task 2.2c). Identity
+        asks accounts whether the user may work in it (an active member,
+        or a member of a sub-account's reseller), and asks again before
+        each use, so a removed member loses access at once. An account
+        the user can't reach is VAL-4003, the same answer accounts gives.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionTenantRequest'
+            example:
+              tenant_id: "019a3c2e-7b1d-7c4e-9f00-5a6b7c8d9e0f"
+      responses:
+        "200":
+          description: The account is selected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionTenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/auth/totp-challenges/{challenge}/verification:
     post:
       operationId: createTotpChallengeVerification
@@ -947,6 +985,12 @@ paths:
               scopes: ["reports:read"]
               ip_allowlist: ["203.0.113.0/24"]
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Client created.
           content:
@@ -965,6 +1009,12 @@ paths:
       security:
         - sessionBearer: []
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: The account's API clients.
           content:
@@ -992,6 +1042,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Client detail.
           content:
@@ -1022,6 +1078,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "204":
           description: Client revoked.
         "401":
@@ -1051,6 +1113,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Secret rotated.
           content:
@@ -1089,6 +1157,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "204":
           description: Secret revoked.
         "401":
@@ -1150,6 +1224,12 @@ paths:
               max_binds: 2
               max_tps: 50
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Account created.
           content:
@@ -1168,6 +1248,12 @@ paths:
       security:
         - sessionBearer: []
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: The account's SMPP accounts.
           content:
@@ -1191,6 +1277,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Account detail.
           content:
@@ -1229,6 +1321,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SmppAccountStatusUpdateRequest'
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Status updated.
           content:
@@ -1263,6 +1361,12 @@ paths:
           schema:
             type: string
       responses:
+        "403":
+          description: AUTH-4023 when the session has no account selected or the user is no longer a member of it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         "200":
           description: Password rotated.
           content:
@@ -1553,6 +1657,21 @@ components:
           type: string
           enum: [password, passkey, google, sso]
           description: How the session signed in.
+        tenant_id:
+          type: string
+          description: The account this session has selected (selectSessionTenant), if any.
+    SessionTenantRequest:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+    SessionTenant:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
     SessionList:
       type: object
       properties:

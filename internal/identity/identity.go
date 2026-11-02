@@ -57,9 +57,14 @@ type Config struct {
 	// GRPCAddr serves identity's internal gRPC API (proto/identity/v1,
 	// task 2.2a) to other services. Plaintext on the internal network
 	// for now; mTLS between services is Phase 17 hardening.
-	GRPCAddr  string `env:"IDENTITY_GRPC_ADDR" envDefault:":9090"`
-	SMTPAddr  string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
-	EmailFrom string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
+	GRPCAddr string `env:"IDENTITY_GRPC_ADDR" envDefault:":9090"`
+	// AccountsGRPCAddr is accounts' internal gRPC API (task 2.2c):
+	// identity asks it whether a user may work in an account before a
+	// session selects it and before each use of its credentials.
+	// Dialled lazily, so identity starts while accounts is down.
+	AccountsGRPCAddr string `env:"IDENTITY_ACCOUNTS_GRPC_ADDR,required"`
+	SMTPAddr         string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
+	EmailFrom        string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
 
 	// TOTPKMSKey is LocalKMS's master key, base64-encoded, exactly 32
 	// bytes once decoded (AES-256) — encrypts user_totp.secret_ciphertext.
@@ -122,7 +127,7 @@ type Service struct {
 // the usual entry point; New exists separately so tests can build a
 // Service against testkit's containers (and a fake email sender)
 // without going through it.
-func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Service, error) {
+func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender, access adapters.TenantAccess) (*Service, error) {
 	totpKMSKey, err := base64.StdEncoding.DecodeString(cfg.TOTPKMSKey)
 	if err != nil {
 		return nil, fmt.Errorf("identity: decoding IDENTITY_TOTP_KMS_KEY: %w", err)
@@ -181,6 +186,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		WebAuthn:         wa,
 		Cache:            c,
 		OIDC:             oidcProvider,
+		TenantAccess:     access,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)
@@ -205,7 +211,11 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 		return nil, fmt.Errorf("identity: connecting to nats: %w", err)
 	}
 	email := adapters.NewSMTPSender(cfg.SMTPAddr, cfg.EmailFrom)
-	return New(cfg, pool, b, email)
+	access, err := adapters.DialTenantAccess(cfg.AccountsGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	return New(cfg, pool, b, email, access)
 }
 
 // Router is identity's HTTP handler, exported so tests can drive it

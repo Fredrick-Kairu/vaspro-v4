@@ -17,9 +17,7 @@ import (
 )
 
 // signedInUserID signs up, verifies, sets a password, signs in, and
-// returns the account's own ID — the same value this task uses as
-// api_clients.tenant_id (see apiclients.go's own doc comment: real
-// tenants don't exist until Phase 2).
+// returns the user's ID.
 func signedInUserID(t *testing.T, ctx context.Context, svc *app.Service, sender *email.Sender, emailAddr string) uuid.UUID {
 	t.Helper()
 	setPassword(t, ctx, svc, sender, emailAddr, "a-strong-password")
@@ -32,6 +30,13 @@ func signedInUserID(t *testing.T, ctx context.Context, svc *app.Service, sender 
 		t.Fatalf("ResolveSession: %v", err)
 	}
 	return userID
+}
+
+// tenantOf stands in for the account userID's session selected (task
+// 2.2c): a fixed ID per user, distinct from the user's own, so each
+// test user works in an account of their own.
+func tenantOf(userID uuid.UUID) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, userID[:])
 }
 
 // secretHash reads a secret's stored Argon2id hash directly —
@@ -51,7 +56,7 @@ func TestCreateApiClient_HappyPath_ReturnsSecretOnceAndStoresHash(t *testing.T) 
 	svc, pool, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "Reporting integration", "sandbox",
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "Reporting integration", "sandbox",
 		[]string{"reports:read"}, []string{"203.0.113.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
@@ -66,7 +71,7 @@ func TestCreateApiClient_HappyPath_ReturnsSecretOnceAndStoresHash(t *testing.T) 
 		t.Fatalf("got IP allowlist %v", client.IPAllowlist)
 	}
 
-	detail, err := svc.GetApiClient(ctx, userID, client.ID)
+	detail, err := svc.GetApiClient(ctx, tenantOf(userID), client.ID)
 	if err != nil {
 		t.Fatalf("GetApiClient: %v", err)
 	}
@@ -86,17 +91,17 @@ func TestCreateApiClient_HappyPath_ReturnsSecretOnceAndStoresHash(t *testing.T) 
 	}
 }
 
-func TestListApiClients_ScopedToCreatingUser(t *testing.T) {
+func TestListApiClients_ScopedToTheAccount(t *testing.T) {
 	ctx := context.Background()
 	svc, _, sender, _, _ := newTestService(t)
 	adaID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 	bobID := signedInUserID(t, ctx, svc, sender, "bob@example.com")
 
-	if _, err := svc.CreateApiClient(ctx, adaID, "Ada's client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil); err != nil {
+	if _, err := svc.CreateApiClient(ctx, tenantOf(adaID), adaID, "Ada's client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil); err != nil {
 		t.Fatalf("CreateApiClient(ada): %v", err)
 	}
 
-	adaClients, err := svc.ListApiClients(ctx, adaID)
+	adaClients, err := svc.ListApiClients(ctx, tenantOf(adaID))
 	if err != nil {
 		t.Fatalf("ListApiClients(ada): %v", err)
 	}
@@ -104,7 +109,7 @@ func TestListApiClients_ScopedToCreatingUser(t *testing.T) {
 		t.Fatalf("got %d clients for ada, want 1", len(adaClients))
 	}
 
-	bobClients, err := svc.ListApiClients(ctx, bobID)
+	bobClients, err := svc.ListApiClients(ctx, tenantOf(bobID))
 	if err != nil {
 		t.Fatalf("ListApiClients(bob): %v", err)
 	}
@@ -118,12 +123,12 @@ func TestRotateApiClientSecret_StartsOverlapOnPrevious(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "Rotated client", "live", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "Rotated client", "live", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
 
-	rotated, err := svc.RotateApiClientSecret(ctx, userID, client.ID)
+	rotated, err := svc.RotateApiClientSecret(ctx, tenantOf(userID), userID, client.ID)
 	if err != nil {
 		t.Fatalf("RotateApiClientSecret: %v", err)
 	}
@@ -131,7 +136,7 @@ func TestRotateApiClientSecret_StartsOverlapOnPrevious(t *testing.T) {
 		t.Fatal("expected a fresh secret on rotation")
 	}
 
-	detail, err := svc.GetApiClient(ctx, userID, client.ID)
+	detail, err := svc.GetApiClient(ctx, tenantOf(userID), client.ID)
 	if err != nil {
 		t.Fatalf("GetApiClient: %v", err)
 	}
@@ -157,15 +162,15 @@ func TestRotateApiClientSecret_WhenAlreadyTwoActive_ReturnsValidationError(t *te
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "Client", "live", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "Client", "live", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
-	if _, err := svc.RotateApiClientSecret(ctx, userID, client.ID); err != nil {
+	if _, err := svc.RotateApiClientSecret(ctx, tenantOf(userID), userID, client.ID); err != nil {
 		t.Fatalf("first RotateApiClientSecret: %v", err)
 	}
 
-	if _, err := svc.RotateApiClientSecret(ctx, userID, client.ID); !errors.Is(err, app.ErrValidation) {
+	if _, err := svc.RotateApiClientSecret(ctx, tenantOf(userID), userID, client.ID); !errors.Is(err, app.ErrValidation) {
 		t.Fatalf("got error %v, want app.ErrValidation", err)
 	}
 }
@@ -175,16 +180,16 @@ func TestRevokeApiClient_StopsBeingReturnedButSecretsUntouched(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "Client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "Client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
 
-	if err := svc.RevokeApiClient(ctx, userID, client.ID); err != nil {
+	if err := svc.RevokeApiClient(ctx, tenantOf(userID), userID, client.ID); err != nil {
 		t.Fatalf("RevokeApiClient: %v", err)
 	}
 
-	detail, err := svc.GetApiClient(ctx, userID, client.ID)
+	detail, err := svc.GetApiClient(ctx, tenantOf(userID), client.ID)
 	if err != nil {
 		t.Fatalf("GetApiClient after revoke: %v", err)
 	}
@@ -201,20 +206,20 @@ func TestRevokeApiClientSecret_RevokesOnlyThatOne(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "Client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "Client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
-	rotated, err := svc.RotateApiClientSecret(ctx, userID, client.ID)
+	rotated, err := svc.RotateApiClientSecret(ctx, tenantOf(userID), userID, client.ID)
 	if err != nil {
 		t.Fatalf("RotateApiClientSecret: %v", err)
 	}
 
-	if err := svc.RevokeApiClientSecret(ctx, userID, client.ID, client.Secret.ID); err != nil {
+	if err := svc.RevokeApiClientSecret(ctx, tenantOf(userID), client.ID, client.Secret.ID); err != nil {
 		t.Fatalf("RevokeApiClientSecret: %v", err)
 	}
 
-	detail, err := svc.GetApiClient(ctx, userID, client.ID)
+	detail, err := svc.GetApiClient(ctx, tenantOf(userID), client.ID)
 	if err != nil {
 		t.Fatalf("GetApiClient: %v", err)
 	}
@@ -232,21 +237,21 @@ func TestApiClient_NotOwned_OperationsReturnNotFound(t *testing.T) {
 	adaID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 	bobID := signedInUserID(t, ctx, svc, sender, "bob@example.com")
 
-	client, err := svc.CreateApiClient(ctx, adaID, "Ada's client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(adaID), adaID, "Ada's client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
 
-	if _, err := svc.GetApiClient(ctx, bobID, client.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, err := svc.GetApiClient(ctx, tenantOf(bobID), client.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("GetApiClient: got error %v, want app.ErrNotFound", err)
 	}
-	if _, err := svc.RotateApiClientSecret(ctx, bobID, client.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, err := svc.RotateApiClientSecret(ctx, tenantOf(bobID), bobID, client.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("RotateApiClientSecret: got error %v, want app.ErrNotFound", err)
 	}
-	if err := svc.RevokeApiClient(ctx, bobID, client.ID); !errors.Is(err, app.ErrNotFound) {
+	if err := svc.RevokeApiClient(ctx, tenantOf(bobID), bobID, client.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("RevokeApiClient: got error %v, want app.ErrNotFound", err)
 	}
-	if err := svc.RevokeApiClientSecret(ctx, bobID, client.ID, client.Secret.ID); !errors.Is(err, app.ErrNotFound) {
+	if err := svc.RevokeApiClientSecret(ctx, tenantOf(bobID), client.ID, client.Secret.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("RevokeApiClientSecret: got error %v, want app.ErrNotFound", err)
 	}
 }

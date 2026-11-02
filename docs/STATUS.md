@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.2b done (2026-11-02). Next: 2.2c tenant selection. Also done: 2.1, 2.5, 2.2a, the testkit readiness fix, 1.16.
+**Current task:** 2.2 done (2.2c, 2026-11-02). Next: 2.3 memberships, roles and invitations. Also done: 2.1, 2.5, the testkit readiness fix, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -27,7 +27,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Q1 tenant at sign-up:** an explicit onboarding call after email verification (`display_name`, country; currency/timezone/region from the pack), not auto-created from `user.email_verified`. So accounts consumes no identity event in 2.1.
 - **Q2 how identity learns memberships/tier (decided 30 Oct):** identity asks accounts over gRPC, so removing a member takes effect at once. A copy built from events may serve the token's `kyc_tier` claim later.
 - **Session auth for services other than identity (decided 30 Oct):** the gateway resolves the dashboard session through identity's `ResolveSession` RPC and forwards a trusted `X-Vaspro-User-Id`/`X-Vaspro-Session-Id`, stripping client-sent copies. 2.2 ships as three commits (2.2a/b/c), and Phase 1 placeholder credentials are revoked (not moved) in 2.2c.
-- **Q3 Phase 1 placeholder tenants** (`api_clients`/`smpp_accounts.tenant_id` = the creating user's ID): move them to the user's first real tenant in 2.2 (approved; no real data exists yet).
+- **Q3 Phase 1 placeholder tenants** (`api_clients`/`smpp_accounts.tenant_id` = the creating user's ID): first approved as "move them to the user's first real tenant", then revised on 30 Oct to **revoke them by migration** in 2.2c (done; no real data exists yet).
 - **Q4 staff:** a minimal staff role check for 2.9, no console (the console is Phase 10).
 
 ## Done in Phase 2
@@ -184,6 +184,44 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - No gateway e2e: making a reseller has no route until 2.9.
     - **Order of work:** the domain and app tests were seen failing first against stubs. The API tests could only compile once the handlers existed.
     - **Mutation-checked:** removing the parent route, the Financial check and the CHECK each failed its intended tests. **Not covered:** the row lock on the reseller during `CreateSubAccount`. No test races a demotion against a create, because that can't be made deterministic cheaply.
+
+- 2.2c A session selects its account; credentials belong to real accounts. This finishes ROADMAP 2.2.
+  - **accounts gRPC:** `proto/accounts/v1` `AccountsService.CheckTenantAccess(user_id, tenant_id)`.
+    - It returns OK when `app.GetTenant` would: an active member of the account, or of a sub-account's reseller.
+    - No access and no such account are NOT_FOUND alike; a malformed ID is INVALID_ARGUMENT.
+    - accounts serves it on `ACCOUNTS_GRPC_ADDR` (default `:9091`, plaintext; mTLS in Phase 17).
+  - **identity:**
+    - `adapters.TenantAccess` over gRPC, configured by the new required `IDENTITY_ACCOUNTS_GRPC_ADDR`. The connection is lazy, so identity starts while accounts is down. Fake: `tools/fakes/tenantaccess`.
+    - New `PUT /v1/auth/sessions/current/tenant` (`selectSessionTenant`) asks accounts, then sets `sessions.tenant_id` (in the schema since 1.1). An account the user can't reach is 404 VAL-4003.
+    - `listSessions` shows each session's `tenant_id`.
+  - **Credentials:**
+    - Every API client and SMPP account operation gets its account from `app.SessionTenant`, which reads the selection from Postgres (not the session cache) and **asks accounts again on every call**, so removing a member takes effect at once (decision Q2).
+    - No selection, or lost access, is the new **AUTH-4023** (403). Accounts being unreachable fails closed (SYS-9000).
+    - The check runs first in each handler, before input parsing, so it is the same answer for every operation.
+    - Any member of an account now sees and manages its credentials; 2.3's permissions will narrow this.
+    - The JWT's `tid` is now a real account ID, with no change to the token code.
+    - Credential security events record the account (`security_events.tenant_id`) and the acting user. Before this, rotate/revoke/suspend recorded the tenant ID as the user, which only worked while the two were the same placeholder.
+  - **Migration** `20261102120000_revoke_placeholder_credentials.sql` (rewrites data; approved as Q3):
+    - revokes every API client and secret, and suspends every SMPP account, created before it. All of them used the placeholder `tenant_id`.
+    - Both tables have FORCE RLS, which also binds a table owner that isn't a superuser: the updates would silently match nothing. So the migration lifts FORCE for its own transaction and restores it.
+    - Down is a no-op (the earlier state can't be recovered).
+  - **Tests:**
+    - accounts gRPC over bufconn: member, reseller member for a sub-account, removed member, stranger, unknown account, malformed IDs.
+    - identity app:
+      - selecting needs access, the caller's own active session, and not a revoked one;
+      - `SessionTenant` before selecting, after selecting, with accounts failing (fails closed), and after the member is removed (immediate).
+    - identity API:
+      - selection, 404 and `listSessions`;
+      - **spec-driven:** every API client and SMPP account operation without a selection is 403 AUTH-4023 (11 operations);
+      - two members of one account share its clients, and a member of another account gets 404.
+    - Existing credential tests now select an account first. The app tests use a fixed account ID per user (`tenantOf`). `TestExchangeClientCredentials_HappyPath` expected `tid` to be the user's ID, the placeholder; it now expects the account the client was created in.
+    - Migration test: runs 2.2c's migration as a non-superuser table owner and checks revoked, suspended, untouched and FORCE restored. **It failed without the FORCE handling.**
+    - Gateway:
+      - Phase 1's e2e now runs real accounts: it creates the account through the gateway and selects it before the API client, and the token's `tid` is the account;
+      - the account e2e checks that a non-member can't select the account;
+      - other gateway tests talk to an in-process allow-all accounts fake.
+    - **Mutation-checked:** skipping the per-call re-check failed the immediate-removal and fail-closed tests; falling back to the user's ID with no selection failed the spec-driven AUTH-4023 test.
+    - **Order of work:** the accounts gRPC and identity app tests were seen failing against stubs first. The API and gateway tests could only compile once the handlers existed.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

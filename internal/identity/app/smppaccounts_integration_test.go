@@ -29,7 +29,7 @@ func TestCreateSMPPAccount_HappyPath_ReturnsPasswordOnceAndStoresHash(t *testing
 	svc, pool, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	account, err := svc.CreateSMPPAccount(ctx, userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
+	account, err := svc.CreateSMPPAccount(ctx, tenantOf(userID), userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
 	if err != nil {
 		t.Fatalf("CreateSMPPAccount: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestCreateSMPPAccount_EmptyIPAllowlist_ReturnsValidationError(t *testing.T)
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	if _, err := svc.CreateSMPPAccount(ctx, userID, "ACME01", "sandbox", nil, 2, 50); !errors.Is(err, app.ErrValidation) {
+	if _, err := svc.CreateSMPPAccount(ctx, tenantOf(userID), userID, "ACME01", "sandbox", nil, 2, 50); !errors.Is(err, app.ErrValidation) {
 		t.Fatalf("got error %v, want app.ErrValidation", err)
 	}
 }
@@ -71,10 +71,10 @@ func TestCreateSMPPAccount_DuplicateSystemID_ReturnsValidationError(t *testing.T
 	adaID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 	bobID := signedInUserID(t, ctx, svc, sender, "bob@example.com")
 
-	if _, err := svc.CreateSMPPAccount(ctx, adaID, "SHARED01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); err != nil {
+	if _, err := svc.CreateSMPPAccount(ctx, tenantOf(adaID), adaID, "SHARED01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); err != nil {
 		t.Fatalf("CreateSMPPAccount(ada): %v", err)
 	}
-	if _, err := svc.CreateSMPPAccount(ctx, bobID, "SHARED01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); !errors.Is(err, app.ErrValidation) {
+	if _, err := svc.CreateSMPPAccount(ctx, tenantOf(bobID), bobID, "SHARED01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); !errors.Is(err, app.ErrValidation) {
 		t.Fatalf("got error %v, want app.ErrValidation (system_id is globally unique)", err)
 	}
 }
@@ -85,11 +85,11 @@ func TestListSMPPAccounts_ScopedToCreatingUser(t *testing.T) {
 	adaID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 	bobID := signedInUserID(t, ctx, svc, sender, "bob@example.com")
 
-	if _, err := svc.CreateSMPPAccount(ctx, adaID, "ADA01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); err != nil {
+	if _, err := svc.CreateSMPPAccount(ctx, tenantOf(adaID), adaID, "ADA01", "sandbox", []string{"203.0.113.0/24"}, 2, 50); err != nil {
 		t.Fatalf("CreateSMPPAccount(ada): %v", err)
 	}
 
-	adaAccounts, err := svc.ListSMPPAccounts(ctx, adaID)
+	adaAccounts, err := svc.ListSMPPAccounts(ctx, tenantOf(adaID))
 	if err != nil {
 		t.Fatalf("ListSMPPAccounts(ada): %v", err)
 	}
@@ -97,7 +97,7 @@ func TestListSMPPAccounts_ScopedToCreatingUser(t *testing.T) {
 		t.Fatalf("got %d accounts for ada, want 1", len(adaAccounts))
 	}
 
-	bobAccounts, err := svc.ListSMPPAccounts(ctx, bobID)
+	bobAccounts, err := svc.ListSMPPAccounts(ctx, tenantOf(bobID))
 	if err != nil {
 		t.Fatalf("ListSMPPAccounts(bob): %v", err)
 	}
@@ -111,12 +111,12 @@ func TestRotateSMPPAccountPassword_OverwritesInPlace(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	account, err := svc.CreateSMPPAccount(ctx, userID, "ACME01", "live", []string{"203.0.113.0/24"}, 2, 50)
+	account, err := svc.CreateSMPPAccount(ctx, tenantOf(userID), userID, "ACME01", "live", []string{"203.0.113.0/24"}, 2, 50)
 	if err != nil {
 		t.Fatalf("CreateSMPPAccount: %v", err)
 	}
 
-	rotated, err := svc.RotateSMPPAccountPassword(ctx, userID, account.ID)
+	rotated, err := svc.RotateSMPPAccountPassword(ctx, tenantOf(userID), userID, account.ID)
 	if err != nil {
 		t.Fatalf("RotateSMPPAccountPassword: %v", err)
 	}
@@ -130,15 +130,15 @@ func TestSuspendAndReactivateSMPPAccount(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	account, err := svc.CreateSMPPAccount(ctx, userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
+	account, err := svc.CreateSMPPAccount(ctx, tenantOf(userID), userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
 	if err != nil {
 		t.Fatalf("CreateSMPPAccount: %v", err)
 	}
 
-	if err := svc.SuspendSMPPAccount(ctx, userID, account.ID); err != nil {
+	if err := svc.SuspendSMPPAccount(ctx, tenantOf(userID), userID, account.ID); err != nil {
 		t.Fatalf("SuspendSMPPAccount: %v", err)
 	}
-	got, err := svc.GetSMPPAccount(ctx, userID, account.ID)
+	got, err := svc.GetSMPPAccount(ctx, tenantOf(userID), account.ID)
 	if err != nil {
 		t.Fatalf("GetSMPPAccount: %v", err)
 	}
@@ -146,10 +146,10 @@ func TestSuspendAndReactivateSMPPAccount(t *testing.T) {
 		t.Fatalf("got status %q, want suspended", got.Status)
 	}
 
-	if err := svc.ReactivateSMPPAccount(ctx, userID, account.ID); err != nil {
+	if err := svc.ReactivateSMPPAccount(ctx, tenantOf(userID), userID, account.ID); err != nil {
 		t.Fatalf("ReactivateSMPPAccount: %v", err)
 	}
-	got, err = svc.GetSMPPAccount(ctx, userID, account.ID)
+	got, err = svc.GetSMPPAccount(ctx, tenantOf(userID), account.ID)
 	if err != nil {
 		t.Fatalf("GetSMPPAccount: %v", err)
 	}
@@ -164,18 +164,18 @@ func TestSMPPAccount_NotOwned_OperationsReturnNotFound(t *testing.T) {
 	adaID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 	bobID := signedInUserID(t, ctx, svc, sender, "bob@example.com")
 
-	account, err := svc.CreateSMPPAccount(ctx, adaID, "ADA01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
+	account, err := svc.CreateSMPPAccount(ctx, tenantOf(adaID), adaID, "ADA01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
 	if err != nil {
 		t.Fatalf("CreateSMPPAccount: %v", err)
 	}
 
-	if _, err := svc.GetSMPPAccount(ctx, bobID, account.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, err := svc.GetSMPPAccount(ctx, tenantOf(bobID), account.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("GetSMPPAccount: got error %v, want app.ErrNotFound", err)
 	}
-	if _, err := svc.RotateSMPPAccountPassword(ctx, bobID, account.ID); !errors.Is(err, app.ErrNotFound) {
+	if _, err := svc.RotateSMPPAccountPassword(ctx, tenantOf(bobID), bobID, account.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("RotateSMPPAccountPassword: got error %v, want app.ErrNotFound", err)
 	}
-	if err := svc.SuspendSMPPAccount(ctx, bobID, account.ID); !errors.Is(err, app.ErrNotFound) {
+	if err := svc.SuspendSMPPAccount(ctx, tenantOf(bobID), bobID, account.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("SuspendSMPPAccount: got error %v, want app.ErrNotFound", err)
 	}
 }

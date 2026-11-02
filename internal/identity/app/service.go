@@ -116,6 +116,11 @@ type Service struct {
 	// oidc is Sign in with Google (task 1.16). nil when Google isn't
 	// configured; every Google use case then returns ErrNotFound.
 	oidc adapters.OIDCProvider
+
+	// access asks accounts whether a user may work in an account (task
+	// 2.2c): when a session selects one, and before each use of its
+	// credentials.
+	access adapters.TenantAccess
 }
 
 // Deps is everything New needs. Grouped into a struct rather than
@@ -132,6 +137,7 @@ type Deps struct {
 	WebAuthn         *webauthn.WebAuthn
 	Cache            *cache.Cache
 	OIDC             adapters.OIDCProvider
+	TenantAccess     adapters.TenantAccess
 }
 
 // New builds a Service.
@@ -147,6 +153,7 @@ func New(d Deps) *Service {
 		webauthn:         d.WebAuthn,
 		cache:            d.Cache,
 		oidc:             d.OIDC,
+		access:           d.TenantAccess,
 	}
 }
 

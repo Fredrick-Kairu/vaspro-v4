@@ -38,6 +38,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 
@@ -236,7 +237,9 @@ func startRealIdentity(t *testing.T, smtpAddr string) string {
 // startRealIdentityWithLogs is startRealIdentity that also copies the
 // subprocess's stdout and stderr into logs, for a test that needs to
 // read back what identity logged. extraEnv is appended to the
-// subprocess's environment (task 1.16's e2e sets IDENTITY_GOOGLE_*).
+// subprocess's environment (task 1.16's e2e sets IDENTITY_GOOGLE_*;
+// an e2e with real accounts sets IDENTITY_ACCOUNTS_GRPC_ADDR, otherwise
+// identity asks an allow-all fake, task 2.2c).
 func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, extraEnv ...string) string {
 	t.Helper()
 	root := repoRoot(t)
@@ -269,6 +272,9 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 		"IDENTITY_WEBAUTHN_ORIGINS=https://localhost",
 		"IDENTITY_REDIS_URL="+redisURL,
 	)
+	if !hasEnv(extraEnv, "IDENTITY_ACCOUNTS_GRPC_ADDR") {
+		runCmd.Env = append(runCmd.Env, "IDENTITY_ACCOUNTS_GRPC_ADDR="+startAllowAllAccountsGRPC(t))
+	}
 	runCmd.Env = append(runCmd.Env, extraEnv...)
 	runCmd.Stdout = os.Stdout
 	runCmd.Stderr = os.Stderr
@@ -288,6 +294,15 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 	waitForHealthy(t, baseURL, 20*time.Second)
 	identityGRPCAddrs.Store(baseURL, grpcAddr)
 	return baseURL
+}
+
+func hasEnv(env []string, key string) bool {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, key+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // identityGRPCAddrs maps each identity subprocess's base URL to its gRPC
@@ -426,7 +441,8 @@ func (c *totpCodes) next(t *testing.T) string {
 func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	smtp := startFakeSMTPServer(t)
 	var identityLogs, gatewayLogs syncBuffer
-	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), &identityLogs)
+	accountsBaseURL, accountsGRPC := startRealAccounts(t)
+	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), &identityLogs, "IDENTITY_ACCOUNTS_GRPC_ADDR="+accountsGRPC)
 
 	// The synthetic protected route this task's own tests use to prove
 	// the JWT/scope/env/ip-allowlist pipeline: a real, already-existing
@@ -447,7 +463,7 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 			return a
 		},
 	}))
-	r := newTestGatewayWithLogger(t, identityBaseURL, protected, gatewayLogger)
+	r := newTestGatewayWithAccounts(t, identityBaseURL, accountsBaseURL, protected, gatewayLogger)
 
 	email := "ada@example.com"
 
@@ -575,6 +591,20 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 		t.Fatalf("step-up totp: got status %d", status)
 	}
 
+	// --- create the client account and select it (task 2.2c): the API
+	// client belongs to the account, not the user ---
+	status, account := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants", sessionToken,
+		map[string]string{"display_name": "Ada's agency", "country_code": "KE"}, "create-account-key")
+	if status != http.StatusCreated {
+		t.Fatalf("create account: got status %d (body: %v)", status, account)
+	}
+	accountID, _ := account["id"].(string)
+	status, selected := gwDoJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", sessionToken,
+		map[string]string{"tenant_id": accountID}, "select-account-key")
+	if status != http.StatusOK {
+		t.Fatalf("select account: got status %d (body: %v)", status, selected)
+	}
+
 	// --- create an API client (step-up-gated) ---
 	status, clientBody := gwDoJSON(t, r, http.MethodPost, "/v1/auth/api-clients", sessionToken,
 		map[string]any{
@@ -621,6 +651,9 @@ func TestGateway_SignupThroughApiClientAndToken_EndToEnd(t *testing.T) {
 	accessToken, _ := tokenBody["access_token"].(string)
 	if accessToken == "" {
 		t.Fatalf("expected an access_token, got %v", tokenBody)
+	}
+	if tid := unverifiedClaim(t, accessToken, "tid"); tid != accountID {
+		t.Fatalf("the token's tid is %v, want the selected account %s", tid, accountID)
 	}
 
 	callProtected := func(bearer, remoteAddr string) (int, map[string]any) {
@@ -866,8 +899,40 @@ func stepUp(t *testing.T, r http.Handler, smtp *fakeSMTPServer, sessionToken str
 	}
 }
 
+// unverifiedClaim reads one claim from a JWT's payload without checking
+// its signature; the gateway's own checks verify it.
+func unverifiedClaim(t *testing.T, token, name string) any {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("not a JWT: %d parts", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatal(err)
+	}
+	return claims[name]
+}
+
+// selectAnyAccount has the session select a new account ID, which the
+// allow-all accounts fake lets anyone into (task 2.2c).
+func selectAnyAccount(t *testing.T, r http.Handler, sessionToken string) {
+	t.Helper()
+	tenantID := uuid.NewString()
+	status, body := gwDoJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", sessionToken,
+		map[string]string{"tenant_id": tenantID}, "select-"+tenantID)
+	if status != http.StatusOK {
+		t.Fatalf("selecting an account: got %d %v", status, body)
+	}
+}
+
 func createApiClient(t *testing.T, r http.Handler, sessionToken string, scopes, ipAllowlist []string) (string, string) {
 	t.Helper()
+	selectAnyAccount(t, r, sessionToken)
 	body := map[string]any{"name": "test client", "environment": "sandbox", "scopes": scopes}
 	if ipAllowlist != nil {
 		body["ip_allowlist"] = ipAllowlist

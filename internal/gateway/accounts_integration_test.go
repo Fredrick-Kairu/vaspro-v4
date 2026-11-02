@@ -16,8 +16,9 @@ import (
 )
 
 // startRealAccounts builds cmd/accounts and runs it as a subprocess
-// against its own Postgres and NATS, returning its base URL.
-func startRealAccounts(t *testing.T) string {
+// against its own Postgres and NATS, returning its HTTP base URL and its
+// gRPC address (identity's IDENTITY_ACCOUNTS_GRPC_ADDR, task 2.2c).
+func startRealAccounts(t *testing.T) (baseURL, grpcAddr string) {
 	t.Helper()
 	root := repoRoot(t)
 
@@ -31,6 +32,7 @@ func startRealAccounts(t *testing.T) string {
 	pg := testkit.StartPostgres(t, testkit.WithMigrations(filepath.Join(root, "migrations/accounts")))
 	natsURL := testkit.StartNATSURL(t)
 	httpAddr := freeTCPAddr(t)
+	grpcAddr = freeTCPAddr(t)
 
 	cmd := exec.Command(binPath) //nolint:gosec // binPath is the binary we just built into our own t.TempDir()
 	cmd.Dir = root
@@ -38,6 +40,7 @@ func startRealAccounts(t *testing.T) string {
 		"ACCOUNTS_DATABASE_URL="+pg.DSN()+"&search_path=accounts,public",
 		"ACCOUNTS_NATS_URL="+natsURL,
 		"ACCOUNTS_HTTP_ADDR="+httpAddr,
+		"ACCOUNTS_GRPC_ADDR="+grpcAddr,
 		"ACCOUNTS_PACKS_DIR="+filepath.Join(root, "packs"),
 	)
 	cmd.Stdout = os.Stdout
@@ -49,9 +52,9 @@ func startRealAccounts(t *testing.T) string {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-	baseURL := "http://" + httpAddr
+	baseURL = "http://" + httpAddr
 	waitForHealthy(t, baseURL, 20*time.Second)
-	return baseURL
+	return baseURL, grpcAddr
 }
 
 // TestGateway_CreateAccountThroughGateway_EndToEnd is task 2.2a's e2e:
@@ -62,8 +65,8 @@ func startRealAccounts(t *testing.T) string {
 func TestGateway_CreateAccountThroughGateway_EndToEnd(t *testing.T) {
 	smtp := startFakeSMTPServer(t)
 	var gatewayLogs syncBuffer
-	identityBaseURL := startRealIdentity(t, smtp.Addr())
-	accountsBaseURL := startRealAccounts(t)
+	accountsBaseURL, accountsGRPC := startRealAccounts(t)
+	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), nil, "IDENTITY_ACCOUNTS_GRPC_ADDR="+accountsGRPC)
 	r := newTestGatewayWithAccounts(t, identityBaseURL, accountsBaseURL, nil,
 		slog.New(slog.NewJSONHandler(&gatewayLogs, nil)))
 
@@ -89,6 +92,19 @@ func TestGateway_CreateAccountThroughGateway_EndToEnd(t *testing.T) {
 	if status != http.StatusNotFound || got["code"] != "VAL-4003" {
 		t.Fatalf("another user's account: got %d %v, want 404 VAL-4003", status, got)
 	}
+	// Task 2.2c: identity asks the real accounts service who may select
+	// the account for a session.
+	status, got = gwDoJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", adaToken,
+		map[string]string{"tenant_id": id}, "ada-select")
+	if status != http.StatusOK || got["tenant_id"] != id {
+		t.Fatalf("ada selecting her account: got %d %v", status, got)
+	}
+	status, got = gwDoJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", bobToken,
+		map[string]string{"tenant_id": id}, "bob-select")
+	if status != http.StatusNotFound || got["code"] != "VAL-4003" {
+		t.Fatalf("bob selecting ada's account: got %d %v, want 404 VAL-4003", status, got)
+	}
+
 	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, "sess_not-a-token", nil, "")
 	if status != http.StatusUnauthorized || got["code"] != "AUTH-4010" {
 		t.Fatalf("garbage session: got %d %v, want 401 AUTH-4010", status, got)

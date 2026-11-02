@@ -118,6 +118,9 @@ type SessionSummary struct {
 	// AuthMethod is how the session signed in: password, passkey or
 	// google (sessions.auth_method, task 1.16).
 	AuthMethod string
+	// TenantID is the account the session has selected, if any (task
+	// 2.2c).
+	TenantID *uuid.UUID
 }
 
 // ListSessions returns userID's active sessions (revoked or expired
@@ -148,6 +151,10 @@ func (s *Service) ListSessions(ctx context.Context, userID, currentSessionID uui
 		}
 		if row.UserAgent.Valid {
 			summary.UserAgent = row.UserAgent.String
+		}
+		if row.TenantID.Valid {
+			tenantID := uuid.UUID(row.TenantID.Bytes)
+			summary.TenantID = &tenantID
 		}
 		summaries[i] = summary
 	}

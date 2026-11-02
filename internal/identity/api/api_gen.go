@@ -465,11 +465,24 @@ type SessionSummary struct {
 	Id         *string    `json:"id,omitempty"`
 	Ip         *string    `json:"ip,omitempty"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	UserAgent  *string    `json:"user_agent,omitempty"`
+
+	// TenantId The account this session has selected (selectSessionTenant), if any.
+	TenantId  *string `json:"tenant_id,omitempty"`
+	UserAgent *string `json:"user_agent,omitempty"`
 }
 
 // SessionSummaryAuthMethod How the session signed in.
 type SessionSummaryAuthMethod string
+
+// SessionTenant defines model for SessionTenant.
+type SessionTenant struct {
+	TenantId string `json:"tenant_id"`
+}
+
+// SessionTenantRequest defines model for SessionTenantRequest.
+type SessionTenantRequest struct {
+	TenantId string `json:"tenant_id"`
+}
 
 // SignInRequest defines model for SignInRequest.
 type SignInRequest struct {
@@ -736,6 +749,12 @@ type CreateSessionParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// SelectSessionTenantParams defines parameters for SelectSessionTenant.
+type SelectSessionTenantParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -846,6 +865,9 @@ type CreatePasswordResetJSONRequestBody = PasswordResetRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = SignInRequest
+
+// SelectSessionTenantJSONRequestBody defines body for SelectSessionTenant for application/json ContentType.
+type SelectSessionTenantJSONRequestBody = SessionTenantRequest
 
 // CreateSignupJSONRequestBody defines body for CreateSignup for application/json ContentType.
 type CreateSignupJSONRequestBody = SignupRequest
@@ -972,6 +994,9 @@ type ServerInterface interface {
 	// CreateSession Sign in with email and password
 	// (POST /v1/auth/sessions)
 	CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams)
+	// SelectSessionTenant Select the account this session works in
+	// (PUT /v1/auth/sessions/current/tenant)
+	SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams)
 	// DeleteSession Revoke a session
 	// (DELETE /v1/auth/sessions/{id})
 	DeleteSession(w http.ResponseWriter, r *http.Request, id string, params DeleteSessionParams)
@@ -1215,6 +1240,12 @@ func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request) {
 // CreateSession Sign in with email and password
 // (POST /v1/auth/sessions)
 func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SelectSessionTenant Select the account this session works in
+// (PUT /v1/auth/sessions/current/tenant)
+func (_ Unimplemented) SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2626,6 +2657,51 @@ func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// SelectSessionTenant operation middleware
+func (siw *ServerInterfaceWrapper) SelectSessionTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SelectSessionTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SelectSessionTenant(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSession operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
 
@@ -3321,6 +3397,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/v1/auth/sessions/{id}", wrapper.DeleteSession)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/auth/sessions/current/tenant", wrapper.SelectSessionTenant)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/totp-challenges/{challenge}/verification", wrapper.CreateTotpChallengeVerification)
 	})
 	r.Group(func(r chi.Router) {
@@ -3501,6 +3580,20 @@ func (response ListApiClients401ApplicationProblemPlusJSONResponse) VisitListApi
 	return err
 }
 
+type ListApiClients403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListApiClients403ApplicationProblemPlusJSONResponse) VisitListApiClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListApiClientsdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -3571,6 +3664,20 @@ func (response CreateApiClient401ApplicationProblemPlusJSONResponse) VisitCreate
 	return err
 }
 
+type CreateApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClient403ApplicationProblemPlusJSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateApiClientdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -3617,6 +3724,20 @@ func (response RevokeApiClient401ApplicationProblemPlusJSONResponse) VisitRevoke
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClient403ApplicationProblemPlusJSONResponse) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3686,6 +3807,20 @@ func (response GetApiClient401ApplicationProblemPlusJSONResponse) VisitGetApiCli
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetApiClient403ApplicationProblemPlusJSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3774,6 +3909,20 @@ func (response CreateApiClientSecret401ApplicationProblemPlusJSONResponse) Visit
 	return err
 }
 
+type CreateApiClientSecret403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClientSecret403ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateApiClientSecret404ApplicationProblemPlusJSONResponse Problem
 
 func (response CreateApiClientSecret404ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
@@ -3835,6 +3984,20 @@ func (response RevokeApiClientSecret401ApplicationProblemPlusJSONResponse) Visit
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientSecret403ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClientSecret403ApplicationProblemPlusJSONResponse) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5492,6 +5655,90 @@ func (response CreateSessiondefaultApplicationProblemPlusJSONResponse) VisitCrea
 	return err
 }
 
+type SelectSessionTenantRequestObject struct {
+	Params SelectSessionTenantParams
+	Body   *SelectSessionTenantJSONRequestBody
+}
+
+type SelectSessionTenantResponseObject interface {
+	VisitSelectSessionTenantResponse(w http.ResponseWriter) error
+}
+
+type SelectSessionTenant200JSONResponse SessionTenant
+
+func (response SelectSessionTenant200JSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SelectSessionTenant400ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant401ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectSessionTenant401ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant404ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectSessionTenant404ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SelectSessionTenantdefaultApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteSessionRequestObject struct {
 	Id     string `json:"id"`
 	Params DeleteSessionParams
@@ -5649,6 +5896,20 @@ func (response ListSmppAccounts401ApplicationProblemPlusJSONResponse) VisitListS
 	return err
 }
 
+type ListSmppAccounts403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSmppAccounts403ApplicationProblemPlusJSONResponse) VisitListSmppAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSmppAccountsdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -5719,6 +5980,20 @@ func (response CreateSmppAccount401ApplicationProblemPlusJSONResponse) VisitCrea
 	return err
 }
 
+type CreateSmppAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccount403ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateSmppAccountdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -5770,6 +6045,20 @@ func (response GetSmppAccount401ApplicationProblemPlusJSONResponse) VisitGetSmpp
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetSmppAccount403ApplicationProblemPlusJSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5859,6 +6148,20 @@ func (response UpdateSmppAccountStatus401ApplicationProblemPlusJSONResponse) Vis
 	return err
 }
 
+type UpdateSmppAccountStatus403ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateSmppAccountStatus403ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse Problem
 
 func (response UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
@@ -5925,6 +6228,20 @@ func (response CreateSmppAccountPassword401ApplicationProblemPlusJSONResponse) V
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSmppAccountPassword403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccountPassword403ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6501,6 +6818,9 @@ type StrictServerInterface interface {
 	// CreateSession Sign in with email and password
 	// (POST /v1/auth/sessions)
 	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
+	// SelectSessionTenant Select the account this session works in
+	// (PUT /v1/auth/sessions/current/tenant)
+	SelectSessionTenant(ctx context.Context, request SelectSessionTenantRequestObject) (SelectSessionTenantResponseObject, error)
 	// DeleteSession Revoke a session
 	// (DELETE /v1/auth/sessions/{id})
 	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
@@ -7548,6 +7868,39 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
 		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SelectSessionTenant operation middleware
+func (sh *strictHandler) SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams) {
+	var request SelectSessionTenantRequestObject
+
+	request.Params = params
+
+	var body SelectSessionTenantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SelectSessionTenant(ctx, request.(SelectSessionTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SelectSessionTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SelectSessionTenantResponseObject); ok {
+		if err := validResponse.VisitSelectSessionTenantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

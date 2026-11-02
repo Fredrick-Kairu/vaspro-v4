@@ -29,6 +29,7 @@ const (
 	AUTH4020 Code = "AUTH-4020"
 	AUTH4021 Code = "AUTH-4021"
 	AUTH4022 Code = "AUTH-4022"
+	AUTH4023 Code = "AUTH-4023"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -140,6 +141,14 @@ var registry = map[Code]entry{
 		Title:     "Can't remove your only way to sign in",
 		Cause:     "Unlinking Google would leave the account with no password and no passkey.",
 		Fix:       "Set a password or register a passkey, then unlink Google.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4023: {
+		Status:    403,
+		Title:     "Select an account you belong to",
+		Cause:     "API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected.",
+		Fix:       "Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry.",
 		Retryable: false,
 		Billable:  false,
 	},

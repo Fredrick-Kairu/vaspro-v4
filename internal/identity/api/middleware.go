@@ -96,6 +96,7 @@ var requireSessionOperations = map[string]bool{
 	"ListSessions":                          true,
 	"DeleteSession":                         true,
 	"DeleteSessions":                        true,
+	"SelectSessionTenant":                   true,
 	"CreateStepUpTotpVerification":          true,
 	"CreateStepUpEmail":                     true,
 	"CreateStepUpEmailConfirmation":         true,

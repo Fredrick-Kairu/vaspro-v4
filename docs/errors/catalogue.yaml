@@ -124,6 +124,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4023
+    status: 403
+    title: Select an account you belong to
+    cause: API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected.
+    fix: Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
