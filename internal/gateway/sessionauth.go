@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/routers"
 	gogrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -73,6 +75,33 @@ func requireSessionFor(sessions SessionResolver) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// requireSessionUnlessPublic is requireSessionFor except for an
+// operation the backend's spec declares public (security: []), such as
+// a KYC vendor's webhook (task 2.6): the spec, not a list here, says
+// which. A request no spec route matches still needs a session. The
+// client-sent identity headers are stripped for every request before
+// this runs (stripForwardedIdentity), so a public route never sees a
+// spoofed user.
+func requireSessionUnlessPublic(sessions SessionResolver, routes routers.Router) func(http.Handler) http.Handler {
+	requireSession := requireSessionFor(sessions)
+	return func(next http.Handler) http.Handler {
+		withSession := requireSession(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if route, _, err := routes.FindRoute(r); err == nil && isPublic(route.Operation) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			withSession.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isPublic reports whether op's spec says it needs no credentials: an
+// explicit, empty security list.
+func isPublic(op *openapi3.Operation) bool {
+	return op != nil && op.Security != nil && len(*op.Security) == 0
 }
 
 // GRPCSessions resolves sessions through identity's ResolveSession RPC.

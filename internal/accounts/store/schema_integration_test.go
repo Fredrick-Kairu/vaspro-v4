@@ -44,6 +44,7 @@ func newAccountsDB(t *testing.T) accountsDB {
 		GRANT USAGE ON SCHEMA accounts TO accounts_role;
 		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounts TO accounts_role;
 		GRANT accounts_membership_lookup TO accounts_role WITH INHERIT FALSE;
+		GRANT accounts_kyc_webhook TO accounts_role WITH INHERIT FALSE;
 	`
 	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
 		t.Fatalf("failed to set up accounts_role: %v", err)

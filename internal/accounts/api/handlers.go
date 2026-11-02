@@ -237,6 +237,53 @@ func (h *Handlers) DeselectService(ctx context.Context, request DeselectServiceR
 	return DeselectService204Response{}, nil
 }
 
+func (h *Handlers) CreateKycCheck(ctx context.Context, request CreateKycCheckRequestObject) (CreateKycCheckResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	check, err := h.app.StartKYC(ctx, callerFromContext(ctx), tenantID, string(request.Body.Kind))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateKycCheck201JSONResponse(kycCheckResponse(check)), nil
+}
+
+func (h *Handlers) ListKycChecks(ctx context.Context, request ListKycChecksRequestObject) (ListKycChecksResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	checks, err := h.app.ListKYCChecks(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := KycCheckList{Checks: make([]KycCheck, len(checks))}
+	for i := range checks {
+		resp.Checks[i] = kycCheckResponse(&checks[i])
+	}
+	return ListKycChecks200JSONResponse(resp), nil
+}
+
+func (h *Handlers) ReceiveKycWebhook(ctx context.Context, request ReceiveKycWebhookRequestObject) (ReceiveKycWebhookResponseObject, error) {
+	wr, ok := webhookFromContext(ctx)
+	if !ok {
+		return nil, errors.New("api: the webhook body wasn't kept (keepWebhookBody isn't wired)")
+	}
+	if err := h.app.HandleKYCWebhook(ctx, request.Provider, wr.header, wr.body); err != nil {
+		return nil, toProblem(err)
+	}
+	return ReceiveKycWebhook200Response{}, nil
+}
+
+func kycCheckResponse(c *app.KYCCheck) KycCheck {
+	resp := KycCheck{Id: c.ID.String(), Kind: KycCheckKind(c.Kind), Status: KycCheckStatus(c.Status), DecidedAt: c.DecidedAt, CreatedAt: c.CreatedAt}
+	if c.URL != "" {
+		resp.Url = &c.URL
+	}
+	return resp
+}
+
 func accountServiceResponse(s *app.AccountService) AccountService {
 	resp := AccountService{Code: s.Code, Name: s.Name, MinTier: AccountServiceMinTier(s.MinTier), Selected: s.Selected, Locked: s.Locked}
 	if s.Selected {
@@ -295,6 +342,8 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
+	case errors.Is(err, app.ErrBadWebhook):
+		return problem.New(problem.AUTH4013, "the webhook signature is invalid or expired")
 	case errors.Is(err, app.ErrStepUpRequired):
 		return problem.New(problem.AUTH4012, "adding users needs a fresh step-up")
 	case errors.Is(err, app.ErrAlreadyMember):

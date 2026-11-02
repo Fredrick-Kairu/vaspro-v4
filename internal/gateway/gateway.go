@@ -118,7 +118,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	// validated against accounts' own spec and forwarded with the user
 	// (sessionauth.go).
 	proxied.Route("/v1/accounts", func(r chi.Router) {
-		r.Use(requireSessionFor(sessions))
+		r.Use(requireSessionUnlessPublic(sessions, accountsRoutes))
 		r.Use(requireValidRequestShape(accountsSpec))
 		r.Handle("/*", accountsProxy)
 	})

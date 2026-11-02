@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
@@ -24,7 +25,10 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/kycvendor"
 )
+
+var kycSecret = []byte("kyc-webhook-test-secret")
 
 // harness runs app.Service as a non-superuser role, so RLS applies the
 // way it will in production; super arranges fixtures and reads back.
@@ -33,6 +37,7 @@ type harness struct {
 	app      *vasdb.Pool
 	super    *vasdb.Pool
 	identity *identityusers.Fake
+	vendor   *kycvendor.Vendor
 }
 
 func newHarness(t *testing.T) harness {
@@ -44,6 +49,7 @@ func newHarness(t *testing.T) harness {
 		GRANT USAGE ON SCHEMA accounts TO accounts_role;
 		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounts TO accounts_role;
 		GRANT accounts_membership_lookup TO accounts_role WITH INHERIT FALSE;
+		GRANT accounts_kyc_webhook TO accounts_role WITH INHERIT FALSE;
 	`
 	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
 		t.Fatalf("setting up accounts_role: %v", err)
@@ -63,8 +69,13 @@ func newHarness(t *testing.T) harness {
 		t.Fatal(err)
 	}
 	identity := &identityusers.Fake{}
-	svc := app.New(app.Deps{Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke}, Identity: identity})
-	return harness{svc: svc, app: appPool, super: super, identity: identity}
+	vendor := kycvendor.New(kycSecret)
+	t.Cleanup(vendor.Close)
+	svc := app.New(app.Deps{
+		Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke},
+		Identity: identity, KYC: adapters.NewFakeVendorProvider(vendor.URL(), kycSecret),
+	})
+	return harness{svc: svc, app: appPool, super: super, identity: identity, vendor: vendor}
 }
 
 func (h harness) newTenant(t *testing.T, status string) uuid.UUID {

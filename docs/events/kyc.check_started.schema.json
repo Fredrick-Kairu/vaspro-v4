@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/kyc.check_started.schema.json",
+  "title": "kyc.check_started",
+  "description": "Published by accounts when a KYC check is started with the vendor (data model §4's Events table, task 2.6), in the same transaction as the check row. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "check_id", "kind", "subject_id", "provider", "started_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "check_id": {"type": "string", "format": "uuid"},
+    "kind": {"type": "string", "enum": ["individual", "business", "screening"]},
+    "subject_id": {"type": "string", "format": "uuid"},
+    "provider": {"type": "string", "minLength": 1},
+    "started_by": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

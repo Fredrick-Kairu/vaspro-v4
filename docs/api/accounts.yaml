@@ -445,6 +445,104 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/kyc-checks:
+    post:
+      operationId: createKycCheck
+      summary: Start a KYC check
+      description: >
+        Starts verification with the KYC vendor (task 2.6, ADR 0008).
+        Needs account:manage. An individual check verifies the caller
+        and, once passed, moves a sandbox account to the starter tier;
+        the response's url is the vendor's hosted flow (ID document and
+        selfie). Only individual checks in 2.6; business checks come
+        with KYB (2.7). VAL-4000 when KYC isn't configured.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycCheckRequest'
+            example:
+              kind: individual
+      responses:
+        "201":
+          description: Started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listKycChecks
+      summary: List an account's KYC checks
+      description: Newest first. Needs account:read. Holds no personal data.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The checks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheckList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/kyc/webhooks/{provider}:
+    post:
+      operationId: receiveKycWebhook
+      summary: Receive a KYC vendor's result
+      description: >
+        Called by the KYC vendor, not by clients, so it carries no
+        session and no Idempotency-Key; the vendor's signature
+        authenticates it (task 2.6, ADR 0008). A bad or stale signature
+        is AUTH-4013 and changes nothing. Results are idempotent: a
+        decided check is final, so a repeated or out-of-order result
+        changes nothing, and nothing here ever demotes an account. An
+        unknown check is acknowledged and ignored.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -585,6 +683,42 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AccountService'
+    KycCheckRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [individual]
+    KycCheck:
+      type: object
+      required: [id, kind, status, created_at]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [individual, business, screening]
+        status:
+          type: string
+          enum: [pending, passed, review, failed, expired]
+        url:
+          type: string
+          description: The vendor's hosted flow; only when the check is started.
+        decided_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    KycCheckList:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/KycCheck'
     InvitationRequest:
       type: object
       required: [email, role_id]

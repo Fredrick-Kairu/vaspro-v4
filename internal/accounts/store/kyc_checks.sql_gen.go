@@ -57,6 +57,54 @@ func (q *Queries) CreateKycCheck(ctx context.Context, arg CreateKycCheckParams) 
 	return i, err
 }
 
+const decideKycCheck = `-- name: DecideKycCheck :exec
+UPDATE accounts.kyc_checks
+SET status = $1, result = $2,
+    decided_at = CASE WHEN $1::text = 'review' THEN NULL ELSE now() END
+WHERE id = $3 AND tenant_id = $4
+`
+
+type DecideKycCheckParams struct {
+	Status   string    `json:"status"`
+	Result   []byte    `json:"result"`
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// decided_at is set for a decision and left empty for review.
+func (q *Queries) DecideKycCheck(ctx context.Context, arg DecideKycCheckParams) error {
+	_, err := q.db.Exec(ctx, decideKycCheck,
+		arg.Status,
+		arg.Result,
+		arg.ID,
+		arg.TenantID,
+	)
+	return err
+}
+
+const findKycCheckByProviderRef = `-- name: FindKycCheckByProviderRef :one
+SELECT id, tenant_id FROM accounts.kyc_checks WHERE provider = $1 AND provider_ref = $2
+`
+
+type FindKycCheckByProviderRefParams struct {
+	Provider    string      `json:"provider"`
+	ProviderRef pgtype.Text `json:"provider_ref"`
+}
+
+type FindKycCheckByProviderRefRow struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// Only under the accounts_kyc_webhook role (app.HandleKYCWebhook): a
+// webhook names the check, not the account.
+func (q *Queries) FindKycCheckByProviderRef(ctx context.Context, arg FindKycCheckByProviderRefParams) (FindKycCheckByProviderRefRow, error) {
+	row := q.db.QueryRow(ctx, findKycCheckByProviderRef, arg.Provider, arg.ProviderRef)
+	var i FindKycCheckByProviderRefRow
+	err := row.Scan(&i.ID, &i.TenantID)
+	return i, err
+}
+
 const getKycCheckByID = `-- name: GetKycCheckByID :one
 SELECT id, tenant_id, kind, subject_id, provider, provider_ref, status, result, reviewed_by, decided_at, expires_at, created_at FROM accounts.kyc_checks WHERE id = $1 AND tenant_id = $2
 `
@@ -84,4 +132,70 @@ func (q *Queries) GetKycCheckByID(ctx context.Context, arg GetKycCheckByIDParams
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getKycCheckForUpdate = `-- name: GetKycCheckForUpdate :one
+SELECT id, tenant_id, kind, subject_id, provider, provider_ref, status, result, reviewed_by, decided_at, expires_at, created_at FROM accounts.kyc_checks WHERE id = $1 AND tenant_id = $2 FOR UPDATE
+`
+
+type GetKycCheckForUpdateParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+func (q *Queries) GetKycCheckForUpdate(ctx context.Context, arg GetKycCheckForUpdateParams) (AccountsKycCheck, error) {
+	row := q.db.QueryRow(ctx, getKycCheckForUpdate, arg.ID, arg.TenantID)
+	var i AccountsKycCheck
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Kind,
+		&i.SubjectID,
+		&i.Provider,
+		&i.ProviderRef,
+		&i.Status,
+		&i.Result,
+		&i.ReviewedBy,
+		&i.DecidedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listKycChecks = `-- name: ListKycChecks :many
+SELECT id, tenant_id, kind, subject_id, provider, provider_ref, status, result, reviewed_by, decided_at, expires_at, created_at FROM accounts.kyc_checks WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC
+`
+
+func (q *Queries) ListKycChecks(ctx context.Context, tenantID uuid.UUID) ([]AccountsKycCheck, error) {
+	rows, err := q.db.Query(ctx, listKycChecks, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsKycCheck
+	for rows.Next() {
+		var i AccountsKycCheck
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Kind,
+			&i.SubjectID,
+			&i.Provider,
+			&i.ProviderRef,
+			&i.Status,
+			&i.Result,
+			&i.ReviewedBy,
+			&i.DecidedAt,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

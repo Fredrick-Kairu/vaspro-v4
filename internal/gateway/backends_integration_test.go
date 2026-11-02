@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
@@ -173,6 +175,25 @@ func TestGatewayBackends(t *testing.T) {
 		}
 		if accounts.count() != before {
 			t.Fatal("an invalid request reached accounts")
+		}
+	})
+	t.Run("a KYC vendor's webhook reaches accounts with no session and no Idempotency-Key", func(t *testing.T) {
+		before := accounts.count()
+		status, body := send(t, gw, http.MethodPost, "/v1/accounts/kyc/webhooks/fake",
+			map[string]string{headerUserID: "33333333-3333-3333-3333-333333333333"}, map[string]string{"provider_ref": "fkyc_1", "status": "passed"})
+		if status != http.StatusOK || accounts.count() != before+1 {
+			t.Fatalf("got %d %v, accounts calls %d → %d", status, body, before, accounts.count())
+		}
+		if got := accounts.last(t).Header.Get(headerUserID); got != "" {
+			t.Fatalf("a client-sent user header reached accounts on the public route: %q", got)
+		}
+	})
+	t.Run("only operations the spec marks public skip the session", func(t *testing.T) {
+		before := accounts.count()
+		status, body := send(t, gw, http.MethodPost, "/v1/accounts/tenants/"+uuid.NewString()+"/kyc-checks",
+			map[string]string{"Idempotency-Key": "k-kyc"}, map[string]string{"kind": "individual"})
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || accounts.count() != before {
+			t.Fatalf("starting KYC without a session: got %d %v", status, body)
 		}
 	})
 	t.Run("identity routes still go to identity", func(t *testing.T) {

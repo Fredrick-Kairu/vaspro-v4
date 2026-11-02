@@ -22,6 +22,20 @@ import (
 // The two services dial each other lazily, so either may start first.
 func startRealAccounts(t *testing.T, identityGRPCAddr string) (baseURL, grpcAddr string) {
 	t.Helper()
+	acc := startRealAccountsWith(t, identityGRPCAddr)
+	return acc.baseURL, acc.grpcAddr
+}
+
+// realAccounts is a running accounts subprocess.
+type realAccounts struct {
+	baseURL, grpcAddr string
+	natsURL           string // accounts publishes its events here
+}
+
+// startRealAccountsWith is startRealAccounts with extra environment
+// (task 2.6's e2e sets ACCOUNTS_KYC_*), also returning its NATS URL.
+func startRealAccountsWith(t *testing.T, identityGRPCAddr string, extraEnv ...string) realAccounts {
+	t.Helper()
 	root := repoRoot(t)
 
 	binPath := filepath.Join(t.TempDir(), "accounts")
@@ -34,7 +48,7 @@ func startRealAccounts(t *testing.T, identityGRPCAddr string) (baseURL, grpcAddr
 	pg := testkit.StartPostgres(t, testkit.WithMigrations(filepath.Join(root, "migrations/accounts")))
 	natsURL := testkit.StartNATSURL(t)
 	httpAddr := freeTCPAddr(t)
-	grpcAddr = freeTCPAddr(t)
+	grpcAddr := freeTCPAddr(t)
 
 	cmd := exec.Command(binPath) //nolint:gosec // binPath is the binary we just built into our own t.TempDir()
 	cmd.Dir = root
@@ -46,6 +60,7 @@ func startRealAccounts(t *testing.T, identityGRPCAddr string) (baseURL, grpcAddr
 		"ACCOUNTS_PACKS_DIR="+filepath.Join(root, "packs"),
 		"ACCOUNTS_IDENTITY_GRPC_ADDR="+identityGRPCAddr,
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -55,9 +70,9 @@ func startRealAccounts(t *testing.T, identityGRPCAddr string) (baseURL, grpcAddr
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-	baseURL = "http://" + httpAddr
+	baseURL := "http://" + httpAddr
 	waitForHealthy(t, baseURL, 20*time.Second)
-	return baseURL, grpcAddr
+	return realAccounts{baseURL: baseURL, grpcAddr: grpcAddr, natsURL: natsURL}
 }
 
 // TestGateway_CreateAccountThroughGateway_EndToEnd is task 2.2a's e2e:

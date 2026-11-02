@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.4 done (2026-11-02). Next: 2.6 KYC adapter, fake vendor and webhooks. Also done: 2.1, 2.2, 2.3, 2.5, the testkit readiness fix, 1.16.
+**Current task:** 2.6 done (2026-11-02). Next: 2.7 KYB (business profile, owners, registry lookup). Also done: 2.1, 2.2, 2.3, 2.4, 2.5, the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -325,6 +325,45 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Order of work:** packs, domain and app tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
     - **Mutation-checked:** dropping the re-evaluation in `ChangeTier`, making `RequiredTier` take the minimum, and dropping the sync's delete each failed the intended test.
   - **Not in 2.4:** tier caps (`tier_caps`, OD-04, Phase 7) and refusing live traffic for a locked service (KYC-4020, from Phase 7's sending services).
+
+- 2.6 KYC adapter, fake vendor and webhooks (OQ-07; ADR 0008 formalises OD-03's default).
+  - **Interface** `adapters.KYCProvider`: `Name`, `StartCheck` (our check ID as the vendor's reference; returns the vendor reference and the hosted-flow URL), `ParseWebhook` (verifies before reading; `ErrBadWebhookSignature`), `FetchReport`.
+    - `FakeVendorProvider` speaks `tools/fakes/kycvendor`'s HTTP protocol: HMAC-SHA256 over `timestamp.body`, a 5-minute window, `platform/crypto.HMACVerify`.
+    - The fake is a real server; a test calls `Decide(ref, status)` to have it post a signed webhook, and `Webhook(...)` with `Tamper` options builds bad ones.
+    - Config: `ACCOUNTS_KYC_PROVIDER` (`fake`), `ACCOUNTS_KYC_FAKE_URL`, `ACCOUNTS_KYC_WEBHOOK_SECRET`. With no URL, KYC is off (VAL-4000).
+  - **Rules:** `domain.NextKYCStatus`: pending takes any result, review takes a decision, a decided check is final. That one rule makes webhooks idempotent and out-of-order results harmless, with no separate dedup store.
+  - **App:**
+    - `StartKYC` (`account:manage`; individual only until 2.7; the subject is the caller) calls the vendor, then writes a pending check and `kyc.check_started`.
+    - `ListKYCChecks` (`account:read`) holds no personal data.
+    - `HandleKYCWebhook`:
+      - verifies first; a bad signature is AUTH-4013 and writes nothing;
+      - finds the check by `(provider, provider_ref)` as a new narrow role `accounts_kyc_webhook` (migration `20261103150000`; SELECT on `kyc_checks` only, `WITH INHERIT FALSE`, `WithRoleTx` only);
+      - an unknown reference gets 200 and is ignored;
+      - then, in the account's transaction with the check locked, applies `NextKYCStatus` and writes `kyc.check_decided` (with `promoted`).
+    - **A passed individual check on an active sandbox account promotes it to starter in the same transaction.** `ChangeTier` was split into a wrapper and `changeTierTx` for this; the promotion writes `tier_changes`, `tenant.tier_changed`, and enables the starter services already selected (2.4).
+    - Failed and expired never change the tier, and a suspended account's pass is recorded without a promotion.
+  - **API:**
+    - `createKycCheck`, `listKycChecks`;
+    - `receiveKycWebhook` (`security: []`): accounts skips `requireCaller` and idempotency for the webhook path, and keeps the raw body for the signature, because the strict server decodes JSON before the handler (1.9's lesson).
+  - **Gateway:**
+    - `requireSessionUnlessPublic` skips the session only for an operation the backend's spec declares `security: []`; client identity headers are still stripped.
+    - The Idempotency-Key gate exempts the webhook prefix, like `/v1/oauth/token`.
+  - **Tests:**
+    - domain: every current × incoming status;
+    - adapter + fake (no database): start, verify, and refusals for a tampered body, another secret, a stale or future timestamp, no signature and an unknown status, plus the report;
+    - store: the webhook role finds a check only inside `WithRoleTx` and can't read `tenants`;
+    - app: start (event, subject, provider), Viewer and business refused; pass → starter + `tier_changes` + `tenant.tier_changed` + SMS enabled; the same webhook again changes nothing (one decision, one tier change); **failed after passed doesn't demote**; review then passed promotes; failed then passed stays failed; a bad signature changes nothing; another provider is not found; an unknown reference is acknowledged; a suspended account isn't promoted;
+    - API: codes, a webhook with no user header or Idempotency-Key, and the account reaching starter;
+    - gateway: the webhook passes with no session or key, the client's user header is stripped, and a non-public accounts write still needs a session.
+    - **Phase 2 onboarding e2e** `TestGateway_OnboardingThroughKYC_EndToEnd`:
+      - real identity and accounts, the fake vendor posting to the gateway;
+      - sign up → account → SMS and USSD locked → individual KYC → the vendor decides passed → starter, SMS and USSD enabled;
+      - `tenant.tier_changed` read off accounts' NATS stream.
+      - **This ticks Phase 2's first exit-gate box.**
+    - **Order of work:** domain, adapter, app and gateway tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** making a pass not final failed the domain test and the out-of-order app test; skipping the signature check failed the adapter, app and API refusals; skipping the timestamp window failed the stale and future cases.
+  - **`make check`:** the first run failed on lint: two unchecked `Body.Close`, a gosec SSRF warning on the vendor call (its URL is operator configuration, now marked so) and a staticcheck struct conversion. All fixed; the second run was green. With `-tags=integration`, lint also reports two pre-existing findings in older tests (an unchecked `sqlDB.Close` in accounts' store test and a gosec G101 in the gateway backends test). `make check` doesn't lint with that tag, so they're noted here rather than fixed in this task.
+  - **Deployment note:** like 2.3a's lookup role, `accounts_kyc_webhook` needs a grant to the service's login role where that isn't the migration role.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

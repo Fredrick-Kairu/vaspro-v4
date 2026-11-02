@@ -28,6 +28,9 @@ type Service struct {
 	// identity finds invitees, sends invitations, checks step-up and
 	// names members (task 2.3b).
 	identity adapters.Identity
+	// kyc is the KYC vendor's adapter (task 2.6, ADR 0008); nil when
+	// KYC isn't configured.
+	kyc adapters.KYCProvider
 }
 
 // Deps is everything New needs. Packs is every loaded country pack,
@@ -38,9 +41,10 @@ type Deps struct {
 	Clock    clock.Clock
 	Packs    map[string]*packs.Pack
 	Identity adapters.Identity
+	KYC      adapters.KYCProvider
 }
 
 // New builds a Service.
 func New(d Deps) *Service {
-	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs, identity: d.Identity}
+	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs, identity: d.Identity, kyc: d.KYC}
 }

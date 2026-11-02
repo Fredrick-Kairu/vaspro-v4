@@ -60,6 +60,69 @@ func (e AccountServiceStatus) Valid() bool {
 	}
 }
 
+// Defines values for KycCheckKind.
+const (
+	KycCheckKindBusiness   KycCheckKind = "business"
+	KycCheckKindIndividual KycCheckKind = "individual"
+	KycCheckKindScreening  KycCheckKind = "screening"
+)
+
+// Valid indicates whether the value is a known member of the KycCheckKind enum.
+func (e KycCheckKind) Valid() bool {
+	switch e {
+	case KycCheckKindBusiness:
+		return true
+	case KycCheckKindIndividual:
+		return true
+	case KycCheckKindScreening:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for KycCheckStatus.
+const (
+	Expired KycCheckStatus = "expired"
+	Failed  KycCheckStatus = "failed"
+	Passed  KycCheckStatus = "passed"
+	Pending KycCheckStatus = "pending"
+	Review  KycCheckStatus = "review"
+)
+
+// Valid indicates whether the value is a known member of the KycCheckStatus enum.
+func (e KycCheckStatus) Valid() bool {
+	switch e {
+	case Expired:
+		return true
+	case Failed:
+		return true
+	case Passed:
+		return true
+	case Pending:
+		return true
+	case Review:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for KycCheckRequestKind.
+const (
+	KycCheckRequestKindIndividual KycCheckRequestKind = "individual"
+)
+
+// Valid indicates whether the value is a known member of the KycCheckRequestKind enum.
+func (e KycCheckRequestKind) Valid() bool {
+	switch e {
+	case KycCheckRequestKindIndividual:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberStatus.
 const (
 	MemberStatusActive  MemberStatus = "active"
@@ -281,6 +344,37 @@ type InvitationRequest struct {
 	RoleId string `json:"role_id"`
 }
 
+// KycCheck defines model for KycCheck.
+type KycCheck struct {
+	CreatedAt time.Time      `json:"created_at"`
+	DecidedAt *time.Time     `json:"decided_at,omitempty"`
+	Id        string         `json:"id"`
+	Kind      KycCheckKind   `json:"kind"`
+	Status    KycCheckStatus `json:"status"`
+
+	// Url The vendor's hosted flow; only when the check is started.
+	Url *string `json:"url,omitempty"`
+}
+
+// KycCheckKind defines model for KycCheck.Kind.
+type KycCheckKind string
+
+// KycCheckStatus defines model for KycCheck.Status.
+type KycCheckStatus string
+
+// KycCheckList defines model for KycCheckList.
+type KycCheckList struct {
+	Checks []KycCheck `json:"checks"`
+}
+
+// KycCheckRequest defines model for KycCheckRequest.
+type KycCheckRequest struct {
+	Kind KycCheckRequestKind `json:"kind"`
+}
+
+// KycCheckRequestKind defines model for KycCheckRequest.Kind.
+type KycCheckRequestKind string
+
 // Member defines model for Member.
 type Member struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -431,6 +525,9 @@ type TenantID = string
 // UserID defines model for UserID.
 type UserID = string
 
+// ReceiveKycWebhookJSONBody defines parameters for ReceiveKycWebhook.
+type ReceiveKycWebhookJSONBody = map[string]interface{}
+
 // AcceptInvitationParams defines parameters for AcceptInvitation.
 type AcceptInvitationParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -445,6 +542,12 @@ type CreateTenantParams struct {
 
 // CreateInvitationParams defines parameters for CreateInvitation.
 type CreateInvitationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateKycCheckParams defines parameters for CreateKycCheck.
+type CreateKycCheckParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -479,11 +582,17 @@ type CreateSubAccountParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ReceiveKycWebhookJSONRequestBody defines body for ReceiveKycWebhook for application/json ContentType.
+type ReceiveKycWebhookJSONRequestBody = ReceiveKycWebhookJSONBody
+
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreateRequest
 
 // CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
 type CreateInvitationJSONRequestBody = InvitationRequest
+
+// CreateKycCheckJSONRequestBody defines body for CreateKycCheck for application/json ContentType.
+type CreateKycCheckJSONRequestBody = KycCheckRequest
 
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody = MemberUpdateRequest
@@ -493,6 +602,9 @@ type CreateSubAccountJSONRequestBody = SubAccountCreateRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ReceiveKycWebhook Receive a KYC vendor's result
+	// (POST /v1/accounts/kyc/webhooks/{provider})
+	ReceiveKycWebhook(w http.ResponseWriter, r *http.Request, provider string)
 	// ListMyMemberships List the accounts the caller belongs to
 	// (GET /v1/accounts/me/memberships)
 	ListMyMemberships(w http.ResponseWriter, r *http.Request)
@@ -511,6 +623,12 @@ type ServerInterface interface {
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams)
+	// ListKycChecks List an account's KYC checks
+	// (GET /v1/accounts/tenants/{id}/kyc-checks)
+	ListKycChecks(w http.ResponseWriter, r *http.Request, id TenantID)
+	// CreateKycCheck Start a KYC check
+	// (POST /v1/accounts/tenants/{id}/kyc-checks)
+	CreateKycCheck(w http.ResponseWriter, r *http.Request, id TenantID, params CreateKycCheckParams)
 	// ListMembers List an account's members
 	// (GET /v1/accounts/tenants/{id}/members)
 	ListMembers(w http.ResponseWriter, r *http.Request, id TenantID)
@@ -540,6 +658,12 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ReceiveKycWebhook Receive a KYC vendor's result
+// (POST /v1/accounts/kyc/webhooks/{provider})
+func (_ Unimplemented) ReceiveKycWebhook(w http.ResponseWriter, r *http.Request, provider string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // ListMyMemberships List the accounts the caller belongs to
 // (GET /v1/accounts/me/memberships)
@@ -574,6 +698,18 @@ func (_ Unimplemented) GetTenant(w http.ResponseWriter, r *http.Request, id stri
 // CreateInvitation Invite someone to an account by email
 // (POST /v1/accounts/tenants/{id}/invitations)
 func (_ Unimplemented) CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListKycChecks List an account's KYC checks
+// (GET /v1/accounts/tenants/{id}/kyc-checks)
+func (_ Unimplemented) ListKycChecks(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateKycCheck Start a KYC check
+// (POST /v1/accounts/tenants/{id}/kyc-checks)
+func (_ Unimplemented) CreateKycCheck(w http.ResponseWriter, r *http.Request, id TenantID, params CreateKycCheckParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -633,6 +769,32 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ReceiveKycWebhook operation middleware
+func (siw *ServerInterfaceWrapper) ReceiveKycWebhook(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReceiveKycWebhook(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListMyMemberships operation middleware
 func (siw *ServerInterfaceWrapper) ListMyMemberships(w http.ResponseWriter, r *http.Request) {
@@ -832,6 +994,86 @@ func (siw *ServerInterfaceWrapper) CreateInvitation(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateInvitation(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListKycChecks operation middleware
+func (siw *ServerInterfaceWrapper) ListKycChecks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListKycChecks(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateKycCheck operation middleware
+func (siw *ServerInterfaceWrapper) CreateKycCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateKycCheckParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateKycCheck(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1380,11 +1622,84 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/accounts/tenants/{id}/services/{code}", wrapper.SelectService)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/kyc-checks", wrapper.ListKycChecks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/kyc-checks", wrapper.CreateKycCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/kyc/webhooks/{provider}", wrapper.ReceiveKycWebhook)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ReceiveKycWebhookRequestObject struct {
+	Provider string `json:"provider"`
+	Body     *ReceiveKycWebhookJSONRequestBody
+}
+
+type ReceiveKycWebhookResponseObject interface {
+	VisitReceiveKycWebhookResponse(w http.ResponseWriter) error
+}
+
+type ReceiveKycWebhook200Response struct {
+}
+
+func (response ReceiveKycWebhook200Response) VisitReceiveKycWebhookResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ReceiveKycWebhook401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ReceiveKycWebhook401ApplicationProblemPlusJSONResponse) VisitReceiveKycWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveKycWebhook404ApplicationProblemPlusJSONResponse Problem
+
+func (response ReceiveKycWebhook404ApplicationProblemPlusJSONResponse) VisitReceiveKycWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveKycWebhookdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReceiveKycWebhookdefaultApplicationProblemPlusJSONResponse) VisitReceiveKycWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListMyMembershipsRequestObject struct {
 }
@@ -1805,6 +2120,188 @@ type CreateInvitationdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateInvitationdefaultApplicationProblemPlusJSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycChecksRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type ListKycChecksResponseObject interface {
+	VisitListKycChecksResponse(w http.ResponseWriter) error
+}
+
+type ListKycChecks200JSONResponse KycCheckList
+
+func (response ListKycChecks200JSONResponse) VisitListKycChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycChecks401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListKycChecks401ApplicationProblemPlusJSONResponse) VisitListKycChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycChecks403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListKycChecks403ApplicationProblemPlusJSONResponse) VisitListKycChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycChecks404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListKycChecks404ApplicationProblemPlusJSONResponse) VisitListKycChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycChecksdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListKycChecksdefaultApplicationProblemPlusJSONResponse) VisitListKycChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheckRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params CreateKycCheckParams
+	Body   *CreateKycCheckJSONRequestBody
+}
+
+type CreateKycCheckResponseObject interface {
+	VisitCreateKycCheckResponse(w http.ResponseWriter) error
+}
+
+type CreateKycCheck201JSONResponse KycCheck
+
+func (response CreateKycCheck201JSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheck400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKycCheck400ApplicationProblemPlusJSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheck401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateKycCheck401ApplicationProblemPlusJSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheck403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateKycCheck403ApplicationProblemPlusJSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheck404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateKycCheck404ApplicationProblemPlusJSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKycCheckdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateKycCheckdefaultApplicationProblemPlusJSONResponse) VisitCreateKycCheckResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2523,6 +3020,9 @@ func (response CreateSubAccountdefaultApplicationProblemPlusJSONResponse) VisitC
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ReceiveKycWebhook Receive a KYC vendor's result
+	// (POST /v1/accounts/kyc/webhooks/{provider})
+	ReceiveKycWebhook(ctx context.Context, request ReceiveKycWebhookRequestObject) (ReceiveKycWebhookResponseObject, error)
 	// ListMyMemberships List the accounts the caller belongs to
 	// (GET /v1/accounts/me/memberships)
 	ListMyMemberships(ctx context.Context, request ListMyMembershipsRequestObject) (ListMyMembershipsResponseObject, error)
@@ -2541,6 +3041,12 @@ type StrictServerInterface interface {
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(ctx context.Context, request CreateInvitationRequestObject) (CreateInvitationResponseObject, error)
+	// ListKycChecks List an account's KYC checks
+	// (GET /v1/accounts/tenants/{id}/kyc-checks)
+	ListKycChecks(ctx context.Context, request ListKycChecksRequestObject) (ListKycChecksResponseObject, error)
+	// CreateKycCheck Start a KYC check
+	// (POST /v1/accounts/tenants/{id}/kyc-checks)
+	CreateKycCheck(ctx context.Context, request CreateKycCheckRequestObject) (CreateKycCheckResponseObject, error)
 	// ListMembers List an account's members
 	// (GET /v1/accounts/tenants/{id}/members)
 	ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error)
@@ -2604,6 +3110,39 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ReceiveKycWebhook operation middleware
+func (sh *strictHandler) ReceiveKycWebhook(w http.ResponseWriter, r *http.Request, provider string) {
+	var request ReceiveKycWebhookRequestObject
+
+	request.Provider = provider
+
+	var body ReceiveKycWebhookJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReceiveKycWebhook(ctx, request.(ReceiveKycWebhookRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReceiveKycWebhook")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReceiveKycWebhookResponseObject); ok {
+		if err := validResponse.VisitReceiveKycWebhookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListMyMemberships operation middleware
@@ -2767,6 +3306,66 @@ func (sh *strictHandler) CreateInvitation(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateInvitationResponseObject); ok {
 		if err := validResponse.VisitCreateInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListKycChecks operation middleware
+func (sh *strictHandler) ListKycChecks(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request ListKycChecksRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListKycChecks(ctx, request.(ListKycChecksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListKycChecks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListKycChecksResponseObject); ok {
+		if err := validResponse.VisitListKycChecksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateKycCheck operation middleware
+func (sh *strictHandler) CreateKycCheck(w http.ResponseWriter, r *http.Request, id TenantID, params CreateKycCheckParams) {
+	var request CreateKycCheckRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body CreateKycCheckJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateKycCheck(ctx, request.(CreateKycCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateKycCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateKycCheckResponseObject); ok {
+		if err := validResponse.VisitCreateKycCheckResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

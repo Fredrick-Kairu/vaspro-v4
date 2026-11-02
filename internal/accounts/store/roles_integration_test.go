@@ -4,11 +4,13 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
@@ -87,5 +89,43 @@ func TestMembershipLookupRole_OnlyTheCallersOwnMemberships(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("outside WithRoleTx the app role sees %d memberships with app.user_id set, want 0 (WITH INHERIT FALSE)", n)
+	}
+}
+
+// TestKYCWebhookRole_FindsChecksOnlyInsideWithRoleTx: a vendor webhook
+// names a check by reference across accounts, only as the narrow role,
+// and that role reads kyc_checks and nothing else.
+func TestKYCWebhookRole_FindsChecksOnlyInsideWithRoleTx(t *testing.T) {
+	db := newAccountsDB(t)
+	ctx := context.Background()
+	tenant := mustTenant(t, db.super)
+	check := uuid.New()
+	if _, err := db.super.Exec(ctx, `INSERT INTO kyc_checks (id, tenant_id, kind, subject_id, provider, provider_ref, status)
+		VALUES ($1, $2, 'individual', $3, 'fake', 'fkyc_1', 'pending')`, check, tenant, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	params := store.FindKycCheckByProviderRefParams{Provider: "fake", ProviderRef: pgtype.Text{String: "fkyc_1", Valid: true}}
+
+	var found store.FindKycCheckByProviderRefRow
+	if err := db.app.WithRoleTx(ctx, "accounts_kyc_webhook", func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		found, err = store.New(tx).FindKycCheckByProviderRef(ctx, params)
+		return err
+	}); err != nil || found.ID != check || found.TenantID != tenant {
+		t.Fatalf("inside WithRoleTx: got %+v, %v", found, err)
+	}
+	err := pgx.BeginFunc(ctx, db.app, func(tx pgx.Tx) error {
+		_, err := store.New(tx).FindKycCheckByProviderRef(ctx, params)
+		return err
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("outside WithRoleTx: got %v, want no rows (WITH INHERIT FALSE)", err)
+	}
+	err = db.app.WithRoleTx(ctx, "accounts_kyc_webhook", func(ctx context.Context, tx pgx.Tx) error {
+		var n int
+		return tx.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&n)
+	})
+	if pgCode(err) != "42501" {
+		t.Fatalf("the role reading tenants: got %v, want permission denied (42501)", err)
 	}
 }

@@ -43,81 +43,88 @@ type ChangeTierRequest struct {
 // staff role (task 2.9).
 func (s *Service) ChangeTier(ctx context.Context, req ChangeTierRequest) error {
 	return s.pool.WithTenantTx(ctx, req.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		tenant, err := q.GetTenantForUpdate(ctx, req.TenantID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("app: locking tenant: %w", err)
-		}
-		from := domain.Tier(tenant.Tier)
-
-		evidence := domain.Evidence{ByStaff: req.ChangedBy != nil}
-		if req.KYCCheckID != nil {
-			check, err := q.GetKycCheckByID(ctx, store.GetKycCheckByIDParams{ID: *req.KYCCheckID, TenantID: req.TenantID})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrCheckNotUsable
-			}
-			if err != nil {
-				return fmt.Errorf("app: looking up KYC check: %w", err)
-			}
-			if !checkStatusFits(from, req.To, check.Status) {
-				return ErrCheckNotUsable
-			}
-			evidence.KYCCheckKind = check.Kind
-		}
-
-		if err := domain.ValidateTierChange(domain.TierChange{
-			From: from, To: req.To, TenantStatus: tenant.Status, Reason: req.Reason, Evidence: evidence,
-		}); err != nil {
-			return err
-		}
-
-		if err := q.UpdateTenantTier(ctx, store.UpdateTenantTierParams{ID: req.TenantID, Tier: store.AccountsTier(req.To)}); err != nil {
-			return fmt.Errorf("app: updating tier: %w", err)
-		}
-		changeID, err := ids.New()
-		if err != nil {
-			return fmt.Errorf("app: generating tier change id: %w", err)
-		}
-		if _, err := q.CreateTierChange(ctx, store.CreateTierChangeParams{
-			ID:         changeID,
-			TenantID:   req.TenantID,
-			FromTier:   store.AccountsTier(from),
-			ToTier:     store.AccountsTier(req.To),
-			Reason:     req.Reason,
-			KycCheckID: optionalUUID(req.KYCCheckID),
-			ChangedBy:  optionalUUID(req.ChangedBy),
-		}); err != nil {
-			return fmt.Errorf("app: recording tier change: %w", err)
-		}
-		if err := s.reevaluateServices(ctx, q, tx, req.TenantID, tenant.CountryCode, req.To); err != nil {
-			return err
-		}
-
-		data := map[string]any{
-			"tenant_id": req.TenantID,
-			"from_tier": from,
-			"to_tier":   req.To,
-			"reason":    req.Reason,
-		}
-		if req.KYCCheckID != nil {
-			data["kyc_check_id"] = *req.KYCCheckID
-		}
-		if req.ChangedBy != nil {
-			data["changed_by"] = *req.ChangedBy
-		}
-		eventID, err := ids.New()
-		if err != nil {
-			return fmt.Errorf("app: generating event id: %w", err)
-		}
-		env, err := platformevents.New(eventID, "tenant.tier_changed", 1, req.TenantID, s.clk.Now(), "", data)
-		if err != nil {
-			return fmt.Errorf("app: building tenant.tier_changed event: %w", err)
-		}
-		return outbox.Write(ctx, tx, "tenant", req.TenantID, env)
+		return s.changeTierTx(ctx, tx, req)
 	})
+}
+
+// changeTierTx is ChangeTier inside a transaction the caller already
+// holds for req.TenantID, so another use case (a passed KYC check, task
+// 2.6) can promote in its own transaction.
+func (s *Service) changeTierTx(ctx context.Context, tx pgx.Tx, req ChangeTierRequest) error {
+	q := store.New(tx)
+	tenant, err := q.GetTenantForUpdate(ctx, req.TenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("app: locking tenant: %w", err)
+	}
+	from := domain.Tier(tenant.Tier)
+
+	evidence := domain.Evidence{ByStaff: req.ChangedBy != nil}
+	if req.KYCCheckID != nil {
+		check, err := q.GetKycCheckByID(ctx, store.GetKycCheckByIDParams{ID: *req.KYCCheckID, TenantID: req.TenantID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrCheckNotUsable
+		}
+		if err != nil {
+			return fmt.Errorf("app: looking up KYC check: %w", err)
+		}
+		if !checkStatusFits(from, req.To, check.Status) {
+			return ErrCheckNotUsable
+		}
+		evidence.KYCCheckKind = check.Kind
+	}
+
+	if err := domain.ValidateTierChange(domain.TierChange{
+		From: from, To: req.To, TenantStatus: tenant.Status, Reason: req.Reason, Evidence: evidence,
+	}); err != nil {
+		return err
+	}
+
+	if err := q.UpdateTenantTier(ctx, store.UpdateTenantTierParams{ID: req.TenantID, Tier: store.AccountsTier(req.To)}); err != nil {
+		return fmt.Errorf("app: updating tier: %w", err)
+	}
+	changeID, err := ids.New()
+	if err != nil {
+		return fmt.Errorf("app: generating tier change id: %w", err)
+	}
+	if _, err := q.CreateTierChange(ctx, store.CreateTierChangeParams{
+		ID:         changeID,
+		TenantID:   req.TenantID,
+		FromTier:   store.AccountsTier(from),
+		ToTier:     store.AccountsTier(req.To),
+		Reason:     req.Reason,
+		KycCheckID: optionalUUID(req.KYCCheckID),
+		ChangedBy:  optionalUUID(req.ChangedBy),
+	}); err != nil {
+		return fmt.Errorf("app: recording tier change: %w", err)
+	}
+	if err := s.reevaluateServices(ctx, q, tx, req.TenantID, tenant.CountryCode, req.To); err != nil {
+		return err
+	}
+
+	data := map[string]any{
+		"tenant_id": req.TenantID,
+		"from_tier": from,
+		"to_tier":   req.To,
+		"reason":    req.Reason,
+	}
+	if req.KYCCheckID != nil {
+		data["kyc_check_id"] = *req.KYCCheckID
+	}
+	if req.ChangedBy != nil {
+		data["changed_by"] = *req.ChangedBy
+	}
+	eventID, err := ids.New()
+	if err != nil {
+		return fmt.Errorf("app: generating event id: %w", err)
+	}
+	env, err := platformevents.New(eventID, "tenant.tier_changed", 1, req.TenantID, s.clk.Now(), "", data)
+	if err != nil {
+		return fmt.Errorf("app: building tenant.tier_changed event: %w", err)
+	}
+	return outbox.Write(ctx, tx, "tenant", req.TenantID, env)
 }
 
 // checkStatusFits reports whether a check in status can back a change

@@ -778,7 +778,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 2.3 Memberships, roles and invitations; one email can belong to several accounts. *Done 2026-11-02 in two commits (OQ-05). 2.3a: four built-in roles over a permission catalogue, enforced in accounts and identity; member management; "my accounts" (`TestBuiltinRoles_PermissionMatrix`, the phase's role × permission matrix). 2.3b: invitations by email through identity, step-up to add users, accept or decline (`TestGateway_InviteThroughGateway_EndToEnd`).*
 - [x] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country. *Done 2026-11-02 (OQ-06): seven services; each country's minimum tiers in `packs/ke`, synced into `service_country_rules`; selected services follow the tier in `ChangeTier`'s transaction; a locked service reports the tier it needs (`TestServiceSelectionAndTiers`, and the account e2e picks SMS and USSD).*
 - [x] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
-- [ ] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided.
+- [x] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided. *Done 2026-11-02 (OQ-07, ADR 0008): `KYCProvider` with the fake vendor until OD-03 is decided; signed webhooks through the gateway; a decided check is final (`TestKYCWebhook_PassPromotesToStarter`'s out-of-order case).*
 - [ ] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter.
 - [ ] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications.
 - [ ] 2.9 Staff review queue for KYC and KYB decisions marked "review".
@@ -796,7 +796,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] The onboarding e2e is green.
+- [x] The onboarding e2e is green. *`TestGateway_OnboardingThroughKYC_EndToEnd` (2026-11-02): sign up → pick SMS and USSD → individual KYC through the fake vendor, whose signed webhook goes through the gateway → starter, SMS and USSD enabled → `tenant.tier_changed` read off accounts' NATS stream.*
 - [ ] The v3 client importer dry run on an anonymised copy reports counts that match v3, and lists every flagged record.
 
 **Kickoff prompt**

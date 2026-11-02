@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -85,11 +88,67 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		// The last entry runs first (1.2's lesson): requireCaller sets
 		// the scope idempotency.Middleware needs.
 		Middlewares: []MiddlewareFunc{
-			idempotency.Middleware(idemStore, idempotencyKeyTTL),
-			requireCaller,
+			exceptVendorWebhooks(idempotency.Middleware(idemStore, idempotencyKeyTTL)),
+			exceptVendorWebhooks(requireCaller),
+			keepWebhookBody,
 		},
 	})
 	return r
+}
+
+// vendorWebhookPrefix is where KYC vendors post results (task 2.6). A
+// vendor sends neither a session nor an Idempotency-Key; its signature,
+// checked by the KYC adapter, authenticates the request, and repeated
+// results are harmless by design (domain.NextKYCStatus).
+const vendorWebhookPrefix = "/v1/accounts/kyc/webhooks/"
+
+func isVendorWebhook(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, vendorWebhookPrefix) }
+
+// exceptVendorWebhooks runs mw for every request but a vendor webhook,
+// as identity's skipIdempotencyFor does for its token endpoint.
+func exceptVendorWebhooks(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isVendorWebhook(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
+}
+
+type webhookKey struct{}
+
+type webhookRequest struct {
+	header http.Header
+	body   []byte
+}
+
+// keepWebhookBody keeps a vendor webhook's exact bytes and headers for
+// the handler: the strict server decodes the JSON before the handler
+// runs, and the signature covers the bytes as sent (1.9's lesson).
+func keepWebhookBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isVendorWebhook(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			problem.Respond(w, r, problem.New(problem.VAL4000, "the request body could not be read"))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		ctx := context.WithValue(r.Context(), webhookKey{}, webhookRequest{header: r.Header.Clone(), body: body})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func webhookFromContext(ctx context.Context) (webhookRequest, bool) {
+	wr, ok := ctx.Value(webhookKey{}).(webhookRequest)
+	return wr, ok
 }
 
 // respondProblem renders a *problem.Problem as-is and anything else as

@@ -52,6 +52,13 @@ type Config struct {
 	// invitations, step-up checks and members' names. Dialled lazily,
 	// so accounts starts while identity is down.
 	IdentityGRPCAddr string `env:"ACCOUNTS_IDENTITY_GRPC_ADDR,required"`
+	// KYC (task 2.6, ADR 0008): the vendor's adapter, its base URL and
+	// the secret its webhooks are signed with. Only "fake" exists until
+	// OD-03 picks a vendor; with no URL, KYC is off and starting a
+	// check is VAL-4000.
+	KYCProvider      string `env:"ACCOUNTS_KYC_PROVIDER" envDefault:"fake"`
+	KYCFakeURL       string `env:"ACCOUNTS_KYC_FAKE_URL"`
+	KYCWebhookSecret string `env:"ACCOUNTS_KYC_WEBHOOK_SECRET"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country.
 	PacksDir string `env:"ACCOUNTS_PACKS_DIR" envDefault:"packs"`
 }
@@ -72,11 +79,30 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) (*Se
 	if err != nil {
 		return nil, err
 	}
-	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity})
+	kyc, err := kycProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity, KYC: kyc})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
 	return &Service{cfg: cfg, pool: pool, bus: b, app: a, packs: loaded, rtr: rtr}, nil
+}
+
+// kycProvider builds the configured KYC adapter, or nil when KYC is
+// off.
+func kycProvider(cfg Config) (adapters.KYCProvider, error) {
+	if cfg.KYCFakeURL == "" {
+		return nil, nil
+	}
+	if cfg.KYCProvider != "fake" {
+		return nil, fmt.Errorf("accounts: unknown ACCOUNTS_KYC_PROVIDER %q (only \"fake\" until OD-03 picks a vendor)", cfg.KYCProvider)
+	}
+	if cfg.KYCWebhookSecret == "" {
+		return nil, fmt.Errorf("accounts: ACCOUNTS_KYC_WEBHOOK_SECRET is required with ACCOUNTS_KYC_FAKE_URL")
+	}
+	return adapters.NewFakeVendorProvider(cfg.KYCFakeURL, []byte(cfg.KYCWebhookSecret)), nil
 }
 
 // loadPacks loads every country pack under dir, keyed by country code.

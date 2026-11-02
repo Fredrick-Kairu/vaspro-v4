@@ -18,6 +18,7 @@ import (
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/kycvendor"
 )
 
 func newRouter(t *testing.T) (http.Handler, *vasdb.Pool) {
@@ -30,7 +31,19 @@ func newRouter(t *testing.T) (http.Handler, *vasdb.Pool) {
 // fake behind invitations (task 2.3b).
 func newRouterWithIdentity(t *testing.T) (http.Handler, *vasdb.Pool, *identityusers.Fake) {
 	t.Helper()
+	r, pool, identity, _ := newRouterWithFakes(t)
+	return r, pool, identity
+}
+
+const testKYCSecret = "kyc-webhook-test-secret" //nolint:gosec // G101: a fixture secret shared with the fake vendor, not a credential
+
+// newRouterWithFakes is newRouter that also returns the identity fake
+// (task 2.3b) and the fake KYC vendor (task 2.6).
+func newRouterWithFakes(t *testing.T) (http.Handler, *vasdb.Pool, *identityusers.Fake, *kycvendor.Vendor) {
+	t.Helper()
 	identity := &identityusers.Fake{}
+	vendor := kycvendor.New([]byte(testKYCSecret))
+	t.Cleanup(vendor.Close)
 	ctx := context.Background()
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/accounts"))
 	pool, err := vasdb.NewPool(ctx, pg.DSN()+"&search_path=accounts,public")
@@ -38,11 +51,13 @@ func newRouterWithIdentity(t *testing.T) (http.Handler, *vasdb.Pool, *identityus
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	svc, err := accounts.New(accounts.Config{PacksDir: "../../../packs"}, pool, nil, identity)
+	svc, err := accounts.New(accounts.Config{
+		PacksDir: "../../../packs", KYCProvider: "fake", KYCFakeURL: vendor.URL(), KYCWebhookSecret: testKYCSecret,
+	}, pool, nil, identity)
 	if err != nil {
 		t.Fatalf("accounts.New: %v", err)
 	}
-	return svc.Router(), pool, identity
+	return svc.Router(), pool, identity, vendor
 }
 
 func do(t *testing.T, r http.Handler, method, path string, user uuid.UUID, key string, body any) (int, map[string]any) {
@@ -439,5 +454,62 @@ func TestServicesAPI(t *testing.T) {
 	}
 	if status, _ := do(t, r, http.MethodDelete, servicesPath+"/sms", admin, "deselect-sms", nil); status != http.StatusNoContent {
 		t.Fatalf("deselecting sms: got %d", status)
+	}
+}
+
+func TestKYCAPI(t *testing.T) {
+	r, pool, _, vendor := newRouterWithFakes(t)
+	admin, viewer := uuid.New(), uuid.New()
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	checksPath := "/v1/accounts/tenants/" + tenant + "/kyc-checks"
+
+	if status, got := do(t, r, http.MethodPost, checksPath, viewer, "viewer-kyc", map[string]string{"kind": "individual"}); status != http.StatusForbidden || got["code"] != "AUTH-4024" {
+		t.Fatalf("a Viewer starting KYC: got %d %v", status, got)
+	}
+	status, check := do(t, r, http.MethodPost, checksPath, admin, "start-kyc", map[string]string{"kind": "individual"})
+	if status != http.StatusCreated || check["status"] != "pending" || check["url"] == nil {
+		t.Fatalf("starting KYC: got %d %v", status, check)
+	}
+	checkID, _ := check["id"].(string)
+	var ref string
+	if err := pool.QueryRow(context.Background(), `SELECT provider_ref FROM kyc_checks WHERE id = $1`, checkID).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+
+	// The webhook route: no user header and no Idempotency-Key, as a
+	// vendor sends it.
+	post := func(provider string, tamper kycvendor.Tamper) (int, map[string]any) {
+		t.Helper()
+		header, body := vendor.Webhook(ref, "passed", tamper)
+		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/kyc/webhooks/"+provider, bytes.NewReader(body))
+		req.Header = header
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		var decoded map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+		return rec.Code, decoded
+	}
+	if status, got := post("fake", kycvendor.TamperBody); status != http.StatusUnauthorized || got["code"] != "AUTH-4013" {
+		t.Fatalf("a tampered webhook: got %d %v, want 401 AUTH-4013", status, got)
+	}
+	if status, got := post("acme-kyc", kycvendor.NoTamper); status != http.StatusNotFound {
+		t.Fatalf("another provider: got %d %v, want 404", status, got)
+	}
+	if status, got := post("fake", kycvendor.NoTamper); status != http.StatusOK {
+		t.Fatalf("a signed webhook: got %d %v, want 200", status, got)
+	}
+	if status, got := post("fake", kycvendor.NoTamper); status != http.StatusOK {
+		t.Fatalf("the same webhook again: got %d %v, want 200", status, got)
+	}
+
+	status, got := do(t, r, http.MethodGet, checksPath, viewer, "", nil)
+	checks, _ := got["checks"].([]any)
+	if status != http.StatusOK || len(checks) != 1 || checks[0].(map[string]any)["status"] != "passed" || checks[0].(map[string]any)["url"] != nil {
+		t.Fatalf("listing checks: got %d %v", status, got)
+	}
+	if _, account := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+tenant, admin, "", nil); account["tier"] != "starter" {
+		t.Fatalf("the account after a passed check: %v, want starter", account)
 	}
 }
