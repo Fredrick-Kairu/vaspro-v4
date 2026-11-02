@@ -86,7 +86,8 @@ paths:
       description: >
         A reseller's member creates an account for one of the reseller's
         clients (task 2.2b). The sub-account starts in the sandbox tier
-        and earns tiers through its own verification. It takes the
+        and earns tiers through its own verification. Needs
+        account:manage in the reseller (AUTH-4024 otherwise). It takes the
         reseller's country, currency, time zone and data region. The
         reseller's members reach it through the reseller; it gets no
         members of its own until it invites them. The reseller must be
@@ -148,6 +149,143 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/roles:
+    get:
+      operationId: listRoles
+      summary: List the built-in roles and their permissions
+      description: >
+        Admin, Developer, Finance and Viewer (task 2.3a). Admin's
+        permissions are ["*"], every permission now and later.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The roles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/me/memberships:
+    get:
+      operationId: listMyMemberships
+      summary: List the accounts the caller belongs to
+      description: >
+        Every account the caller is an active or invited member of, with
+        their role: one email can belong to several accounts (system
+        design §2). Sub-accounts reached only through a reseller aren't
+        listed; list them from the reseller.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The caller's memberships.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMembershipList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/members:
+    get:
+      operationId: listMembers
+      summary: List an account's members
+      description: >
+        Active and invited members, oldest first; removed members aren't
+        shown. Needs members:read. VAL-4003 when the caller isn't a
+        member; AUTH-4024 when their role doesn't allow it.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/members/{userId}:
+    patch:
+      operationId: updateMember
+      summary: Change a member's role
+      description: >
+        Needs members:manage. Only built-in roles can be assigned. An
+        account always keeps an active Admin: demoting the last one is
+        VAL-4004.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/UserID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberUpdateRequest'
+            example:
+              role_id: "019a0000-0000-7000-8000-000000000002"
+      responses:
+        "200":
+          description: The member with their new role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: removeMember
+      summary: Remove a member, or leave an account
+      description: >
+        Needs members:manage, except that anyone may remove themselves
+        (leave). The last active Admin can't be removed or leave
+        (VAL-4004). A removed member loses access at once, including to
+        the account's API clients and SMPP accounts.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/UserID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -160,6 +298,12 @@ components:
   parameters:
     TenantID:
       name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    UserID:
+      name: userId
       in: path
       required: true
       schema:
@@ -192,6 +336,83 @@ components:
           type: string
         billing_email:
           type: string
+    Role:
+      type: object
+      required: [id, name, permissions]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    RoleList:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+    Member:
+      type: object
+      required: [user_id, role_id, status, created_at]
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+        status:
+          type: string
+          enum: [invited, active]
+        invited_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    MemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+    MemberUpdateRequest:
+      type: object
+      required: [role_id]
+      properties:
+        role_id:
+          type: string
+    MyMembership:
+      type: object
+      required: [tenant_id, display_name, type, tier, role_id, status]
+      properties:
+        tenant_id:
+          type: string
+        display_name:
+          type: string
+        type:
+          type: string
+          enum: [direct, reseller, sub_account]
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        role_id:
+          type: string
+        status:
+          type: string
+          enum: [invited, active]
+    MyMembershipList:
+      type: object
+      required: [memberships]
+      properties:
+        memberships:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyMembership'
     SubAccountCreateRequest:
       type: object
       required: [display_name]

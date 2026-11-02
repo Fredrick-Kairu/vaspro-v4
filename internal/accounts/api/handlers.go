@@ -87,6 +87,94 @@ func (h *Handlers) ListSubAccounts(ctx context.Context, request ListSubAccountsR
 	return ListSubAccounts200JSONResponse(resp), nil
 }
 
+func (h *Handlers) ListRoles(ctx context.Context, _ ListRolesRequestObject) (ListRolesResponseObject, error) {
+	roles, err := h.app.ListRoles(ctx)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := RoleList{Roles: make([]Role, len(roles))}
+	for i, r := range roles {
+		resp.Roles[i] = Role{Id: r.ID.String(), Name: r.Name, Permissions: r.Permissions}
+	}
+	return ListRoles200JSONResponse(resp), nil
+}
+
+func (h *Handlers) ListMyMemberships(ctx context.Context, _ ListMyMembershipsRequestObject) (ListMyMembershipsResponseObject, error) {
+	mine, err := h.app.MyMemberships(ctx, callerFromContext(ctx))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := MyMembershipList{Memberships: make([]MyMembership, len(mine))}
+	for i, m := range mine {
+		resp.Memberships[i] = MyMembership{
+			TenantId: m.TenantID.String(), DisplayName: m.DisplayName,
+			Type: MyMembershipType(m.Type), Tier: MyMembershipTier(m.Tier),
+			RoleId: m.RoleID.String(), Status: MyMembershipStatus(m.Status),
+		}
+	}
+	return ListMyMemberships200JSONResponse(resp), nil
+}
+
+func (h *Handlers) ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	members, err := h.app.ListMembers(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := MemberList{Members: make([]Member, len(members))}
+	for i := range members {
+		resp.Members[i] = memberResponse(&members[i])
+	}
+	return ListMembers200JSONResponse(resp), nil
+}
+
+func (h *Handlers) UpdateMember(ctx context.Context, request UpdateMemberRequestObject) (UpdateMemberResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	target, err := uuid.Parse(request.UserId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	roleID, err := uuid.Parse(request.Body.RoleId)
+	if err != nil {
+		return nil, toProblem(domain.ErrNotBuiltinRole)
+	}
+	m, err := h.app.ChangeMemberRole(ctx, callerFromContext(ctx), tenantID, target, roleID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return UpdateMember200JSONResponse(memberResponse(m)), nil
+}
+
+func (h *Handlers) RemoveMember(ctx context.Context, request RemoveMemberRequestObject) (RemoveMemberResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	target, err := uuid.Parse(request.UserId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.RemoveMember(ctx, callerFromContext(ctx), tenantID, target); err != nil {
+		return nil, toProblem(err)
+	}
+	return RemoveMember204Response{}, nil
+}
+
+func memberResponse(m *app.Member) Member {
+	resp := Member{UserId: m.UserID.String(), RoleId: m.RoleID.String(), Status: MemberStatus(m.Status), CreatedAt: m.CreatedAt}
+	if m.InvitedBy != nil {
+		invitedBy := m.InvitedBy.String()
+		resp.InvitedBy = &invitedBy
+	}
+	return resp
+}
+
 func tenantResponse(t *app.Tenant) Tenant {
 	resp := Tenant{
 		Id:              t.ID.String(),
@@ -121,6 +209,12 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
+	case errors.Is(err, domain.ErrPermissionDenied):
+		return problem.New(problem.AUTH4024, "your role in this account doesn't allow this")
+	case errors.Is(err, domain.ErrLastAdmin):
+		return problem.New(problem.VAL4004, "the account would have no active Admin")
+	case errors.Is(err, domain.ErrNotBuiltinRole):
+		return problem.New(problem.VAL4000, "only built-in roles can be assigned")
 	case errors.Is(err, domain.ErrNotReseller):
 		return problem.New(problem.KYC4021, "only a reseller account can create sub-accounts")
 	case errors.Is(err, domain.ErrTenantNotActive):

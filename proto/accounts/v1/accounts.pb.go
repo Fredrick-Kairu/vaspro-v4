@@ -22,9 +22,12 @@ const (
 )
 
 type CheckTenantAccessRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	UserId   string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	TenantId string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// A permission from accounts' catalogue, such as credentials:manage;
+	// empty asks only whether the user may work in the account.
+	Permission    string `protobuf:"bytes,3,opt,name=permission,proto3" json:"permission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -73,6 +76,13 @@ func (x *CheckTenantAccessRequest) GetTenantId() string {
 	return ""
 }
 
+func (x *CheckTenantAccessRequest) GetPermission() string {
+	if x != nil {
+		return x.Permission
+	}
+	return ""
+}
+
 type CheckTenantAccessResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -113,10 +123,13 @@ var File_accounts_v1_accounts_proto protoreflect.FileDescriptor
 
 const file_accounts_v1_accounts_proto_rawDesc = "" +
 	"\n" +
-	"\x1aaccounts/v1/accounts.proto\x12\vaccounts.v1\"P\n" +
+	"\x1aaccounts/v1/accounts.proto\x12\vaccounts.v1\"p\n" +
 	"\x18CheckTenantAccessRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\"\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1e\n" +
+	"\n" +
+	"permission\x18\x03 \x01(\tR\n" +
+	"permission\"\x1b\n" +
 	"\x19CheckTenantAccessResponse2u\n" +
 	"\x0fAccountsService\x12b\n" +
 	"\x11CheckTenantAccess\x12%.accounts.v1.CheckTenantAccessRequest\x1a&.accounts.v1.CheckTenantAccessResponseBBZ@github.com/Fredrick-Kairu/vaspro-v4/proto/accounts/v1;accountsv1b\x06proto3"

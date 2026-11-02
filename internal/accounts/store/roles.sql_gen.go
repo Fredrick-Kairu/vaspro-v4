@@ -57,3 +57,32 @@ func (q *Queries) GetRoleByID(ctx context.Context, id uuid.UUID) (AccountsRole, 
 	)
 	return i, err
 }
+
+const listBuiltinRoles = `-- name: ListBuiltinRoles :many
+SELECT id, tenant_id, name, permissions FROM accounts.roles WHERE tenant_id IS NULL ORDER BY id
+`
+
+func (q *Queries) ListBuiltinRoles(ctx context.Context) ([]AccountsRole, error) {
+	rows, err := q.db.Query(ctx, listBuiltinRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsRole
+	for rows.Next() {
+		var i AccountsRole
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.Permissions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

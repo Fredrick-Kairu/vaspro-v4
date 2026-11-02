@@ -115,3 +115,52 @@ func TestCredentialsBelongToTheAccount(t *testing.T) {
 		t.Fatalf("cy, in another account, got %d %v; want 404", status, body)
 	}
 }
+
+// TestEveryCredentialWrite_NeedsCredentialsManage: with a role that can
+// only read credentials, every read operation gets past the role check
+// and every write is 403 AUTH-4024 (task 2.3a). Spec-driven, so a
+// credential operation added later is covered.
+func TestEveryCredentialWrite_NeedsCredentialsManage(t *testing.T) {
+	access := &tenantaccess.Fake{}
+	r, sender := newTestRouterWithAccess(t, nil, access)
+	signUpVerifyAndSetPassword(t, r, sender, "ada@example.com", "a-strong-password")
+	_, token := signInForTokens(t, r, "ada@example.com", "a-strong-password", "ada-signin")
+	stepUpViaEmail(t, r, sender, token)
+	tenant := uuid.New()
+	access.GrantOnly(uuid.Nil, tenant, "credentials:read")
+	if status, body := doJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", token,
+		map[string]string{"tenant_id": tenant.String()}, "select"); status != http.StatusOK {
+		t.Fatalf("select: %d %v", status, body)
+	}
+
+	const someID = "00000000-0000-0000-0000-000000000000"
+	reads, writes := 0, 0
+	for _, op := range api.LoadSpecOperations(t) {
+		if !strings.HasPrefix(op.Path, "/v1/auth/api-clients") && !strings.HasPrefix(op.Path, "/v1/auth/smpp-accounts") {
+			continue
+		}
+		path := strings.NewReplacer("{id}", someID, "{secretId}", someID).Replace(op.Path)
+		var body []byte
+		if op.HasBody {
+			body = []byte(`{}`)
+		}
+		read := op.Method == http.MethodGet
+		if read {
+			reads++
+		} else {
+			writes++
+		}
+		t.Run(op.OperationID, func(t *testing.T) {
+			status, code := doRaw(t, r, op.Method, path, "Bearer "+token, body)
+			if read && (status == http.StatusForbidden || status >= 500) {
+				t.Fatalf("a read with credentials:read: got %d %q", status, code)
+			}
+			if !read && (status != http.StatusForbidden || code != "AUTH-4024") {
+				t.Fatalf("a write without credentials:manage: got %d %q, want 403 AUTH-4024", status, code)
+			}
+		})
+	}
+	if reads != 4 || writes != 7 {
+		t.Fatalf("checked %d reads and %d writes, want 4 and 7", reads, writes)
+	}
+}

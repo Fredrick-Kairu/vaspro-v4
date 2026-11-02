@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/membership.role_changed.schema.json",
+  "title": "membership.role_changed",
+  "description": "Published by accounts when a member's role changes (task 2.3a; an addition to data model §4's Events table), in the same transaction. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "user_id", "from_role_id", "to_role_id", "changed_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "user_id": {"type": "string", "format": "uuid"},
+    "from_role_id": {"type": "string", "format": "uuid"},
+    "to_role_id": {"type": "string", "format": "uuid"},
+    "changed_by": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

@@ -5,3 +5,6 @@ RETURNING *;
 
 -- name: GetRoleByID :one
 SELECT * FROM accounts.roles WHERE id = $1;
+
+-- name: ListBuiltinRoles :many
+SELECT * FROM accounts.roles WHERE tenant_id IS NULL ORDER BY id;

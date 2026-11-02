@@ -75,7 +75,8 @@ func (s *Service) MakeReseller(ctx context.Context, req MakeResellerRequest) err
 
 // CreateSubAccount creates a sub-account under parentID for one of the
 // reseller's clients (agreed 2 Nov, OQ-04). userID must be an active
-// member of the reseller, and the reseller must still be allowed to
+// member of the reseller whose role allows account:manage, and the
+// reseller must still be allowed to
 // create one (domain.CanCreateSubAccount), checked under a lock on its
 // row so a demotion can't interleave. The sub-account starts in the
 // sandbox and takes the reseller's country, currency, time zone and
@@ -92,7 +93,7 @@ func (s *Service) CreateSubAccount(ctx context.Context, userID, parentID uuid.UU
 	var created *Tenant
 	err = s.pool.WithTenantTx(ctx, parentID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if err := requireMember(ctx, q, parentID, userID); err != nil {
+		if err := requireMemberWith(ctx, q, parentID, userID, domain.PermAccountManage); err != nil {
 			return err
 		}
 		parent, err := q.GetTenantForUpdate(ctx, parentID)
@@ -157,12 +158,12 @@ func (s *Service) CreateSubAccount(ctx context.Context, userID, parentID uuid.UU
 }
 
 // ListSubAccounts returns parentID's sub-accounts, oldest first, if
-// userID is an active member of it.
+// userID's role in it allows account:read.
 func (s *Service) ListSubAccounts(ctx context.Context, userID, parentID uuid.UUID) ([]*Tenant, error) {
 	var subs []*Tenant
 	err := s.pool.WithTenantTx(ctx, parentID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if err := requireMember(ctx, q, parentID, userID); err != nil {
+		if err := requireMemberWith(ctx, q, parentID, userID, domain.PermAccountRead); err != nil {
 			return err
 		}
 		rows, err := q.ListSubAccounts(ctx, pgtype.UUID{Bytes: parentID, Valid: true})

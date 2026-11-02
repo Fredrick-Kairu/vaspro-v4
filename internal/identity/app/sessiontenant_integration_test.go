@@ -89,7 +89,7 @@ func TestSessionTenant(t *testing.T) {
 	ada, session := signIn(t, ctx, svc, sender, "ada@example.com")
 	tenant := uuid.New()
 
-	if _, err := svc.SessionTenant(ctx, ada, session); !errors.Is(err, app.ErrNoTenantSelected) {
+	if _, err := svc.SessionTenant(ctx, ada, session, ""); !errors.Is(err, app.ErrNoTenantSelected) {
 		t.Fatalf("before selecting: got %v, want ErrNoTenantSelected", err)
 	}
 
@@ -97,7 +97,7 @@ func TestSessionTenant(t *testing.T) {
 	if err := svc.SelectSessionTenant(ctx, ada, session, tenant); err != nil {
 		t.Fatal(err)
 	}
-	got, err := svc.SessionTenant(ctx, ada, session)
+	got, err := svc.SessionTenant(ctx, ada, session, "")
 	if err != nil || got != tenant {
 		t.Fatalf("after selecting: got %s, %v; want %s", got, err, tenant)
 	}
@@ -106,14 +106,32 @@ func TestSessionTenant(t *testing.T) {
 		boom := errors.New("accounts unreachable")
 		access.FailWith(boom)
 		defer access.FailWith(nil)
-		if _, err := svc.SessionTenant(ctx, ada, session); !errors.Is(err, boom) || errors.Is(err, app.ErrNoTenantSelected) {
+		if _, err := svc.SessionTenant(ctx, ada, session, ""); !errors.Is(err, boom) || errors.Is(err, app.ErrNoTenantSelected) {
 			t.Fatalf("got %v, want the accounts error", err)
 		}
 	})
 	t.Run("removing the member takes effect at once", func(t *testing.T) {
 		access.Revoke(ada, tenant)
-		if _, err := svc.SessionTenant(ctx, ada, session); !errors.Is(err, app.ErrNoTenantSelected) {
+		if _, err := svc.SessionTenant(ctx, ada, session, ""); !errors.Is(err, app.ErrNoTenantSelected) {
 			t.Fatalf("got %v, want ErrNoTenantSelected", err)
 		}
 	})
+}
+
+func TestSessionTenant_Permission(t *testing.T) {
+	access := &tenantaccess.Fake{}
+	svc, _, sender, _, _ := newTestServiceWith(t, nil, access)
+	ctx := context.Background()
+	ada, session := signIn(t, ctx, svc, sender, "ada@example.com")
+	tenant := uuid.New()
+	access.GrantOnly(ada, tenant, "credentials:read")
+	if err := svc.SelectSessionTenant(ctx, ada, session, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.SessionTenant(ctx, ada, session, "credentials:read"); err != nil || got != tenant {
+		t.Fatalf("a permission the role has: got %s, %v", got, err)
+	}
+	if _, err := svc.SessionTenant(ctx, ada, session, "credentials:manage"); !errors.Is(err, app.ErrPermissionDenied) {
+		t.Fatalf("a permission the role lacks: got %v, want ErrPermissionDenied", err)
+	}
 }

@@ -132,6 +132,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4024
+    status: 403
+    title: Your role doesn't allow this
+    cause: You are a member of this account, but your role doesn't include the permission this action needs.
+    fix: Ask an Admin of the account for a role that allows it.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
@@ -177,6 +185,14 @@ codes:
     title: Resource not found
     cause: The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.
     fix: Check the ID and retry; the resource may have been deleted or never belonged to this account.
+    retryable: false
+    billable: false
+
+  - code: VAL-4004
+    status: 409
+    title: An account needs an Admin
+    cause: This change would leave the account without an active Admin.
+    fix: Make another member an Admin first.
     retryable: false
     billable: false
 

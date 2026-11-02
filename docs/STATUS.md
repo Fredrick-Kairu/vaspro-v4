@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.2 done (2.2c, 2026-11-02). Next: 2.3 memberships, roles and invitations. Also done: 2.1, 2.5, the testkit readiness fix, 1.16.
+**Current task:** 2.3a done (2026-11-02). Next: 2.3b invitations. Also done: 2.1, 2.2, 2.5, the testkit readiness fix, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -222,6 +222,41 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
       - other gateway tests talk to an in-process allow-all accounts fake.
     - **Mutation-checked:** skipping the per-call re-check failed the immediate-removal and fail-closed tests; falling back to the user's ID with no selection failed the spec-driven AUTH-4023 test.
     - **Order of work:** the accounts gRPC and identity app tests were seen failing against stubs first. The API and gateway tests could only compile once the handlers existed.
+
+- 2.3a Roles, permissions and member management. Your answers of 2 Nov are recorded as OQ-05.
+  - **Rules** (`internal/accounts/domain/permissions.go`, pure):
+    - **Permission catalogue:** `account:read/manage`, `members:read/manage`, `credentials:read/manage`, and `billing:read/manage` (reserved, enforced by nothing yet).
+    - **Built-in roles** (fixed IDs):
+      - Admin `*`;
+      - Developer: credentials plus read;
+      - Finance: billing plus read;
+      - Viewer: read only.
+    - `Allows`: `*` covers only catalogue names, and a name outside the catalogue is never allowed (a typo fails closed).
+    - `CheckMembershipChange`: changing roles and removing others needs `members:manage`; anyone may leave; only built-in roles can be assigned; the last active Admin can't be demoted, removed or leave.
+  - **Enforcement:**
+    - accounts: `getTenant` and `listSubAccounts` need `account:read`, `createSubAccount` needs `account:manage`. For a sub-account the caller's role in the reseller applies (`app.authorize`, which replaces the plain membership check).
+    - A member without the permission gets the new **AUTH-4024** (403); a non-member is still 404.
+    - `CheckTenantAccess` gains `permission`: PERMISSION_DENIED when the role lacks it, INVALID_ARGUMENT for an unknown name.
+    - identity's credential reads need `credentials:read` and every write `credentials:manage`, through `SessionTenant`, so a Viewer can see but not create or rotate API clients.
+  - **Member management** (accounts API): `listRoles`, `listMembers`, `updateMember` (role), `removeMember` (also leaving), and `listMyMemberships`.
+    - Role changes and removals lock the account row, so two Admins can't demote each other at once.
+    - Demoting or removing the last Admin is the new **VAL-4004** (409).
+    - Events: `membership.removed` (data model) and `membership.role_changed` (an addition).
+    - Member listings show user IDs only; names and emails need identity's gRPC, which arrives with 2.3b.
+  - **"My accounts"** reads memberships across accounts as a new NOLOGIN role `accounts_membership_lookup`, granted `WITH INHERIT FALSE` and used only inside `WithRoleTx` with `app.user_id` set. Its policies show only that user's memberships and those accounts' rows.
+    - Migration `20261103090000_roles_and_membership_lookup.sql` seeds Developer, Finance and Viewer, and creates the role. It's a deviation from data model §4, flagged in 2.1. No data changes.
+    - **Deployment note:** the service's login role needs `GRANT accounts_membership_lookup TO <role> WITH INHERIT FALSE` wherever it isn't the role that runs migrations. The test harnesses do this.
+  - **Tests:**
+    - domain: the **role × permission matrix** (4 roles × 8 permissions, each written out; it fails if the catalogue or the roles grow without updating it), `Allows`, and the membership rules;
+    - store: the seeded roles equal `domain.BuiltinRoles`; the lookup role sees only the caller's memberships, nothing with no user set, and nothing outside `WithRoleTx`;
+    - app: list, change and remove members; last-Admin refusals; a Developer can't manage members; a Viewer can't create sub-accounts but reads them through the reseller; `CheckAccess` cases; my memberships across accounts without removed ones; schema-valid events;
+    - accounts gRPC: permission cases;
+    - accounts API: every new route's codes;
+    - identity: `SessionTenant` with a permission; **spec-driven:** with only `credentials:read`, the 4 read operations pass the role check and all 7 writes get AUTH-4024;
+    - gateway e2e: the creator is the only member and Admin, can't leave (409), and sees the account in "my accounts".
+    - **Order of work:** the domain, app and gRPC tests were seen failing first; the API tests compiled only once the handlers existed.
+    - **Mutation-checked:** removing the last-Admin check failed the domain and app tests; letting `*` allow names outside the catalogue failed `TestAllows` (`app.authorize` also rejects unknown names before `Allows`, so the gRPC and app tests stayed green); ignoring the permission in `SessionTenant` failed the app test and the spec-driven AUTH-4024 test.
+  - **`make check`:** the first run failed in three packages with `postgres not ready after 30s ... connection refused`. Three Postgres containers' port forwards never came up during a run that started about 300 containers on an 8 GB Docker VM. The readiness wait reported it clearly, but it can't fix a forward that never opens. The rerun was green. This looks like Docker running out of resources under the full parallel run. Limiting package parallelism for `test-int` (for example `go test -p 4`) is the likely fix, as its own small task.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

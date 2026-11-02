@@ -12,13 +12,18 @@ service AccountsService {
   // (task 2.2b). Identity calls it when a session selects an account
   // and again before each use of that account's credentials, so a
   // removed member loses access at once (task 2.2c, decision Q2). No
-  // access and no such account are NOT_FOUND alike.
+  // access and no such account are NOT_FOUND alike. With a permission
+  // (task 2.3a), a member whose role lacks it is PERMISSION_DENIED; a
+  // name outside accounts' catalogue is INVALID_ARGUMENT.
   rpc CheckTenantAccess(CheckTenantAccessRequest) returns (CheckTenantAccessResponse);
 }
 
 message CheckTenantAccessRequest {
   string user_id = 1;
   string tenant_id = 2;
+  // A permission from accounts' catalogue, such as credentials:manage;
+  // empty asks only whether the user may work in the account.
+  string permission = 3;
 }
 
 message CheckTenantAccessResponse {}

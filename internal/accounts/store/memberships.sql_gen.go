@@ -7,10 +7,28 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const countActiveMembersWithRole = `-- name: CountActiveMembersWithRole :one
+SELECT count(*) FROM accounts.memberships
+WHERE tenant_id = $1 AND role_id = $2 AND status = 'active'
+`
+
+type CountActiveMembersWithRoleParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	RoleID   uuid.UUID `json:"role_id"`
+}
+
+func (q *Queries) CountActiveMembersWithRole(ctx context.Context, arg CountActiveMembersWithRoleParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMembersWithRole, arg.TenantID, arg.RoleID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createMembership = `-- name: CreateMembership :one
 INSERT INTO accounts.memberships (tenant_id, user_id, role_id, status, invited_by)
@@ -91,4 +109,115 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (A
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listMembers = `-- name: ListMembers :many
+SELECT tenant_id, user_id, role_id, status, invited_by, created_at FROM accounts.memberships
+WHERE tenant_id = $1 AND status <> 'removed'
+ORDER BY created_at, user_id
+`
+
+// Removed members aren't shown; oldest first.
+func (q *Queries) ListMembers(ctx context.Context, tenantID uuid.UUID) ([]AccountsMembership, error) {
+	rows, err := q.db.Query(ctx, listMembers, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsMembership
+	for rows.Next() {
+		var i AccountsMembership
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.UserID,
+			&i.RoleID,
+			&i.Status,
+			&i.InvitedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMyMemberships = `-- name: ListMyMemberships :many
+SELECT m.tenant_id, m.role_id, m.status, m.created_at, t.display_name, t.type, t.tier
+FROM accounts.memberships m
+JOIN accounts.tenants t ON t.id = m.tenant_id
+WHERE m.user_id = $1 AND m.status IN ('active', 'invited')
+ORDER BY m.created_at, m.tenant_id
+`
+
+type ListMyMembershipsRow struct {
+	TenantID    uuid.UUID          `json:"tenant_id"`
+	RoleID      uuid.UUID          `json:"role_id"`
+	Status      string             `json:"status"`
+	CreatedAt   time.Time          `json:"created_at"`
+	DisplayName string             `json:"display_name"`
+	Type        AccountsTenantType `json:"type"`
+	Tier        AccountsTier       `json:"tier"`
+}
+
+// Only under the accounts_membership_lookup role (app.MyMemberships),
+// whose policies limit both tables to app.user_id's own memberships.
+func (q *Queries) ListMyMemberships(ctx context.Context, userID uuid.UUID) ([]ListMyMembershipsRow, error) {
+	rows, err := q.db.Query(ctx, listMyMemberships, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMyMembershipsRow
+	for rows.Next() {
+		var i ListMyMembershipsRow
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.RoleID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.DisplayName,
+			&i.Type,
+			&i.Tier,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const removeMembership = `-- name: RemoveMembership :exec
+UPDATE accounts.memberships SET status = 'removed' WHERE tenant_id = $1 AND user_id = $2
+`
+
+type RemoveMembershipParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) RemoveMembership(ctx context.Context, arg RemoveMembershipParams) error {
+	_, err := q.db.Exec(ctx, removeMembership, arg.TenantID, arg.UserID)
+	return err
+}
+
+const updateMembershipRole = `-- name: UpdateMembershipRole :exec
+UPDATE accounts.memberships SET role_id = $3 WHERE tenant_id = $1 AND user_id = $2
+`
+
+type UpdateMembershipRoleParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	UserID   uuid.UUID `json:"user_id"`
+	RoleID   uuid.UUID `json:"role_id"`
+}
+
+func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) error {
+	_, err := q.db.Exec(ctx, updateMembershipRole, arg.TenantID, arg.UserID, arg.RoleID)
+	return err
 }

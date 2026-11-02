@@ -61,7 +61,7 @@ func TestCheckTenantAccess(t *testing.T) {
 	client, svc, pool := newClient(t)
 	ctx := context.Background()
 
-	owner, removed, stranger := uuid.New(), uuid.New(), uuid.New()
+	owner, removed, stranger, dev, viewer := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	tenant, err := svc.CreateTenant(ctx, owner, domain.NewTenantInput{DisplayName: "Agency", CountryCode: "KE"})
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +69,12 @@ func TestCheckTenantAccess(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'removed')`,
 		tenant.ID, removed, domain.BuiltinAdminRoleID); err != nil {
 		t.Fatal(err)
+	}
+	for user, role := range map[uuid.UUID]uuid.UUID{dev: domain.BuiltinDeveloperRoleID, viewer: domain.BuiltinViewerRoleID} {
+		if _, err := pool.Exec(ctx, `INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'active')`,
+			tenant.ID, user, role); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := svc.ChangeTier(ctx, app.ChangeTierRequest{TenantID: tenant.ID, To: domain.TierFinancial, Reason: "contract", ChangedBy: ptr(uuid.New())}); err != nil {
 		t.Fatal(err)
@@ -84,19 +90,26 @@ func TestCheckTenantAccess(t *testing.T) {
 	cases := []struct {
 		name         string
 		user, tenant string
+		permission   string
 		want         codes.Code
 	}{
-		{"a member", owner.String(), tenant.ID.String(), codes.OK},
-		{"a member of the reseller, for a sub-account", owner.String(), sub.ID.String(), codes.OK},
-		{"a removed member", removed.String(), tenant.ID.String(), codes.NotFound},
-		{"a stranger", stranger.String(), tenant.ID.String(), codes.NotFound},
-		{"an unknown account", owner.String(), uuid.New().String(), codes.NotFound},
-		{"a malformed user id", "not-a-uuid", tenant.ID.String(), codes.InvalidArgument},
-		{"a malformed tenant id", owner.String(), "", codes.InvalidArgument},
+		{"a Developer may manage credentials", dev.String(), tenant.ID.String(), "credentials:manage", codes.OK},
+		{"a Viewer may read credentials", viewer.String(), tenant.ID.String(), "credentials:read", codes.OK},
+		{"a Viewer may not manage credentials", viewer.String(), tenant.ID.String(), "credentials:manage", codes.PermissionDenied},
+		{"a Viewer of the reseller may not manage the sub-account's", viewer.String(), sub.ID.String(), "credentials:manage", codes.PermissionDenied},
+		{"a name outside the catalogue", owner.String(), tenant.ID.String(), "payouts:approve", codes.InvalidArgument},
+		{"a stranger is still not found, whatever the permission", stranger.String(), tenant.ID.String(), "credentials:read", codes.NotFound},
+		{"a member", owner.String(), tenant.ID.String(), "", codes.OK},
+		{"a member of the reseller, for a sub-account", owner.String(), sub.ID.String(), "", codes.OK},
+		{"a removed member", removed.String(), tenant.ID.String(), "", codes.NotFound},
+		{"a stranger", stranger.String(), tenant.ID.String(), "", codes.NotFound},
+		{"an unknown account", owner.String(), uuid.New().String(), "", codes.NotFound},
+		{"a malformed user id", "not-a-uuid", tenant.ID.String(), "", codes.InvalidArgument},
+		{"a malformed tenant id", owner.String(), "", "", codes.InvalidArgument},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := client.CheckTenantAccess(ctx, &accountsv1.CheckTenantAccessRequest{UserId: tc.user, TenantId: tc.tenant})
+			_, err := client.CheckTenantAccess(ctx, &accountsv1.CheckTenantAccessRequest{UserId: tc.user, TenantId: tc.tenant, Permission: tc.permission})
 			if got := status.Code(err); got != tc.want {
 				t.Fatalf("got %v (%v), want %v", got, err, tc.want)
 			}

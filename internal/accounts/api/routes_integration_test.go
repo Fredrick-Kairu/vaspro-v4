@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 )
@@ -209,6 +210,91 @@ func TestSubAccountsAPI(t *testing.T) {
 		}
 		status, got := do(t, r, http.MethodPost, subsPath, ada, "sub-after-demotion", body)
 		if status != http.StatusForbidden || got["code"] != "KYC-4020" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+}
+
+func addMember(t *testing.T, pool *vasdb.Pool, tenant string, user uuid.UUID, role uuid.UUID) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'active')`, tenant, user, role); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMembersAPI(t *testing.T) {
+	r, pool := newRouter(t)
+	admin, viewer, dev, stranger := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	addMember(t, pool, tenant, dev, domain.BuiltinDeveloperRoleID)
+	membersPath := "/v1/accounts/tenants/" + tenant + "/members"
+
+	t.Run("roles lists the four built-in roles", func(t *testing.T) {
+		status, got := do(t, r, http.MethodGet, "/v1/accounts/roles", viewer, "", nil)
+		roles, _ := got["roles"].([]any)
+		if status != http.StatusOK || len(roles) != 4 {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a Viewer lists the members", func(t *testing.T) {
+		status, got := do(t, r, http.MethodGet, membersPath, viewer, "", nil)
+		members, _ := got["members"].([]any)
+		if status != http.StatusOK || len(members) != 3 {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a stranger gets 404 VAL-4003", func(t *testing.T) {
+		if status, got := do(t, r, http.MethodGet, membersPath, stranger, "", nil); status != http.StatusNotFound || got["code"] != "VAL-4003" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a Viewer can't change roles: 403 AUTH-4024", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPatch, membersPath+"/"+dev.String(), viewer, "viewer-patch",
+			map[string]string{"role_id": domain.BuiltinAdminRoleID.String()})
+		if status != http.StatusForbidden || got["code"] != "AUTH-4024" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("the last Admin can't step down: 409 VAL-4004", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPatch, membersPath+"/"+admin.String(), admin, "admin-demote",
+			map[string]string{"role_id": domain.BuiltinViewerRoleID.String()})
+		if status != http.StatusConflict || got["code"] != "VAL-4004" {
+			t.Fatalf("got %d %v", status, got)
+		}
+		if status, got := do(t, r, http.MethodDelete, membersPath+"/"+admin.String(), admin, "admin-leave", nil); status != http.StatusConflict || got["code"] != "VAL-4004" {
+			t.Fatalf("leaving: got %d %v", status, got)
+		}
+	})
+	t.Run("a role that isn't built in is 400 VAL-4000", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPatch, membersPath+"/"+dev.String(), admin, "custom-role",
+			map[string]string{"role_id": uuid.NewString()})
+		if status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("an Admin makes the Developer a Viewer", func(t *testing.T) {
+		status, got := do(t, r, http.MethodPatch, membersPath+"/"+dev.String(), admin, "dev-to-viewer",
+			map[string]string{"role_id": domain.BuiltinViewerRoleID.String()})
+		if status != http.StatusOK || got["role_id"] != domain.BuiltinViewerRoleID.String() {
+			t.Fatalf("got %d %v", status, got)
+		}
+	})
+	t.Run("a member leaves, then can't read the account", func(t *testing.T) {
+		if status, got := do(t, r, http.MethodDelete, membersPath+"/"+viewer.String(), viewer, "viewer-leave", nil); status != http.StatusNoContent {
+			t.Fatalf("got %d %v", status, got)
+		}
+		if status, _ := do(t, r, http.MethodGet, "/v1/accounts/tenants/"+tenant, viewer, "", nil); status != http.StatusNotFound {
+			t.Fatalf("after leaving: got %d", status)
+		}
+	})
+	t.Run("my memberships", func(t *testing.T) {
+		status, got := do(t, r, http.MethodGet, "/v1/accounts/me/memberships", admin, "", nil)
+		list, _ := got["memberships"].([]any)
+		if status != http.StatusOK || len(list) != 1 || list[0].(map[string]any)["tenant_id"] != tenant ||
+			list[0].(map[string]any)["role_id"] != domain.BuiltinAdminRoleID.String() {
 			t.Fatalf("got %d %v", status, got)
 		}
 	})

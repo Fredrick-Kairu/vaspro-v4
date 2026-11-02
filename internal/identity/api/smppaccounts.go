@@ -10,7 +10,7 @@ import (
 )
 
 func (h *Handlers) CreateSmppAccount(ctx context.Context, request CreateSmppAccountRequestObject) (CreateSmppAccountResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -42,7 +42,7 @@ func (h *Handlers) CreateSmppAccount(ctx context.Context, request CreateSmppAcco
 }
 
 func (h *Handlers) ListSmppAccounts(ctx context.Context, request ListSmppAccountsRequestObject) (ListSmppAccountsResponseObject, error) {
-	tenantID, _, err := h.sessionTenant(ctx)
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -58,7 +58,7 @@ func (h *Handlers) ListSmppAccounts(ctx context.Context, request ListSmppAccount
 }
 
 func (h *Handlers) GetSmppAccount(ctx context.Context, request GetSmppAccountRequestObject) (GetSmppAccountResponseObject, error) {
-	tenantID, _, err := h.sessionTenant(ctx)
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -74,7 +74,7 @@ func (h *Handlers) GetSmppAccount(ctx context.Context, request GetSmppAccountReq
 }
 
 func (h *Handlers) UpdateSmppAccountStatus(ctx context.Context, request UpdateSmppAccountStatusRequestObject) (UpdateSmppAccountStatusResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -102,7 +102,7 @@ func (h *Handlers) UpdateSmppAccountStatus(ctx context.Context, request UpdateSm
 }
 
 func (h *Handlers) CreateSmppAccountPassword(ctx context.Context, request CreateSmppAccountPasswordRequestObject) (CreateSmppAccountPasswordResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}

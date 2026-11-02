@@ -105,6 +105,23 @@ func TestGateway_CreateAccountThroughGateway_EndToEnd(t *testing.T) {
 		t.Fatalf("bob selecting ada's account: got %d %v, want 404 VAL-4003", status, got)
 	}
 
+	// Task 2.3a: the creator is the account's only member and its Admin,
+	// and can't leave it without one.
+	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id+"/members", adaToken, nil, "")
+	members, _ := got["members"].([]any)
+	if status != http.StatusOK || len(members) != 1 || members[0].(map[string]any)["role_id"] != "019a0000-0000-7000-8000-000000000001" {
+		t.Fatalf("members: got %d %v, want ada alone as Admin", status, got)
+	}
+	adaID, _ := members[0].(map[string]any)["user_id"].(string)
+	status, got = gwDoJSON(t, r, http.MethodDelete, "/v1/accounts/tenants/"+id+"/members/"+adaID, adaToken, nil, "ada-leave")
+	if status != http.StatusConflict || got["code"] != "VAL-4004" {
+		t.Fatalf("the last Admin leaving: got %d %v, want 409 VAL-4004", status, got)
+	}
+	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/me/memberships", adaToken, nil, "")
+	if mine, _ := got["memberships"].([]any); status != http.StatusOK || len(mine) != 1 || mine[0].(map[string]any)["tenant_id"] != id {
+		t.Fatalf("ada's memberships: got %d %v", status, got)
+	}
+
 	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, "sess_not-a-token", nil, "")
 	if status != http.StatusUnauthorized || got["code"] != "AUTH-4010" {
 		t.Fatalf("garbage session: got %d %v, want 401 AUTH-4010", status, got)

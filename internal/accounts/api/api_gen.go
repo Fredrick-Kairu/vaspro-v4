@@ -15,21 +15,102 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for MemberStatus.
+const (
+	MemberStatusActive  MemberStatus = "active"
+	MemberStatusInvited MemberStatus = "invited"
+)
+
+// Valid indicates whether the value is a known member of the MemberStatus enum.
+func (e MemberStatus) Valid() bool {
+	switch e {
+	case MemberStatusActive:
+		return true
+	case MemberStatusInvited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MyMembershipStatus.
+const (
+	MyMembershipStatusActive  MyMembershipStatus = "active"
+	MyMembershipStatusInvited MyMembershipStatus = "invited"
+)
+
+// Valid indicates whether the value is a known member of the MyMembershipStatus enum.
+func (e MyMembershipStatus) Valid() bool {
+	switch e {
+	case MyMembershipStatusActive:
+		return true
+	case MyMembershipStatusInvited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MyMembershipTier.
+const (
+	MyMembershipTierBusiness  MyMembershipTier = "business"
+	MyMembershipTierFinancial MyMembershipTier = "financial"
+	MyMembershipTierSandbox   MyMembershipTier = "sandbox"
+	MyMembershipTierStarter   MyMembershipTier = "starter"
+)
+
+// Valid indicates whether the value is a known member of the MyMembershipTier enum.
+func (e MyMembershipTier) Valid() bool {
+	switch e {
+	case MyMembershipTierBusiness:
+		return true
+	case MyMembershipTierFinancial:
+		return true
+	case MyMembershipTierSandbox:
+		return true
+	case MyMembershipTierStarter:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MyMembershipType.
+const (
+	MyMembershipTypeDirect     MyMembershipType = "direct"
+	MyMembershipTypeReseller   MyMembershipType = "reseller"
+	MyMembershipTypeSubAccount MyMembershipType = "sub_account"
+)
+
+// Valid indicates whether the value is a known member of the MyMembershipType enum.
+func (e MyMembershipType) Valid() bool {
+	switch e {
+	case MyMembershipTypeDirect:
+		return true
+	case MyMembershipTypeReseller:
+		return true
+	case MyMembershipTypeSubAccount:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TenantStatus.
 const (
-	Active    TenantStatus = "active"
-	Archived  TenantStatus = "archived"
-	Suspended TenantStatus = "suspended"
+	TenantStatusActive    TenantStatus = "active"
+	TenantStatusArchived  TenantStatus = "archived"
+	TenantStatusSuspended TenantStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the TenantStatus enum.
 func (e TenantStatus) Valid() bool {
 	switch e {
-	case Active:
+	case TenantStatusActive:
 		return true
-	case Archived:
+	case TenantStatusArchived:
 		return true
-	case Suspended:
+	case TenantStatusSuspended:
 		return true
 	default:
 		return false
@@ -38,22 +119,22 @@ func (e TenantStatus) Valid() bool {
 
 // Defines values for TenantTier.
 const (
-	Business  TenantTier = "business"
-	Financial TenantTier = "financial"
-	Sandbox   TenantTier = "sandbox"
-	Starter   TenantTier = "starter"
+	TenantTierBusiness  TenantTier = "business"
+	TenantTierFinancial TenantTier = "financial"
+	TenantTierSandbox   TenantTier = "sandbox"
+	TenantTierStarter   TenantTier = "starter"
 )
 
 // Valid indicates whether the value is a known member of the TenantTier enum.
 func (e TenantTier) Valid() bool {
 	switch e {
-	case Business:
+	case TenantTierBusiness:
 		return true
-	case Financial:
+	case TenantTierFinancial:
 		return true
-	case Sandbox:
+	case TenantTierSandbox:
 		return true
-	case Starter:
+	case TenantTierStarter:
 		return true
 	default:
 		return false
@@ -62,23 +143,69 @@ func (e TenantTier) Valid() bool {
 
 // Defines values for TenantType.
 const (
-	Direct     TenantType = "direct"
-	Reseller   TenantType = "reseller"
-	SubAccount TenantType = "sub_account"
+	TenantTypeDirect     TenantType = "direct"
+	TenantTypeReseller   TenantType = "reseller"
+	TenantTypeSubAccount TenantType = "sub_account"
 )
 
 // Valid indicates whether the value is a known member of the TenantType enum.
 func (e TenantType) Valid() bool {
 	switch e {
-	case Direct:
+	case TenantTypeDirect:
 		return true
-	case Reseller:
+	case TenantTypeReseller:
 		return true
-	case SubAccount:
+	case TenantTypeSubAccount:
 		return true
 	default:
 		return false
 	}
+}
+
+// Member defines model for Member.
+type Member struct {
+	CreatedAt time.Time    `json:"created_at"`
+	InvitedBy *string      `json:"invited_by,omitempty"`
+	RoleId    string       `json:"role_id"`
+	Status    MemberStatus `json:"status"`
+	UserId    string       `json:"user_id"`
+}
+
+// MemberStatus defines model for Member.Status.
+type MemberStatus string
+
+// MemberList defines model for MemberList.
+type MemberList struct {
+	Members []Member `json:"members"`
+}
+
+// MemberUpdateRequest defines model for MemberUpdateRequest.
+type MemberUpdateRequest struct {
+	RoleId string `json:"role_id"`
+}
+
+// MyMembership defines model for MyMembership.
+type MyMembership struct {
+	DisplayName string             `json:"display_name"`
+	RoleId      string             `json:"role_id"`
+	Status      MyMembershipStatus `json:"status"`
+	TenantId    string             `json:"tenant_id"`
+	Tier        MyMembershipTier   `json:"tier"`
+	Type        MyMembershipType   `json:"type"`
+}
+
+// MyMembershipStatus defines model for MyMembership.Status.
+type MyMembershipStatus string
+
+// MyMembershipTier defines model for MyMembership.Tier.
+type MyMembershipTier string
+
+// MyMembershipType defines model for MyMembership.Type.
+type MyMembershipType string
+
+// MyMembershipList defines model for MyMembershipList.
+type MyMembershipList struct {
+	Memberships []MyMembership `json:"memberships"`
 }
 
 // Problem defines model for Problem.
@@ -90,6 +217,18 @@ type Problem struct {
 	Status    int     `json:"status"`
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
+}
+
+// Role defines model for Role.
+type Role struct {
+	Id          string   `json:"id"`
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+}
+
+// RoleList defines model for RoleList.
+type RoleList struct {
+	Roles []Role `json:"roles"`
 }
 
 // SubAccountCreateRequest defines model for SubAccountCreateRequest.
@@ -148,8 +287,23 @@ type IdempotencyKey = string
 // TenantID defines model for TenantID.
 type TenantID = string
 
+// UserID defines model for UserID.
+type UserID = string
+
 // CreateTenantParams defines parameters for CreateTenant.
 type CreateTenantParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RemoveMemberParams defines parameters for RemoveMember.
+type RemoveMemberParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdateMemberParams defines parameters for UpdateMember.
+type UpdateMemberParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -163,17 +317,35 @@ type CreateSubAccountParams struct {
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreateRequest
 
+// UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
+type UpdateMemberJSONRequestBody = MemberUpdateRequest
+
 // CreateSubAccountJSONRequestBody defines body for CreateSubAccount for application/json ContentType.
 type CreateSubAccountJSONRequestBody = SubAccountCreateRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListMyMemberships List the accounts the caller belongs to
+	// (GET /v1/accounts/me/memberships)
+	ListMyMemberships(w http.ResponseWriter, r *http.Request)
+	// ListRoles List the built-in roles and their permissions
+	// (GET /v1/accounts/roles)
+	ListRoles(w http.ResponseWriter, r *http.Request)
 	// CreateTenant Create a client account
 	// (POST /v1/accounts/tenants)
 	CreateTenant(w http.ResponseWriter, r *http.Request, params CreateTenantParams)
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(w http.ResponseWriter, r *http.Request, id string)
+	// ListMembers List an account's members
+	// (GET /v1/accounts/tenants/{id}/members)
+	ListMembers(w http.ResponseWriter, r *http.Request, id TenantID)
+	// RemoveMember Remove a member, or leave an account
+	// (DELETE /v1/accounts/tenants/{id}/members/{userId})
+	RemoveMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params RemoveMemberParams)
+	// UpdateMember Change a member's role
+	// (PATCH /v1/accounts/tenants/{id}/members/{userId})
+	UpdateMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params UpdateMemberParams)
 	// ListSubAccounts List a reseller's sub-accounts
 	// (GET /v1/accounts/tenants/{id}/sub-accounts)
 	ListSubAccounts(w http.ResponseWriter, r *http.Request, id TenantID)
@@ -186,6 +358,18 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// ListMyMemberships List the accounts the caller belongs to
+// (GET /v1/accounts/me/memberships)
+func (_ Unimplemented) ListMyMemberships(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListRoles List the built-in roles and their permissions
+// (GET /v1/accounts/roles)
+func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // CreateTenant Create a client account
 // (POST /v1/accounts/tenants)
 func (_ Unimplemented) CreateTenant(w http.ResponseWriter, r *http.Request, params CreateTenantParams) {
@@ -195,6 +379,24 @@ func (_ Unimplemented) CreateTenant(w http.ResponseWriter, r *http.Request, para
 // GetTenant Show a client account the caller belongs to
 // (GET /v1/accounts/tenants/{id})
 func (_ Unimplemented) GetTenant(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListMembers List an account's members
+// (GET /v1/accounts/tenants/{id}/members)
+func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RemoveMember Remove a member, or leave an account
+// (DELETE /v1/accounts/tenants/{id}/members/{userId})
+func (_ Unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params RemoveMemberParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateMember Change a member's role
+// (PATCH /v1/accounts/tenants/{id}/members/{userId})
+func (_ Unimplemented) UpdateMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params UpdateMemberParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -218,6 +420,34 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListMyMemberships operation middleware
+func (siw *ServerInterfaceWrapper) ListMyMemberships(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyMemberships(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // CreateTenant operation middleware
 func (siw *ServerInterfaceWrapper) CreateTenant(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +511,158 @@ func (siw *ServerInterfaceWrapper) GetTenant(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetTenant(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMembers(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveMemberParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMember(w, r, id, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMember operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateMemberParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMember(w, r, id, userId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -495,11 +877,134 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/sub-accounts", wrapper.CreateSubAccount)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/roles", wrapper.ListRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/me/memberships", wrapper.ListMyMemberships)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/members", wrapper.ListMembers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/accounts/tenants/{id}/members/{userId}", wrapper.RemoveMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/accounts/tenants/{id}/members/{userId}", wrapper.UpdateMember)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ListMyMembershipsRequestObject struct {
+}
+
+type ListMyMembershipsResponseObject interface {
+	VisitListMyMembershipsResponse(w http.ResponseWriter) error
+}
+
+type ListMyMemberships200JSONResponse MyMembershipList
+
+func (response ListMyMemberships200JSONResponse) VisitListMyMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyMemberships401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListMyMemberships401ApplicationProblemPlusJSONResponse) VisitListMyMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyMembershipsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListMyMembershipsdefaultApplicationProblemPlusJSONResponse) VisitListMyMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRolesRequestObject struct {
+}
+
+type ListRolesResponseObject interface {
+	VisitListRolesResponse(w http.ResponseWriter) error
+}
+
+type ListRoles200JSONResponse RoleList
+
+func (response ListRoles200JSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoles401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListRoles401ApplicationProblemPlusJSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRolesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListRolesdefaultApplicationProblemPlusJSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type CreateTenantRequestObject struct {
 	Params CreateTenantParams
@@ -629,6 +1134,296 @@ type GetTenantdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetTenantdefaultApplicationProblemPlusJSONResponse) VisitGetTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMembersRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type ListMembersResponseObject interface {
+	VisitListMembersResponse(w http.ResponseWriter) error
+}
+
+type ListMembers200JSONResponse MemberList
+
+func (response ListMembers200JSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMembers401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListMembers401ApplicationProblemPlusJSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMembers403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListMembers403ApplicationProblemPlusJSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMembers404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListMembers404ApplicationProblemPlusJSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMembersdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListMembersdefaultApplicationProblemPlusJSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMemberRequestObject struct {
+	Id     TenantID `json:"id"`
+	UserId UserID   `json:"userId"`
+	Params RemoveMemberParams
+}
+
+type RemoveMemberResponseObject interface {
+	VisitRemoveMemberResponse(w http.ResponseWriter) error
+}
+
+type RemoveMember204Response struct {
+}
+
+func (response RemoveMember204Response) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMember401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RemoveMember401ApplicationProblemPlusJSONResponse) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMember403ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveMember403ApplicationProblemPlusJSONResponse) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMember404ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveMember404ApplicationProblemPlusJSONResponse) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMember409ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveMember409ApplicationProblemPlusJSONResponse) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMemberdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RemoveMemberdefaultApplicationProblemPlusJSONResponse) VisitRemoveMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemberRequestObject struct {
+	Id     TenantID `json:"id"`
+	UserId UserID   `json:"userId"`
+	Params UpdateMemberParams
+	Body   *UpdateMemberJSONRequestBody
+}
+
+type UpdateMemberResponseObject interface {
+	VisitUpdateMemberResponse(w http.ResponseWriter) error
+}
+
+type UpdateMember200JSONResponse Member
+
+func (response UpdateMember200JSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMember400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMember400ApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMember401ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateMember401ApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMember403ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateMember403ApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMember404ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateMember404ApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMember409ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateMember409ApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemberdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateMemberdefaultApplicationProblemPlusJSONResponse) VisitUpdateMemberResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -810,12 +1605,27 @@ func (response CreateSubAccountdefaultApplicationProblemPlusJSONResponse) VisitC
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListMyMemberships List the accounts the caller belongs to
+	// (GET /v1/accounts/me/memberships)
+	ListMyMemberships(ctx context.Context, request ListMyMembershipsRequestObject) (ListMyMembershipsResponseObject, error)
+	// ListRoles List the built-in roles and their permissions
+	// (GET /v1/accounts/roles)
+	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
 	// CreateTenant Create a client account
 	// (POST /v1/accounts/tenants)
 	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error)
+	// ListMembers List an account's members
+	// (GET /v1/accounts/tenants/{id}/members)
+	ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error)
+	// RemoveMember Remove a member, or leave an account
+	// (DELETE /v1/accounts/tenants/{id}/members/{userId})
+	RemoveMember(ctx context.Context, request RemoveMemberRequestObject) (RemoveMemberResponseObject, error)
+	// UpdateMember Change a member's role
+	// (PATCH /v1/accounts/tenants/{id}/members/{userId})
+	UpdateMember(ctx context.Context, request UpdateMemberRequestObject) (UpdateMemberResponseObject, error)
 	// ListSubAccounts List a reseller's sub-accounts
 	// (GET /v1/accounts/tenants/{id}/sub-accounts)
 	ListSubAccounts(ctx context.Context, request ListSubAccountsRequestObject) (ListSubAccountsResponseObject, error)
@@ -861,6 +1671,54 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListMyMemberships operation middleware
+func (sh *strictHandler) ListMyMemberships(w http.ResponseWriter, r *http.Request) {
+	var request ListMyMembershipsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyMemberships(ctx, request.(ListMyMembershipsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyMemberships")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyMembershipsResponseObject); ok {
+		if err := validResponse.VisitListMyMembershipsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRoles operation middleware
+func (sh *strictHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
+	var request ListRolesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoles(ctx, request.(ListRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRolesResponseObject); ok {
+		if err := validResponse.VisitListRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // CreateTenant operation middleware
@@ -915,6 +1773,95 @@ func (sh *strictHandler) GetTenant(w http.ResponseWriter, r *http.Request, id st
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTenantResponseObject); ok {
 		if err := validResponse.VisitGetTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMembers operation middleware
+func (sh *strictHandler) ListMembers(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request ListMembersRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMembers(ctx, request.(ListMembersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMembers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMembersResponseObject); ok {
+		if err := validResponse.VisitListMembersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMember operation middleware
+func (sh *strictHandler) RemoveMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params RemoveMemberParams) {
+	var request RemoveMemberRequestObject
+
+	request.Id = id
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMember(ctx, request.(RemoveMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMemberResponseObject); ok {
+		if err := validResponse.VisitRemoveMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMember operation middleware
+func (sh *strictHandler) UpdateMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params UpdateMemberParams) {
+	var request UpdateMemberRequestObject
+
+	request.Id = id
+	request.UserId = userId
+	request.Params = params
+
+	var body UpdateMemberJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMember(ctx, request.(UpdateMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMemberResponseObject); ok {
+		if err := validResponse.VisitUpdateMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

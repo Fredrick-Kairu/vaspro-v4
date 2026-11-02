@@ -18,12 +18,17 @@ import (
 // AUTH-4023.
 var ErrNoTenantSelected = errors.New("app: no account selected")
 
+// ErrPermissionDenied means the user is in the selected account but
+// their role there doesn't allow this (task 2.3a). api/ maps it to
+// AUTH-4024.
+var ErrPermissionDenied = errors.New("app: the role doesn't allow this")
+
 // SelectSessionTenant sets the account sessionID works in (task 2.2c):
 // API clients and SMPP accounts belong to it from then on. Accounts
 // decides who may work in an account; one the user can't reach, and a
 // session that isn't the user's own active one, are ErrNotFound alike.
 func (s *Service) SelectSessionTenant(ctx context.Context, userID, sessionID, tenantID uuid.UUID) error {
-	if err := s.checkTenantAccess(ctx, userID, tenantID); err != nil {
+	if err := s.checkTenantAccess(ctx, userID, tenantID, ""); err != nil {
 		if errors.Is(err, adapters.ErrNoTenantAccess) {
 			return ErrNotFound
 		}
@@ -46,12 +51,14 @@ func (s *Service) SelectSessionTenant(ctx context.Context, userID, sessionID, te
 
 // SessionTenant returns the account sessionID has selected, asking
 // accounts again on every call so a removed member loses access at
-// once (decision Q2). No selection and lost access are both
-// ErrNoTenantSelected; any other failure, accounts being unreachable
+// once (decision Q2), and whether the user's role there allows
+// permission (task 2.3a; "" for any access). No selection and lost
+// access are both ErrNoTenantSelected; a role without the permission is
+// ErrPermissionDenied; any other failure, accounts being unreachable
 // included, is returned as-is so the caller fails closed. It reads
 // Postgres rather than the session cache: the selection can change
 // while a cached session lives on.
-func (s *Service) SessionTenant(ctx context.Context, userID, sessionID uuid.UUID) (uuid.UUID, error) {
+func (s *Service) SessionTenant(ctx context.Context, userID, sessionID uuid.UUID, permission string) (uuid.UUID, error) {
 	row, err := store.New(s.pool).GetActiveSessionByID(ctx, store.GetActiveSessionByIDParams{ID: sessionID, Now: s.clk.Now()})
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && row.UserID != userID) {
 		return uuid.Nil, ErrNoTenantSelected
@@ -63,18 +70,21 @@ func (s *Service) SessionTenant(ctx context.Context, userID, sessionID uuid.UUID
 		return uuid.Nil, ErrNoTenantSelected
 	}
 	tenantID := uuid.UUID(row.TenantID.Bytes)
-	if err := s.checkTenantAccess(ctx, userID, tenantID); err != nil {
-		if errors.Is(err, adapters.ErrNoTenantAccess) {
+	if err := s.checkTenantAccess(ctx, userID, tenantID, permission); err != nil {
+		switch {
+		case errors.Is(err, adapters.ErrNoTenantAccess):
 			return uuid.Nil, ErrNoTenantSelected
+		case errors.Is(err, adapters.ErrPermissionDenied):
+			return uuid.Nil, ErrPermissionDenied
 		}
 		return uuid.Nil, err
 	}
 	return tenantID, nil
 }
 
-func (s *Service) checkTenantAccess(ctx context.Context, userID, tenantID uuid.UUID) error {
+func (s *Service) checkTenantAccess(ctx context.Context, userID, tenantID uuid.UUID, permission string) error {
 	if s.access == nil {
 		return errors.New("app: account access check isn't configured")
 	}
-	return s.access.CheckTenantAccess(ctx, userID, tenantID)
+	return s.access.CheckTenantAccess(ctx, userID, tenantID, permission)
 }

@@ -30,6 +30,7 @@ const (
 	AUTH4021 Code = "AUTH-4021"
 	AUTH4022 Code = "AUTH-4022"
 	AUTH4023 Code = "AUTH-4023"
+	AUTH4024 Code = "AUTH-4024"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -45,6 +46,7 @@ const (
 	VAL4001  Code = "VAL-4001"
 	VAL4002  Code = "VAL-4002"
 	VAL4003  Code = "VAL-4003"
+	VAL4004  Code = "VAL-4004"
 )
 
 var registry = map[Code]entry{
@@ -149,6 +151,14 @@ var registry = map[Code]entry{
 		Title:     "Select an account you belong to",
 		Cause:     "API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected.",
 		Fix:       "Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4024: {
+		Status:    403,
+		Title:     "Your role doesn't allow this",
+		Cause:     "You are a member of this account, but your role doesn't include the permission this action needs.",
+		Fix:       "Ask an Admin of the account for a role that allows it.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -269,6 +279,14 @@ var registry = map[Code]entry{
 		Title:     "Resource not found",
 		Cause:     "The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.",
 		Fix:       "Check the ID and retry; the resource may have been deleted or never belonged to this account.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4004: {
+		Status:    409,
+		Title:     "An account needs an Admin",
+		Cause:     "This change would leave the account without an active Admin.",
+		Fix:       "Make another member an Admin first.",
 		Retryable: false,
 		Billable:  false,
 	},

@@ -249,13 +249,23 @@ func (h *Handlers) DeleteSessions(ctx context.Context, request DeleteSessionsReq
 	return DeleteSessions204Response{}, nil
 }
 
+// Permissions in accounts' catalogue (task 2.3a) that credential
+// operations need: reads need credentialsRead, every write
+// credentialsManage.
+const (
+	credentialsRead   = "credentials:read"
+	credentialsManage = "credentials:manage"
+)
+
 // sessionTenant is the account this request's session has selected,
-// re-checked with accounts (app.SessionTenant), and the user acting in
-// it. Every API client and SMPP account handler calls it first, so a
-// session with no account selected is AUTH-4023 before anything else.
-func (h *Handlers) sessionTenant(ctx context.Context) (tenantID, userID uuid.UUID, err error) {
+// re-checked with accounts (app.SessionTenant) together with the
+// permission the operation needs, and the user acting in it. Every API
+// client and SMPP account handler calls it first, so a session with no
+// account selected is AUTH-4023, and a role without the permission
+// AUTH-4024, before anything else.
+func (h *Handlers) sessionTenant(ctx context.Context, permission string) (tenantID, userID uuid.UUID, err error) {
 	userID = sessionUserIDFromContext(ctx)
-	tenantID, err = h.app.SessionTenant(ctx, userID, sessionIDFromContext(ctx))
+	tenantID, err = h.app.SessionTenant(ctx, userID, sessionIDFromContext(ctx), permission)
 	return tenantID, userID, err
 }
 
@@ -271,7 +281,7 @@ func (h *Handlers) SelectSessionTenant(ctx context.Context, request SelectSessio
 }
 
 func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientRequestObject) (CreateApiClientResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -303,7 +313,7 @@ func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientR
 }
 
 func (h *Handlers) ListApiClients(ctx context.Context, request ListApiClientsRequestObject) (ListApiClientsResponseObject, error) {
-	tenantID, _, err := h.sessionTenant(ctx)
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -319,7 +329,7 @@ func (h *Handlers) ListApiClients(ctx context.Context, request ListApiClientsReq
 }
 
 func (h *Handlers) GetApiClient(ctx context.Context, request GetApiClientRequestObject) (GetApiClientResponseObject, error) {
-	tenantID, _, err := h.sessionTenant(ctx)
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -347,7 +357,7 @@ func (h *Handlers) GetApiClient(ctx context.Context, request GetApiClientRequest
 }
 
 func (h *Handlers) RevokeApiClient(ctx context.Context, request RevokeApiClientRequestObject) (RevokeApiClientResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -362,7 +372,7 @@ func (h *Handlers) RevokeApiClient(ctx context.Context, request RevokeApiClientR
 }
 
 func (h *Handlers) CreateApiClientSecret(ctx context.Context, request CreateApiClientSecretRequestObject) (CreateApiClientSecretResponseObject, error) {
-	tenantID, userID, err := h.sessionTenant(ctx)
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -378,7 +388,7 @@ func (h *Handlers) CreateApiClientSecret(ctx context.Context, request CreateApiC
 }
 
 func (h *Handlers) RevokeApiClientSecret(ctx context.Context, request RevokeApiClientSecretRequestObject) (RevokeApiClientSecretResponseObject, error) {
-	tenantID, _, err := h.sessionTenant(ctx)
+	tenantID, _, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -521,6 +531,8 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4011, "the two-factor code is invalid or has expired")
 	case errors.Is(err, app.ErrNoTenantSelected):
 		return problem.New(problem.AUTH4023, "select an account you belong to")
+	case errors.Is(err, app.ErrPermissionDenied):
+		return problem.New(problem.AUTH4024, "your role in this account doesn't allow this")
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
 	case errors.Is(err, app.ErrExternalSignInFailed):

@@ -34,7 +34,9 @@ type AccountsServiceClient interface {
 	// (task 2.2b). Identity calls it when a session selects an account
 	// and again before each use of that account's credentials, so a
 	// removed member loses access at once (task 2.2c, decision Q2). No
-	// access and no such account are NOT_FOUND alike.
+	// access and no such account are NOT_FOUND alike. With a permission
+	// (task 2.3a), a member whose role lacks it is PERMISSION_DENIED; a
+	// name outside accounts' catalogue is INVALID_ARGUMENT.
 	CheckTenantAccess(ctx context.Context, in *CheckTenantAccessRequest, opts ...grpc.CallOption) (*CheckTenantAccessResponse, error)
 }
 
@@ -68,7 +70,9 @@ type AccountsServiceServer interface {
 	// (task 2.2b). Identity calls it when a session selects an account
 	// and again before each use of that account's credentials, so a
 	// removed member loses access at once (task 2.2c, decision Q2). No
-	// access and no such account are NOT_FOUND alike.
+	// access and no such account are NOT_FOUND alike. With a permission
+	// (task 2.3a), a member whose role lacks it is PERMISSION_DENIED; a
+	// name outside accounts' catalogue is INVALID_ARGUMENT.
 	CheckTenantAccess(context.Context, *CheckTenantAccessRequest) (*CheckTenantAccessResponse, error)
 	mustEmbedUnimplementedAccountsServiceServer()
 }
