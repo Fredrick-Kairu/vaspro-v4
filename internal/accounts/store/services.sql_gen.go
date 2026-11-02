@@ -38,3 +38,27 @@ func (q *Queries) GetServiceByCode(ctx context.Context, code string) (AccountsSe
 	err := row.Scan(&i.Code, &i.Name, &i.DefaultMinTier)
 	return i, err
 }
+
+const listServices = `-- name: ListServices :many
+SELECT code, name, default_min_tier FROM accounts.services ORDER BY code
+`
+
+func (q *Queries) ListServices(ctx context.Context) ([]AccountsService, error) {
+	rows, err := q.db.Query(ctx, listServices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsService
+	for rows.Next() {
+		var i AccountsService
+		if err := rows.Scan(&i.Code, &i.Name, &i.DefaultMinTier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

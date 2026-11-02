@@ -194,6 +194,58 @@ func (h *Handlers) AcceptInvitation(ctx context.Context, request AcceptInvitatio
 	return AcceptInvitation200JSONResponse(memberResponse(m)), nil
 }
 
+func (h *Handlers) ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	cat, err := h.app.ListServices(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := ServiceCatalogue{
+		Tier:         ServiceCatalogueTier(cat.Tier),
+		RequiredTier: ServiceCatalogueRequiredTier(cat.RequiredTier),
+		Services:     make([]AccountService, len(cat.Services)),
+	}
+	for i := range cat.Services {
+		resp.Services[i] = accountServiceResponse(&cat.Services[i])
+	}
+	return ListServices200JSONResponse(resp), nil
+}
+
+func (h *Handlers) SelectService(ctx context.Context, request SelectServiceRequestObject) (SelectServiceResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	svc, err := h.app.SelectService(ctx, callerFromContext(ctx), tenantID, request.Code)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return SelectService200JSONResponse(accountServiceResponse(svc)), nil
+}
+
+func (h *Handlers) DeselectService(ctx context.Context, request DeselectServiceRequestObject) (DeselectServiceResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.DeselectService(ctx, callerFromContext(ctx), tenantID, request.Code); err != nil {
+		return nil, toProblem(err)
+	}
+	return DeselectService204Response{}, nil
+}
+
+func accountServiceResponse(s *app.AccountService) AccountService {
+	resp := AccountService{Code: s.Code, Name: s.Name, MinTier: AccountServiceMinTier(s.MinTier), Selected: s.Selected, Locked: s.Locked}
+	if s.Selected {
+		status := AccountServiceStatus(s.Status)
+		resp.Status = &status
+	}
+	return resp
+}
+
 func memberResponse(m *app.Member) Member {
 	resp := Member{UserId: m.UserID.String(), RoleId: m.RoleID.String(), Status: MemberStatus(m.Status), CreatedAt: m.CreatedAt}
 	if m.Email != "" {

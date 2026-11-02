@@ -29,6 +29,15 @@ type Pack struct {
 	Numbering   Numbering
 	Tax         Tax
 	SendWindows SendWindows
+	// Services is each service's minimum tier and availability here,
+	// keyed by accounts' service code (task 2.4).
+	Services map[string]ServiceRule
+}
+
+// ServiceRule is one service's rule in a country.
+type ServiceRule struct {
+	MinTier string
+	Enabled bool
 }
 
 type Numbering struct {
@@ -80,6 +89,10 @@ type jsonPack struct {
 			Timezone string `json:"timezone"`
 		} `json:"promotional"`
 	} `json:"send_windows"`
+	Services map[string]struct {
+		MinTier string `json:"min_tier"`
+		Enabled *bool  `json:"enabled"`
+	} `json:"services"`
 }
 
 // Parse validates packYAML against schemaJSON and decodes it into a
@@ -117,7 +130,13 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		return nil, fmt.Errorf("packs: decoding validated pack: %w", err)
 	}
 
+	services := make(map[string]ServiceRule, len(jp.Services))
+	for code, r := range jp.Services {
+		services[code] = ServiceRule{MinTier: r.MinTier, Enabled: r.Enabled == nil || *r.Enabled}
+	}
+
 	return &Pack{
+		Services:    services,
 		Version:     jp.Version,
 		CountryCode: jp.CountryCode,
 		Currency:    money.Currency{Code: jp.Currency.Code, Exponent: jp.Currency.Exponent},

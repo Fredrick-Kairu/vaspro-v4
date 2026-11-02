@@ -64,6 +64,49 @@ func TestParse_RealKEPack_HasTenantDefaults(t *testing.T) {
 	}
 }
 
+// Each service's minimum tier and availability in the country (task
+// 2.4, OQ-06): KE lists the requirements' tier table.
+func TestParse_RealKEPack_HasServiceRules(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{
+		"sms": "starter", "surveys": "starter", "ussd": "starter",
+		"whatsapp": "business", "rewards": "business",
+		"payouts": "financial", "collections": "financial",
+	}
+	if len(p.Services) != len(want) {
+		t.Fatalf("got %d services, want %d: %+v", len(p.Services), len(want), p.Services)
+	}
+	for code, tier := range want {
+		rule, ok := p.Services[code]
+		if !ok || rule.MinTier != tier || !rule.Enabled {
+			t.Errorf("%s: got %+v, want min tier %s, enabled", code, rule, tier)
+		}
+	}
+}
+
+func TestParse_ServiceRule_EnabledDefaultsToTrueAndTierIsChecked(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	base := string(readFile(t, realKEPackPath))
+	base = base[:strings.Index(base, "\nservices:")]
+
+	p, err := packs.Parse(schema, []byte(base+"\nservices:\n  sms:\n    min_tier: business\n  ussd:\n    min_tier: starter\n    enabled: false\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r := p.Services["sms"]; r.MinTier != "business" || !r.Enabled {
+		t.Errorf("sms: %+v, want business and enabled by default", r)
+	}
+	if r := p.Services["ussd"]; r.Enabled {
+		t.Errorf("ussd: %+v, want disabled", r)
+	}
+	if _, err := packs.Parse(schema, []byte(base+"\nservices:\n  sms:\n    min_tier: platinum\n")); err == nil {
+		t.Error("a tier that doesn't exist was accepted")
+	}
+}
+
 func TestParse_MissingRequiredField_RejectedWithClearError(t *testing.T) {
 	schema := readFile(t, realSchemaPath)
 	pack := readFile(t, "testdata/missing_currency.yaml")

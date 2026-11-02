@@ -248,9 +248,20 @@ func assertTierChangedEventValid(t *testing.T, h harness, tenant uuid.UUID) map[
 // data.
 func assertEventValid(t *testing.T, h harness, eventType string, tenant uuid.UUID) map[string]any {
 	t.Helper()
+	return assertEventValidWhere(t, h, eventType, tenant, "", "")
+}
+
+// assertEventValidWhere is assertEventValid for the newest event whose
+// data has field = value (when field isn't empty). The harness clock
+// doesn't move, so several events of one type in a test share a
+// timestamp and "newest" alone can't tell them apart.
+func assertEventValidWhere(t *testing.T, h harness, eventType string, tenant uuid.UUID, field, value string) map[string]any {
+	t.Helper()
 	var payload []byte
 	err := h.super.QueryRow(context.Background(),
-		`SELECT payload FROM outbox_events WHERE event_type = $2 AND aggregate_id = $1 ORDER BY occurred_at DESC LIMIT 1`, tenant, eventType).Scan(&payload)
+		`SELECT payload FROM outbox_events WHERE event_type = $2 AND aggregate_id = $1
+		 AND ($3 = '' OR payload->'data'->>$3 = $4)
+		 ORDER BY occurred_at DESC LIMIT 1`, tenant, eventType, field, value).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("no %s event in the outbox", eventType)
 	}

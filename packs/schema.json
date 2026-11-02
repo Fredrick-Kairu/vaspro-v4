@@ -26,6 +26,22 @@
       "pattern": "^[a-z0-9-]+$",
       "description": "Data residency tag a new account in this country starts with (accounts.tenants.region). Hosting is still OD-02; task 2.10 builds the residency rules."
     },
+    "services": {
+      "type": "object",
+      "description": "Each service's minimum KYC tier and availability in this country (task 2.4, OQ-06), keyed by accounts' service code. accounts syncs it into service_country_rules; a service not listed uses the catalogue default and is enabled.",
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "object",
+          "required": ["min_tier"],
+          "additionalProperties": false,
+          "properties": {
+            "min_tier": { "type": "string", "enum": ["sandbox", "starter", "business", "financial"] },
+            "enabled": { "type": "boolean", "default": true }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "currency": {
       "type": "object",
       "required": ["code", "exponent"],

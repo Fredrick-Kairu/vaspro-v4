@@ -34,3 +34,22 @@ send_windows:
     start: "08:00"
     end: "20:00"
     timezone: Africa/Nairobi
+
+# Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
+# requirements' tier table. accounts syncs these into
+# service_country_rules at startup.
+services:
+  sms:
+    min_tier: starter
+  surveys:
+    min_tier: starter
+  ussd:
+    min_tier: starter
+  whatsapp:
+    min_tier: business
+  rewards:
+    min_tier: business
+  payouts:
+    min_tier: financial
+  collections:
+    min_tier: financial

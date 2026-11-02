@@ -127,6 +127,20 @@ func TestGateway_CreateAccountThroughGateway_EndToEnd(t *testing.T) {
 		t.Fatalf("ada's memberships: got %d %v", status, got)
 	}
 
+	// Task 2.4: onboarding picks SMS and USSD; in the sandbox both are
+	// locked and report the tier they need in Kenya (from packs/ke,
+	// synced when accounts started).
+	for _, code := range []string{"sms", "ussd"} {
+		status, got = gwDoJSON(t, r, http.MethodPut, "/v1/accounts/tenants/"+id+"/services/"+code, adaToken, nil, "select-"+code)
+		if status != http.StatusOK || got["locked"] != true || got["min_tier"] != "starter" {
+			t.Fatalf("selecting %s: got %d %v", code, status, got)
+		}
+	}
+	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id+"/services", adaToken, nil, "")
+	if status != http.StatusOK || got["required_tier"] != "starter" {
+		t.Fatalf("the catalogue: got %d %v, want starter required", status, got)
+	}
+
 	status, got = gwDoJSON(t, r, http.MethodGet, "/v1/accounts/tenants/"+id, "sess_not-a-token", nil, "")
 	if status != http.StatusUnauthorized || got["code"] != "AUTH-4010" {
 		t.Fatalf("garbage session: got %d %v, want 401 AUTH-4010", status, got)

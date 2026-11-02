@@ -37,7 +37,8 @@ type ChangeTierRequest struct {
 // (domain.ValidateTierChange), then writes the new tier, its
 // tier_changes row and a tenant.tier_changed event together; the
 // tenants_tier_change_recorded trigger refuses the tier update without
-// that row. A refused change writes nothing. ChangedBy is trusted as a
+// that row. The account's selected services follow the new tier in the
+// same transaction (task 2.4). A refused change writes nothing. ChangedBy is trusted as a
 // staff member here; the API that exposes staff changes checks the
 // staff role (task 2.9).
 func (s *Service) ChangeTier(ctx context.Context, req ChangeTierRequest) error {
@@ -90,6 +91,9 @@ func (s *Service) ChangeTier(ctx context.Context, req ChangeTierRequest) error {
 			ChangedBy:  optionalUUID(req.ChangedBy),
 		}); err != nil {
 			return fmt.Errorf("app: recording tier change: %w", err)
+		}
+		if err := s.reevaluateServices(ctx, q, tx, req.TenantID, tenant.CountryCode, req.To); err != nil {
+			return err
 		}
 
 		data := map[string]any{

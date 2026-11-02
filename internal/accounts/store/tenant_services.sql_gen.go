@@ -36,6 +36,23 @@ func (q *Queries) CreateTenantService(ctx context.Context, arg CreateTenantServi
 	return i, err
 }
 
+const deleteTenantService = `-- name: DeleteTenantService :execrows
+DELETE FROM accounts.tenant_services WHERE tenant_id = $1 AND service_code = $2
+`
+
+type DeleteTenantServiceParams struct {
+	TenantID    uuid.UUID `json:"tenant_id"`
+	ServiceCode string    `json:"service_code"`
+}
+
+func (q *Queries) DeleteTenantService(ctx context.Context, arg DeleteTenantServiceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTenantService, arg.TenantID, arg.ServiceCode)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getTenantService = `-- name: GetTenantService :one
 SELECT tenant_id, service_code, status, selected_at, enabled_at FROM accounts.tenant_services WHERE tenant_id = $1 AND service_code = $2
 `
@@ -56,4 +73,53 @@ func (q *Queries) GetTenantService(ctx context.Context, arg GetTenantServicePara
 		&i.EnabledAt,
 	)
 	return i, err
+}
+
+const listTenantServices = `-- name: ListTenantServices :many
+SELECT tenant_id, service_code, status, selected_at, enabled_at FROM accounts.tenant_services WHERE tenant_id = $1 ORDER BY service_code
+`
+
+func (q *Queries) ListTenantServices(ctx context.Context, tenantID uuid.UUID) ([]AccountsTenantService, error) {
+	rows, err := q.db.Query(ctx, listTenantServices, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsTenantService
+	for rows.Next() {
+		var i AccountsTenantService
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ServiceCode,
+			&i.Status,
+			&i.SelectedAt,
+			&i.EnabledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setTenantServiceStatus = `-- name: SetTenantServiceStatus :exec
+UPDATE accounts.tenant_services
+SET status = $1,
+    enabled_at = CASE WHEN $1::text = 'enabled' THEN now() ELSE NULL END
+WHERE tenant_id = $2 AND service_code = $3
+`
+
+type SetTenantServiceStatusParams struct {
+	Status      string    `json:"status"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+	ServiceCode string    `json:"service_code"`
+}
+
+// enabled_at is set on enabling and cleared on locking.
+func (q *Queries) SetTenantServiceStatus(ctx context.Context, arg SetTenantServiceStatusParams) error {
+	_, err := q.db.Exec(ctx, setTenantServiceStatus, arg.Status, arg.TenantID, arg.ServiceCode)
+	return err
 }

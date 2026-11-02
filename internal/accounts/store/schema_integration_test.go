@@ -143,7 +143,7 @@ func TestRowLevelSecurity_TenantOwnedTables(t *testing.T) {
 
 	// Global fixtures, inserted as superuser: a service code and a
 	// built-in role (tenant_id NULL), which every tenant can reference.
-	if _, err := db.super.Exec(ctx, `INSERT INTO services (code, name, default_min_tier) VALUES ('sms', 'SMS', 'starter')`); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO services (code, name, default_min_tier) VALUES ('fixture_service', 'Fixture service', 'starter')`); err != nil {
 		t.Fatalf("insert service: %v", err)
 	}
 	builtinRole := uuid.New()
@@ -169,7 +169,7 @@ func TestRowLevelSecurity_TenantOwnedTables(t *testing.T) {
 			return err
 		}},
 		{"tenant_services", func(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
-			_, err := tx.Exec(ctx, `INSERT INTO tenant_services (tenant_id, service_code, status) VALUES ($1, 'sms', 'selected')`, tenant)
+			_, err := tx.Exec(ctx, `INSERT INTO tenant_services (tenant_id, service_code, status) VALUES ($1, 'fixture_service', 'selected')`, tenant)
 			return err
 		}},
 		{"business_profiles", func(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
@@ -402,7 +402,7 @@ func TestConstraints_RejectInvalidValues(t *testing.T) {
 	if _, err := db.super.Exec(ctx, `INSERT INTO roles (id, name, permissions) VALUES ($1, 'Fixture built-in', '{}')`, role); err != nil {
 		t.Fatalf("insert role: %v", err)
 	}
-	if _, err := db.super.Exec(ctx, `INSERT INTO services (code, name, default_min_tier) VALUES ('sms', 'SMS', 'starter')`); err != nil {
+	if _, err := db.super.Exec(ctx, `INSERT INTO services (code, name, default_min_tier) VALUES ('fixture_service', 'Fixture service', 'starter')`); err != nil {
 		t.Fatalf("insert service: %v", err)
 	}
 
@@ -415,7 +415,7 @@ func TestConstraints_RejectInvalidValues(t *testing.T) {
 		{"tenants: a sub-account needs a parent", `UPDATE tenants SET type = 'sub_account' WHERE id = $1`, []any{tenant}},
 		{"tenants: only a sub-account has a parent", `INSERT INTO tenants (id, type, parent_tenant_id, display_name, country_code, timezone, default_currency, region) VALUES ($1, 'reseller', $2, 'X', 'KE', 'Africa/Nairobi', 'KES', 'ke')`, []any{uuid.New(), tenant}},
 		{"memberships.status", `INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'pending')`, []any{tenant, uuid.New(), role}},
-		{"tenant_services.status", `INSERT INTO tenant_services (tenant_id, service_code, status) VALUES ($1, 'sms', 'disabled')`, []any{tenant}},
+		{"tenant_services.status", `INSERT INTO tenant_services (tenant_id, service_code, status) VALUES ($1, 'fixture_service', 'disabled')`, []any{tenant}},
 		{"tier_caps.period", `INSERT INTO tier_caps (country_code, tier, metric, period, value) VALUES ('KE', 'starter', 'sms_per_day', 'week', 100)`, nil},
 		{"beneficial_owners.role", `INSERT INTO beneficial_owners (id, tenant_id, business_profile_id, full_name, role) VALUES ($1, $2, $3, 'X', 'shareholder')`, []any{uuid.New(), tenant, bp}},
 		{"beneficial_owners.screening_result", `INSERT INTO beneficial_owners (id, tenant_id, business_profile_id, full_name, role, screening_result) VALUES ($1, $2, $3, 'X', 'owner', 'unknown')`, []any{uuid.New(), tenant, bp}},

@@ -394,3 +394,50 @@ func TestInvitationsAPI(t *testing.T) {
 		}
 	})
 }
+
+func TestServicesAPI(t *testing.T) {
+	r, pool := newRouter(t)
+	admin, viewer, stranger := uuid.New(), uuid.New(), uuid.New()
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	servicesPath := "/v1/accounts/tenants/" + tenant + "/services"
+
+	status, got := do(t, r, http.MethodPut, servicesPath+"/sms", admin, "select-sms", nil)
+	if status != http.StatusOK || got["selected"] != true || got["locked"] != true || got["min_tier"] != "starter" || got["status"] != "selected" {
+		t.Fatalf("selecting sms in the sandbox: got %d %v", status, got)
+	}
+	status, got = do(t, r, http.MethodGet, servicesPath, viewer, "", nil)
+	services, _ := got["services"].([]any)
+	if status != http.StatusOK || got["tier"] != "sandbox" || got["required_tier"] != "starter" || len(services) != 7 {
+		t.Fatalf("the catalogue: got %d %v", status, got)
+	}
+	for _, s := range services {
+		if m := s.(map[string]any); m["code"] == "ussd" && (m["selected"] != false || m["status"] != nil) {
+			t.Fatalf("an unselected service: %v", m)
+		}
+	}
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		user   uuid.UUID
+		status int
+		code   string
+	}{
+		{"a Viewer can't select", http.MethodPut, servicesPath + "/ussd", viewer, http.StatusForbidden, "AUTH-4024"},
+		{"an unknown service", http.MethodPut, servicesPath + "/voice", admin, http.StatusNotFound, "VAL-4003"},
+		{"a stranger", http.MethodGet, servicesPath, stranger, http.StatusNotFound, "VAL-4003"},
+		{"deselecting what isn't selected", http.MethodDelete, servicesPath + "/ussd", admin, http.StatusNotFound, "VAL-4003"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if status, got := do(t, r, tc.method, tc.path, tc.user, "k-"+tc.name, nil); status != tc.status || got["code"] != tc.code {
+				t.Fatalf("got %d %v, want %d %s", status, got, tc.status, tc.code)
+			}
+		})
+	}
+	if status, _ := do(t, r, http.MethodDelete, servicesPath+"/sms", admin, "deselect-sms", nil); status != http.StatusNoContent {
+		t.Fatalf("deselecting sms: got %d", status)
+	}
+}

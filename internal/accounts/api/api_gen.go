@@ -15,6 +15,51 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AccountServiceMinTier.
+const (
+	AccountServiceMinTierBusiness  AccountServiceMinTier = "business"
+	AccountServiceMinTierFinancial AccountServiceMinTier = "financial"
+	AccountServiceMinTierSandbox   AccountServiceMinTier = "sandbox"
+	AccountServiceMinTierStarter   AccountServiceMinTier = "starter"
+)
+
+// Valid indicates whether the value is a known member of the AccountServiceMinTier enum.
+func (e AccountServiceMinTier) Valid() bool {
+	switch e {
+	case AccountServiceMinTierBusiness:
+		return true
+	case AccountServiceMinTierFinancial:
+		return true
+	case AccountServiceMinTierSandbox:
+		return true
+	case AccountServiceMinTierStarter:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccountServiceStatus.
+const (
+	AccountServiceStatusEnabled   AccountServiceStatus = "enabled"
+	AccountServiceStatusSelected  AccountServiceStatus = "selected"
+	AccountServiceStatusSuspended AccountServiceStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the AccountServiceStatus enum.
+func (e AccountServiceStatus) Valid() bool {
+	switch e {
+	case AccountServiceStatusEnabled:
+		return true
+	case AccountServiceStatusSelected:
+		return true
+	case AccountServiceStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberStatus.
 const (
 	MemberStatusActive  MemberStatus = "active"
@@ -96,6 +141,54 @@ func (e MyMembershipType) Valid() bool {
 	}
 }
 
+// Defines values for ServiceCatalogueRequiredTier.
+const (
+	ServiceCatalogueRequiredTierBusiness  ServiceCatalogueRequiredTier = "business"
+	ServiceCatalogueRequiredTierFinancial ServiceCatalogueRequiredTier = "financial"
+	ServiceCatalogueRequiredTierSandbox   ServiceCatalogueRequiredTier = "sandbox"
+	ServiceCatalogueRequiredTierStarter   ServiceCatalogueRequiredTier = "starter"
+)
+
+// Valid indicates whether the value is a known member of the ServiceCatalogueRequiredTier enum.
+func (e ServiceCatalogueRequiredTier) Valid() bool {
+	switch e {
+	case ServiceCatalogueRequiredTierBusiness:
+		return true
+	case ServiceCatalogueRequiredTierFinancial:
+		return true
+	case ServiceCatalogueRequiredTierSandbox:
+		return true
+	case ServiceCatalogueRequiredTierStarter:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceCatalogueTier.
+const (
+	ServiceCatalogueTierBusiness  ServiceCatalogueTier = "business"
+	ServiceCatalogueTierFinancial ServiceCatalogueTier = "financial"
+	ServiceCatalogueTierSandbox   ServiceCatalogueTier = "sandbox"
+	ServiceCatalogueTierStarter   ServiceCatalogueTier = "starter"
+)
+
+// Valid indicates whether the value is a known member of the ServiceCatalogueTier enum.
+func (e ServiceCatalogueTier) Valid() bool {
+	switch e {
+	case ServiceCatalogueTierBusiness:
+		return true
+	case ServiceCatalogueTierFinancial:
+		return true
+	case ServiceCatalogueTierSandbox:
+		return true
+	case ServiceCatalogueTierStarter:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TenantStatus.
 const (
 	TenantStatusActive    TenantStatus = "active"
@@ -161,6 +254,26 @@ func (e TenantType) Valid() bool {
 		return false
 	}
 }
+
+// AccountService defines model for AccountService.
+type AccountService struct {
+	Code string `json:"code"`
+
+	// Locked Selected, but the account's tier is below min_tier.
+	Locked   bool                  `json:"locked"`
+	MinTier  AccountServiceMinTier `json:"min_tier"`
+	Name     string                `json:"name"`
+	Selected bool                  `json:"selected"`
+
+	// Status Only for a selected service.
+	Status *AccountServiceStatus `json:"status,omitempty"`
+}
+
+// AccountServiceMinTier defines model for AccountService.MinTier.
+type AccountServiceMinTier string
+
+// AccountServiceStatus Only for a selected service.
+type AccountServiceStatus string
 
 // InvitationRequest defines model for InvitationRequest.
 type InvitationRequest struct {
@@ -243,6 +356,19 @@ type RoleList struct {
 	Roles []Role `json:"roles"`
 }
 
+// ServiceCatalogue defines model for ServiceCatalogue.
+type ServiceCatalogue struct {
+	RequiredTier ServiceCatalogueRequiredTier `json:"required_tier"`
+	Services     []AccountService             `json:"services"`
+	Tier         ServiceCatalogueTier         `json:"tier"`
+}
+
+// ServiceCatalogueRequiredTier defines model for ServiceCatalogue.RequiredTier.
+type ServiceCatalogueRequiredTier string
+
+// ServiceCatalogueTier defines model for ServiceCatalogue.Tier.
+type ServiceCatalogueTier string
+
 // SubAccountCreateRequest defines model for SubAccountCreateRequest.
 type SubAccountCreateRequest struct {
 	BillingEmail *string `json:"billing_email,omitempty"`
@@ -296,6 +422,9 @@ type TenantCreateRequest struct {
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
+// ServiceCode defines model for ServiceCode.
+type ServiceCode = string
+
 // TenantID defines model for TenantID.
 type TenantID = string
 
@@ -328,6 +457,18 @@ type RemoveMemberParams struct {
 
 // UpdateMemberParams defines parameters for UpdateMember.
 type UpdateMemberParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// DeselectServiceParams defines parameters for DeselectService.
+type DeselectServiceParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// SelectServiceParams defines parameters for SelectService.
+type SelectServiceParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -379,6 +520,15 @@ type ServerInterface interface {
 	// UpdateMember Change a member's role
 	// (PATCH /v1/accounts/tenants/{id}/members/{userId})
 	UpdateMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params UpdateMemberParams)
+	// ListServices The service catalogue for an account
+	// (GET /v1/accounts/tenants/{id}/services)
+	ListServices(w http.ResponseWriter, r *http.Request, id TenantID)
+	// DeselectService Remove a selected service
+	// (DELETE /v1/accounts/tenants/{id}/services/{code})
+	DeselectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params DeselectServiceParams)
+	// SelectService Select a service
+	// (PUT /v1/accounts/tenants/{id}/services/{code})
+	SelectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params SelectServiceParams)
 	// ListSubAccounts List a reseller's sub-accounts
 	// (GET /v1/accounts/tenants/{id}/sub-accounts)
 	ListSubAccounts(w http.ResponseWriter, r *http.Request, id TenantID)
@@ -442,6 +592,24 @@ func (_ Unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, id T
 // UpdateMember Change a member's role
 // (PATCH /v1/accounts/tenants/{id}/members/{userId})
 func (_ Unimplemented) UpdateMember(w http.ResponseWriter, r *http.Request, id TenantID, userId UserID, params UpdateMemberParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListServices The service catalogue for an account
+// (GET /v1/accounts/tenants/{id}/services)
+func (_ Unimplemented) ListServices(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeselectService Remove a selected service
+// (DELETE /v1/accounts/tenants/{id}/services/{code})
+func (_ Unimplemented) DeselectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params DeselectServiceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SelectService Select a service
+// (PUT /v1/accounts/tenants/{id}/services/{code})
+func (_ Unimplemented) SelectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params SelectServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -825,6 +993,158 @@ func (siw *ServerInterfaceWrapper) UpdateMember(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListServices operation middleware
+func (siw *ServerInterfaceWrapper) ListServices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServices(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeselectService operation middleware
+func (siw *ServerInterfaceWrapper) DeselectService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "code" -------------
+	var code ServiceCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", chi.URLParam(r, "code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeselectServiceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeselectService(w, r, id, code, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SelectService operation middleware
+func (siw *ServerInterfaceWrapper) SelectService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "code" -------------
+	var code ServiceCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", chi.URLParam(r, "code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SelectServiceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SelectService(w, r, id, code, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSubAccounts operation middleware
 func (siw *ServerInterfaceWrapper) ListSubAccounts(w http.ResponseWriter, r *http.Request) {
 
@@ -1050,6 +1370,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/accounts/me/memberships/{tenantId}/acceptance", wrapper.AcceptInvitation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/services", wrapper.ListServices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/accounts/tenants/{id}/services/{code}", wrapper.DeselectService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/accounts/tenants/{id}/services/{code}", wrapper.SelectService)
 	})
 
 	return r
@@ -1777,6 +2106,253 @@ func (response UpdateMemberdefaultApplicationProblemPlusJSONResponse) VisitUpdat
 	return err
 }
 
+type ListServicesRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type ListServicesResponseObject interface {
+	VisitListServicesResponse(w http.ResponseWriter) error
+}
+
+type ListServices200JSONResponse ServiceCatalogue
+
+func (response ListServices200JSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListServices401ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListServices403ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListServices404ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServicesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListServicesdefaultApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeselectServiceRequestObject struct {
+	Id     TenantID    `json:"id"`
+	Code   ServiceCode `json:"code"`
+	Params DeselectServiceParams
+}
+
+type DeselectServiceResponseObject interface {
+	VisitDeselectServiceResponse(w http.ResponseWriter) error
+}
+
+type DeselectService204Response struct {
+}
+
+func (response DeselectService204Response) VisitDeselectServiceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeselectService401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response DeselectService401ApplicationProblemPlusJSONResponse) VisitDeselectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeselectService403ApplicationProblemPlusJSONResponse Problem
+
+func (response DeselectService403ApplicationProblemPlusJSONResponse) VisitDeselectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeselectService404ApplicationProblemPlusJSONResponse Problem
+
+func (response DeselectService404ApplicationProblemPlusJSONResponse) VisitDeselectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeselectServicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeselectServicedefaultApplicationProblemPlusJSONResponse) VisitDeselectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectServiceRequestObject struct {
+	Id     TenantID    `json:"id"`
+	Code   ServiceCode `json:"code"`
+	Params SelectServiceParams
+}
+
+type SelectServiceResponseObject interface {
+	VisitSelectServiceResponse(w http.ResponseWriter) error
+}
+
+type SelectService200JSONResponse AccountService
+
+func (response SelectService200JSONResponse) VisitSelectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectService401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SelectService401ApplicationProblemPlusJSONResponse) VisitSelectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectService403ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectService403ApplicationProblemPlusJSONResponse) VisitSelectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectService404ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectService404ApplicationProblemPlusJSONResponse) VisitSelectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectServicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SelectServicedefaultApplicationProblemPlusJSONResponse) VisitSelectServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSubAccountsRequestObject struct {
 	Id TenantID `json:"id"`
 }
@@ -1974,6 +2550,15 @@ type StrictServerInterface interface {
 	// UpdateMember Change a member's role
 	// (PATCH /v1/accounts/tenants/{id}/members/{userId})
 	UpdateMember(ctx context.Context, request UpdateMemberRequestObject) (UpdateMemberResponseObject, error)
+	// ListServices The service catalogue for an account
+	// (GET /v1/accounts/tenants/{id}/services)
+	ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error)
+	// DeselectService Remove a selected service
+	// (DELETE /v1/accounts/tenants/{id}/services/{code})
+	DeselectService(ctx context.Context, request DeselectServiceRequestObject) (DeselectServiceResponseObject, error)
+	// SelectService Select a service
+	// (PUT /v1/accounts/tenants/{id}/services/{code})
+	SelectService(ctx context.Context, request SelectServiceRequestObject) (SelectServiceResponseObject, error)
 	// ListSubAccounts List a reseller's sub-accounts
 	// (GET /v1/accounts/tenants/{id}/sub-accounts)
 	ListSubAccounts(ctx context.Context, request ListSubAccountsRequestObject) (ListSubAccountsResponseObject, error)
@@ -2271,6 +2856,88 @@ func (sh *strictHandler) UpdateMember(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateMemberResponseObject); ok {
 		if err := validResponse.VisitUpdateMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListServices operation middleware
+func (sh *strictHandler) ListServices(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request ListServicesRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListServices(ctx, request.(ListServicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListServices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListServicesResponseObject); ok {
+		if err := validResponse.VisitListServicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeselectService operation middleware
+func (sh *strictHandler) DeselectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params DeselectServiceParams) {
+	var request DeselectServiceRequestObject
+
+	request.Id = id
+	request.Code = code
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeselectService(ctx, request.(DeselectServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeselectService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeselectServiceResponseObject); ok {
+		if err := validResponse.VisitDeselectServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SelectService operation middleware
+func (sh *strictHandler) SelectService(w http.ResponseWriter, r *http.Request, id TenantID, code ServiceCode, params SelectServiceParams) {
+	var request SelectServiceRequestObject
+
+	request.Id = id
+	request.Code = code
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SelectService(ctx, request.(SelectServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SelectService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SelectServiceResponseObject); ok {
+		if err := validResponse.VisitSelectServiceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

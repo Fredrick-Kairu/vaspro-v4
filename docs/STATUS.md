@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.3 done (2.3b, 2026-11-02). Next: 2.4 service catalogue and selection. Also done: 2.1, 2.2, 2.5, the testkit readiness fix, 1.16.
+**Current task:** 2.4 done (2026-11-02). Next: 2.6 KYC adapter, fake vendor and webhooks. Also done: 2.1, 2.2, 2.3, 2.5, the testkit readiness fix, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -290,6 +290,41 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
       - no session token appears in either log.
     - **Order of work:** identity's app and gRPC tests and accounts' app tests were seen failing first against stubs; the API tests and the e2e compiled only once the handlers existed.
     - **Mutation-checked:** skipping the step-up check failed the app and API tests; accepting from any status failed both; counting invited Admins failed the last-Admin test.
+
+- 2.4 Service catalogue, selection, and the minimum tier per country (OQ-06).
+  - **Catalogue** (migration `20261103120000_seed_services.sql`), the requirements' tier table:
+    - `sms`, `surveys`, `ussd` need starter;
+    - `whatsapp`, `rewards` need business;
+    - `payouts`, `collections` need financial.
+    - Sender IDs, shortcodes and dedicated USSD codes are Phase 12 applications on top of these. Every service works in the sandbox; "enabled" means live use.
+  - **Country rules:**
+    - `packs/schema.json` gains an optional `services` map (code → `min_tier`, `enabled`, defaulting to true), and `platform/packs.Pack.Services` carries it. `packs/ke` lists all seven.
+    - `app.SyncServiceRules`, called at the start of `Run`, upserts each pack's rules into `service_country_rules` and deletes rules the pack dropped. A code outside the catalogue stops startup.
+    - A service missing from a pack uses the catalogue default (`ListServicesForCountry`'s COALESCE).
+  - **Rules** (`domain/services.go`):
+    - `Unlocked`;
+    - `RequiredTier`: the lowest tier unlocking everything selected, the "verification stops there" of system design §2;
+    - `ServiceStatusFor`: selected ↔ enabled follows the tier; suspended is never touched.
+  - **App:**
+    - `ListServices` (`account:read`): the country's available services plus any selected ones, each with `min_tier`, `selected`, `status` and `locked`, plus `tier` and `required_tier`.
+    - `SelectService` (`account:manage`): enabled at once if the tier reaches the minimum, otherwise selected and locked; writes `service.selected` (+ `service.enabled`). Unknown or off in the country is VAL-4003; selecting again changes nothing.
+    - `DeselectService` (`account:manage`): writes `service.deselected`.
+    - `ChangeTier` re-evaluates the account's services in the same transaction, writing `service.enabled` or `service.locked` (enabled_at cleared).
+    - Select, deselect and tier changes all lock the tenant row.
+    - `service.locked` and `service.deselected` are additions to data model §4's events.
+  - **API:** `GET /v1/accounts/tenants/{id}/services`, `PUT` and `DELETE .../services/{code}`. The gateway needed no change.
+  - **Tests:**
+    - domain: every tier × min tier × status, and `RequiredTier`;
+    - packs: KE's seven rules, `enabled` defaulting to true, an unknown tier refused;
+    - app sync: the rules land, a removed rule is deleted, an unknown code is refused, a second run is idempotent;
+    - app selection: in the sandbox SMS and WhatsApp are locked needing starter and business (required business); a service off in the pack is neither listed nor selectable; starter enables SMS but not WhatsApp; a service selected at the tier is enabled at once; a demotion locks SMS again and leaves a suspended one alone; deselecting drops the required tier; a Viewer can list but not select or deselect;
+    - API: the codes and the catalogue's shape;
+    - **gateway e2e:** the real `accounts` process, synced from `packs/ke` at startup, has the account pick SMS and USSD; both are locked needing starter, with starter required. That's the first half of Phase 2's onboarding e2e; the KYC half comes with 2.6.
+    - Two 2.1 store fixtures inserted a service called `sms`, which the seed now provides (`make check` caught the duplicate key). They now use `fixture_service`: a fixture clash like 2.2a's "Admin", not a weakened test.
+    - A test helper changed: `assertEventValidWhere` picks an event by a data field. The harness clock doesn't move, so two `service.selected` events in one test share a timestamp, and "newest" was arbitrary.
+    - **Order of work:** packs, domain and app tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** dropping the re-evaluation in `ChangeTier`, making `RequiredTier` take the minimum, and dropping the sync's delete each failed the intended test.
+  - **Not in 2.4:** tier caps (`tier_caps`, OD-04, Phase 7) and refusing live traffic for a locked service (KYC-4020, from Phase 7's sending services).
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

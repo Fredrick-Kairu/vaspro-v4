@@ -58,11 +58,12 @@ type Config struct {
 
 // Service wires accounts' dependencies together and runs them.
 type Service struct {
-	cfg  Config
-	pool *db.Pool
-	bus  *bus.Bus
-	app  *app.Service
-	rtr  http.Handler
+	cfg   Config
+	pool  *db.Pool
+	bus   *bus.Bus
+	app   *app.Service
+	packs map[string]*packs.Pack
+	rtr   http.Handler
 }
 
 // New builds a Service from already-connected dependencies.
@@ -75,7 +76,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) (*Se
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
-	return &Service{cfg: cfg, pool: pool, bus: b, app: a, rtr: rtr}, nil
+	return &Service{cfg: cfg, pool: pool, bus: b, app: a, packs: loaded, rtr: rtr}, nil
 }
 
 // loadPacks loads every country pack under dir, keyed by country code.
@@ -125,6 +126,11 @@ func relaySubject(eventType string) string { return "accounts." + eventType }
 // Run starts the HTTP and gRPC servers and the outbox relay, and blocks
 // until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
+	// The country packs are the source of each service's minimum tier
+	// per country (task 2.4); a code a pack misspells stops startup.
+	if err := s.app.SyncServiceRules(ctx, s.packs); err != nil {
+		return fmt.Errorf("accounts: syncing service rules from the packs: %w", err)
+	}
 	if err := s.bus.EnsureStream(ctx, "ACCOUNTS_EVENTS", []string{"accounts.>"}); err != nil {
 		return fmt.Errorf("accounts: ensuring stream: %w", err)
 	}

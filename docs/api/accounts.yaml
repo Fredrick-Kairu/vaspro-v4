@@ -362,6 +362,89 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/services:
+    get:
+      operationId: listServices
+      summary: The service catalogue for an account
+      description: >
+        Every service available in the account's country, with the tier
+        it needs there (from the country pack, task 2.4), whether the
+        account selected it, and whether it's locked: selected but above
+        the account's tier. required_tier is the lowest tier that
+        unlocks everything selected (system design §2: verification
+        stops there). Every service works in the sandbox; enabled means
+        live use. Needs account:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The catalogue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCatalogue'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/services/{code}:
+    put:
+      operationId: selectService
+      summary: Select a service
+      description: >
+        Needs account:manage. The service is enabled at once if the
+        account's tier reaches its minimum, otherwise selected and
+        locked until verification reaches it. Selecting it again
+        returns it unchanged. A service that doesn't exist or is off in
+        the account's country is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/ServiceCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The service as the account now has it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountService'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deselectService
+      summary: Remove a selected service
+      description: Needs account:manage. A service that isn't selected is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/ServiceCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -374,6 +457,12 @@ components:
   parameters:
     TenantID:
       name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    ServiceCode:
+      name: code
       in: path
       required: true
       schema:
@@ -462,6 +551,40 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Member'
+    AccountService:
+      type: object
+      required: [code, name, min_tier, selected, locked]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        min_tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        selected:
+          type: boolean
+        status:
+          type: string
+          enum: [selected, enabled, suspended]
+          description: Only for a selected service.
+        locked:
+          type: boolean
+          description: Selected, but the account's tier is below min_tier.
+    ServiceCatalogue:
+      type: object
+      required: [tier, required_tier, services]
+      properties:
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        required_tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountService'
     InvitationRequest:
       type: object
       required: [email, role_id]

@@ -5,3 +5,6 @@ RETURNING *;
 
 -- name: GetServiceByCode :one
 SELECT * FROM accounts.services WHERE code = $1;
+
+-- name: ListServices :many
+SELECT * FROM accounts.services ORDER BY code;

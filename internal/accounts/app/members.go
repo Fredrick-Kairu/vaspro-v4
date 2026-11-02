@@ -305,7 +305,7 @@ func (s *Service) Invite(ctx context.Context, actor, sessionID, tenantID uuid.UU
 			return fmt.Errorf("app: inviting: %w", err)
 		}
 		invited = memberFromRow(row)
-		return s.writeMembershipEvent(ctx, tx, tenantID, "membership.invited", map[string]any{
+		return s.writeTenantEvent(ctx, tx, tenantID, "membership.invited", map[string]any{
 			"tenant_id": tenantID, "user_id": inviteeID, "role_id": roleID, "invited_by": actor,
 		})
 	})
@@ -335,7 +335,7 @@ func (s *Service) AcceptInvitation(ctx context.Context, userID, tenantID uuid.UU
 			return fmt.Errorf("app: accepting: %w", err)
 		}
 		joined = memberFromRow(row)
-		return s.writeMembershipEvent(ctx, tx, tenantID, "membership.joined", map[string]any{
+		return s.writeTenantEvent(ctx, tx, tenantID, "membership.joined", map[string]any{
 			"tenant_id": tenantID, "user_id": userID, "role_id": row.RoleID,
 		})
 	})
@@ -346,7 +346,7 @@ func (s *Service) AcceptInvitation(ctx context.Context, userID, tenantID uuid.UU
 	return &joined, nil
 }
 
-func (s *Service) writeMembershipEvent(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, eventType string, data map[string]any) error {
+func (s *Service) writeTenantEvent(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, eventType string, data map[string]any) error {
 	eventID, err := ids.New()
 	if err != nil {
 		return fmt.Errorf("app: generating event id: %w", err)
