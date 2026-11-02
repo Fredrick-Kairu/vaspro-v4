@@ -5,6 +5,7 @@ package testkit
 import (
 	"context"
 	"testing"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/testcontainers/testcontainers-go"
@@ -36,9 +37,12 @@ func StartRabbitMQ(t *testing.T) *amqp.Connection {
 		t.Fatalf("testkit: failed to get rabbitmq amqp url: %v", err)
 	}
 
-	conn, err := amqp.Dial(url)
-	if err != nil {
-		t.Fatalf("testkit: failed to connect to rabbitmq: %v", err)
+	var conn *amqp.Connection
+	if err := waitUntilReady(ctx, "rabbitmq", readyTimeout, 200*time.Millisecond, func(context.Context) error {
+		conn, err = amqp.Dial(url)
+		return err
+	}); err != nil {
+		t.Fatalf("testkit: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn

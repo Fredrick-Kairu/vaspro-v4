@@ -1,8 +1,8 @@
 # Build status
 
-**Updated:** 2026-10-30
+**Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.2a done (2026-10-30). Next: 2.2b reseller and sub-account types, then 2.2c tenant selection. Also done: 2.1, 2.5, 1.16.
+**Current task:** 2.2a done (2026-10-30), then the testkit readiness fix (2026-11-02). Next: 2.2b reseller and sub-account types, then 2.2c tenant selection. Also done: 2.1, 2.5, 1.16.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -113,7 +113,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - app tests for the write-together path, every refusal writing nothing, a demotion by re-verification, and event schema validation.
     - All were shown failing first (168 domain assertions against a stub; the store and app tests before the trigger and the use case existed).
     - **Mutation-checked:** dropping the trigger's `created_at = now()`, the one-step rule, and the check-status rule each failed the intended test.
-  - **`make check`:** the first run failed on `platform/testkit`'s `TestStartNATS_PublishAndConsumeRoundTrips` (`bus: connecting: EOF`) and passed on rerun. This is the second NATS container-startup flake today. `StartNATSURL` probably returns before the server accepts connections under load: worth a readiness wait in its own small task.
+  - **`make check`:** the first run failed on `platform/testkit`'s `TestStartNATS_PublishAndConsumeRoundTrips` (`bus: connecting: EOF`) and passed on rerun. This is the second NATS container-startup flake today. `StartNATSURL` probably returns before the server accepts connections under load: worth a readiness wait in its own small task (done 2026-11-02, see "testkit readiness" below).
 
 - 2.2a Accounts service, gateway session auth, first gRPC, create account.
   - **gRPC foundation:**
@@ -147,7 +147,14 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Mutation-checked:** removing the header stripping fails the identity spoof test (on accounts, session resolution overwrites the header anyway); dropping `GetTenant`'s membership check fails the non-member test.
     - **Order of work:** the gateway tests were written before the code but first run after it; the mutation checks stand in for showing them fail.
   - Three 2.1 store fixtures named a built-in role "Admin", which the seed now provides; renamed to "Fixture built-in" (a fixture clash, not a weakened test).
-  - **`make check`:** the first run hit another container-startup timeout (Redis in `identity/api`), which passed on rerun. That's three today (NATS twice, Redis once): `testkit`'s container start-up needs a readiness wait, as its own small task.
+  - **`make check`:** the first run hit another container-startup timeout (Redis in `identity/api`), which passed on rerun. That's three today (NATS twice, Redis once): `testkit`'s container start-up needs a readiness wait, as its own small task (done 2026-11-02, see below).
+
+- **testkit readiness** (2026-11-02, not a ROADMAP task). Three `make check` runs on 30 Oct failed on container start-up and passed on rerun. Each time, the container's wait strategy passed before a client on the host could use it:
+  - Postgres: `connection refused` in migrations. The log-line wait is inside the container, and Docker Desktop's port forward can still be down.
+  - NATS: `bus: connecting: EOF`. The module only waits for the port, which Docker Desktop's proxy opens before NATS is serving.
+  - Redis: the module's own port wait gives up after 10s, too short for a loaded Docker daemon.
+  - **Fix:** `testkit.waitUntilReady` (unit-tested: retries, per-attempt timeout, and an error naming the service and its last error). Every `Start*` helper now proves readiness the way its callers connect: a pgx ping, a NATS handshake and flush, a Redis ping, an AMQP dial, within 30s. Redis gets the 60s start-up budget Postgres has.
+  - **Verification:** three full `go test -tags=integration -count=1 ./...` runs in a row, all green (34 packages each), then `make check`. A flake can't be proved gone; if one recurs, the error now names the service and its last connection error.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

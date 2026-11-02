@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver, used only to run goose migrations
 	"github.com/pressly/goose/v3"
 	"github.com/testcontainers/testcontainers-go"
@@ -20,6 +21,11 @@ import (
 )
 
 const postgresTestDatabase = "vaspro_test"
+
+// readyTimeout is how long a Start* helper waits for its container to
+// accept a real client connection after the container's own wait
+// strategy has passed (see waitUntilReady).
+const readyTimeout = 30 * time.Second
 
 // Postgres is a running PostgreSQL test container, connected as its
 // superuser.
@@ -87,6 +93,17 @@ func StartPostgres(t *testing.T, opts ...PostgresOption) *Postgres {
 	port, err := ctr.MappedPort(ctx, "5432/tcp")
 	if err != nil {
 		t.Fatalf("testkit: failed to get postgres port: %v", err)
+	}
+
+	if err := waitUntilReady(ctx, "postgres", readyTimeout, 200*time.Millisecond, func(ctx context.Context) error {
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close(context.Background()) }()
+		return conn.Ping(ctx)
+	}); err != nil {
+		t.Fatalf("testkit: %v", err)
 	}
 
 	if cfg.migrationsDir != "" {

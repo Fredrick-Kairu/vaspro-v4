@@ -5,6 +5,9 @@ package testkit
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/testcontainers/testcontainers-go"
 	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
@@ -43,6 +46,20 @@ func StartNATSURL(t *testing.T) string {
 	url, err := ctr.ConnectionString(ctx)
 	if err != nil {
 		t.Fatalf("testkit: failed to get nats connection string: %v", err)
+	}
+
+	// The nats module only waits for the port to listen, which Docker
+	// Desktop's proxy does before NATS is serving (a client then gets
+	// EOF), so prove a full handshake and round trip.
+	if err := waitUntilReady(ctx, "nats", readyTimeout, 200*time.Millisecond, func(ctx context.Context) error {
+		nc, err := nats.Connect(url, nats.Timeout(probeAttemptTimeout), nats.NoReconnect())
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+		return nc.FlushWithContext(ctx)
+	}); err != nil {
+		t.Fatalf("testkit: %v", err)
 	}
 	return url
 }
