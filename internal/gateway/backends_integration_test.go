@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -196,6 +199,24 @@ func TestGatewayBackends(t *testing.T) {
 			t.Fatalf("starting KYC without a session: got %d %v", status, body)
 		}
 	})
+	t.Run("a 5 MB document upload passes the gateway; 1 MB still bounds everything else", func(t *testing.T) {
+		uploadPath := "/v1/accounts/tenants/" + uuid.NewString() + "/documents"
+		big := append([]byte("%PDF-1.4\n"), make([]byte, 5<<20)...)
+		before := accounts.count()
+		if status, body := sendMultipart(t, gw, uploadPath, "sess_good", "incorporation_cert", big); status != http.StatusOK || accounts.count() != before+1 {
+			t.Fatalf("5 MB upload: got %d %v", status, body)
+		}
+		huge := append([]byte("%PDF-1.4\n"), make([]byte, 12<<20)...)
+		if status, body := sendMultipart(t, gw, uploadPath, "sess_good", "incorporation_cert", huge); status != http.StatusRequestEntityTooLarge || body["code"] != "VAL-4008" || accounts.count() != before+1 {
+			t.Fatalf("12 MB upload: got %d %v, want 413 VAL-4008 before accounts", status, body)
+		}
+		status, _ := send(t, gw, http.MethodPost, "/v1/accounts/tenants",
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "k-big"},
+			map[string]string{"display_name": strings.Repeat("x", 2<<20), "country_code": "KE"})
+		if status < 400 || accounts.count() != before+1 {
+			t.Fatalf("a 2 MB JSON body: got %d, accounts calls %d; want it refused at the gateway", status, accounts.count()-before)
+		}
+	})
 	t.Run("identity routes still go to identity", func(t *testing.T) {
 		before := identity.count()
 		status, _ := send(t, gw, http.MethodPost, "/v1/auth/signups",
@@ -204,4 +225,24 @@ func TestGatewayBackends(t *testing.T) {
 			t.Fatalf("got %d, identity calls %d → %d", status, before, identity.count())
 		}
 	})
+}
+
+// sendMultipart posts a document upload as the dashboard would.
+func sendMultipart(t *testing.T, h http.Handler, path, token, docType string, data []byte) (int, map[string]any) {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	_ = form.WriteField("type", docType)
+	part, _ := form.CreateFormFile("file", "document.pdf")
+	_, _ = part.Write(data)
+	_ = form.Close()
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Idempotency-Key", "k-"+docType+strconv.Itoa(len(data)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var decoded map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+	return rec.Code, decoded
 }

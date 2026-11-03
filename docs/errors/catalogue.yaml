@@ -212,6 +212,30 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4007
+    status: 415
+    title: File type not allowed
+    cause: Documents must be PDF, JPEG or PNG files. The type is read from the file itself, not its name.
+    fix: Upload the document as a PDF, JPEG or PNG.
+    retryable: false
+    billable: false
+
+  - code: VAL-4008
+    status: 413
+    title: File too large
+    cause: Documents are limited to 10 MB.
+    fix: Upload a smaller file, for example a lower-resolution scan.
+    retryable: false
+    billable: false
+
+  - code: VAL-4009
+    status: 422
+    title: File failed the virus scan
+    cause: The virus scanner found something in the file, so it wasn't stored.
+    fix: Scan the file on your side and upload a clean copy.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

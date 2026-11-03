@@ -17,6 +17,8 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	vaslog "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/log"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 )
 
 // HeaderUserID is set by the gateway once it has checked the caller's
@@ -75,7 +77,8 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))
-	r.Use(httpx.BodyLimit(1 << 20))
+	r.Use(refuseOversizedUploads)
+	r.Use(httpx.BodyLimitFunc(bodyLimit))
 
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz(ready...))
@@ -94,6 +97,33 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		},
 	})
 	return r
+}
+
+// bodyLimit is 1 MB for every request but a document upload, which may
+// carry a 10 MB file plus its multipart framing (task 2.8).
+func bodyLimit(r *http.Request) int64 {
+	if isDocumentUpload(r) {
+		return domain.MaxDocumentBytes + 1<<20
+	}
+	return 1 << 20
+}
+
+// refuseOversizedUploads answers an upload whose declared length is over
+// its limit with VAL-4008 before anything reads it; otherwise the
+// first reader (the idempotency middleware hashing the body) would
+// report the cut-off body as unreadable.
+func refuseOversizedUploads(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isDocumentUpload(r) && r.ContentLength > bodyLimit(r) {
+			problem.Respond(w, r, problem.New(problem.VAL4008, "files are limited to 10 MB"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isDocumentUpload(r *http.Request) bool {
+	return r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/accounts/tenants/") && strings.HasSuffix(r.URL.Path, "/documents")
 }
 
 // vendorWebhookPrefix is where KYC vendors post results (task 2.6). A

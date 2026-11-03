@@ -691,7 +691,9 @@ paths:
         business profile and at least one director (VAL-4000). Creates
         a business check that goes to the staff review queue (OQ-08);
         staff decide it, promoting the account to the business tier
-        when it passes (task 2.9). A registration number another
+        when it passes (task 2.9). The country's required documents must
+        be uploaded first (VAL-4000 naming the missing ones; task 2.8),
+        and the check records which it used. A registration number another
         account also uses is flagged for the reviewer, not refused
         (data model §4). One submission at a time: VAL-4006 while one
         is in review or after one passed.
@@ -716,6 +718,114 @@ paths:
         "404":
           $ref: '#/components/responses/Problem'
         "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/documents:
+    post:
+      operationId: uploadDocument
+      summary: Upload a document
+      description: >
+        Needs account:manage (task 2.8, OQ-09). multipart/form-data with
+        type and file, up to 10 MB (VAL-4008); PDF, JPEG or PNG, judged
+        from the file's bytes (VAL-4007). Every file is virus-scanned
+        before it's stored (VAL-4009 when something is found) and
+        encrypted before it reaches object storage. The same file
+        uploaded again returns the existing document (200) instead of
+        storing it twice; it keeps its first type.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+      responses:
+        "201":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        "200":
+          description: The same file was already uploaded; this is that document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "413":
+          $ref: '#/components/responses/Problem'
+        "415":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listDocuments
+      summary: List an account's documents
+      description: Newest first, metadata only. Needs account:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The documents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/documents/{docId}/content:
+    get:
+      operationId: getDocumentContent
+      summary: Download a document
+      description: >
+        The decrypted file. Needs account:manage: identity and company
+        documents are sensitive, so Viewers and Developers can list
+        documents but not open them.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
@@ -859,6 +969,46 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AccountService'
+    DocumentUpload:
+      type: object
+      required: [type, file]
+      properties:
+        type:
+          type: string
+          enum: [national_id, passport, incorporation_cert, tax_certificate, proof_of_address, authorisation_letter]
+        file:
+          type: string
+          format: binary
+    Document:
+      type: object
+      required: [id, type, mime_type, size_bytes, sha256, status, created_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [national_id, passport, incorporation_cert, tax_certificate, proof_of_address, authorisation_letter]
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+        sha256:
+          type: string
+          description: Hex SHA-256 of the file.
+        status:
+          type: string
+          enum: [received, accepted, rejected, expired]
+        created_at:
+          type: string
+          format: date-time
+    DocumentList:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
     BusinessProfileRequest:
       type: object
       required: [registration_number, registered_name]

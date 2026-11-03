@@ -5,6 +5,7 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,10 +21,13 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/store"
+	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/objectstore"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/clamd"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/kycvendor"
 )
@@ -38,9 +42,24 @@ type harness struct {
 	super    *vasdb.Pool
 	identity *identityusers.Fake
 	vendor   *kycvendor.Vendor
+	objects  *objectstore.Store // only from newHarnessWithDocuments
+	scanner  *clamd.Server      // only from newHarnessWithDocuments
 }
 
 func newHarness(t *testing.T) harness {
+	t.Helper()
+	return newHarnessWith(t, false)
+}
+
+// newHarnessWithDocuments is newHarness with real object storage
+// (SeaweedFS) and the fake clamd behind documents (task 2.8); only the
+// tests that need them pay for the container.
+func newHarnessWithDocuments(t *testing.T) harness {
+	t.Helper()
+	return newHarnessWith(t, true)
+}
+
+func newHarnessWith(t *testing.T, documents bool) harness {
 	t.Helper()
 	ctx := context.Background()
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/accounts"))
@@ -72,11 +91,44 @@ func newHarness(t *testing.T) harness {
 	identity := &identityusers.Fake{}
 	vendor := kycvendor.New(kycSecret)
 	t.Cleanup(vendor.Close)
-	svc := app.New(app.Deps{
+	deps := app.Deps{
 		Pool: appPool, Clock: testkit.NewClock(time.Now().UTC()), Packs: map[string]*packs.Pack{"KE": ke},
 		Identity: identity, KYC: adapters.NewFakeVendorProvider(vendor.URL(), kycSecret),
-	})
-	return harness{svc: svc, app: appPool, super: super, identity: identity, vendor: vendor}
+	}
+	var (
+		objects *objectstore.Store
+		fake    *clamd.Server
+	)
+	if documents {
+		cfg := testkit.StartObjectStorage(t)
+		cfg.Bucket = "documents"
+		var err error
+		if objects, err = objectstore.New(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := objects.EnsureBucket(ctx); err != nil {
+			t.Fatal(err)
+		}
+		fake, err = clamd.Start()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(fake.Close)
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			t.Fatal(err)
+		}
+		kms, err := vascrypto.NewLocalKMS(map[string][]byte{"documents": key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		deps.Documents = &app.DocumentDeps{
+			Store: objects, Scanner: adapters.NewClamdScanner(fake.Addr()),
+			Envelope: vascrypto.NewEnvelope(kms), KeyID: "documents",
+		}
+	}
+	svc := app.New(deps)
+	return harness{svc: svc, app: appPool, super: super, identity: identity, vendor: vendor, objects: objects, scanner: fake}
 }
 
 func (h harness) newTenant(t *testing.T, status string) uuid.UUID {

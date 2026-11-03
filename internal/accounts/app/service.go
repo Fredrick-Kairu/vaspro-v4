@@ -31,20 +31,24 @@ type Service struct {
 	// kyc is the KYC vendor's adapter (task 2.6, ADR 0008); nil when
 	// KYC isn't configured.
 	kyc adapters.KYCProvider
+	// documents stores, scans and encrypts uploads (task 2.8); nil when
+	// documents aren't configured.
+	documents *DocumentDeps
 }
 
 // Deps is everything New needs. Packs is every loaded country pack,
 // keyed by country code: a new account takes its currency, time zone
 // and data region from its country's pack.
 type Deps struct {
-	Pool     *db.Pool
-	Clock    clock.Clock
-	Packs    map[string]*packs.Pack
-	Identity adapters.Identity
-	KYC      adapters.KYCProvider
+	Pool      *db.Pool
+	Clock     clock.Clock
+	Packs     map[string]*packs.Pack
+	Identity  adapters.Identity
+	KYC       adapters.KYCProvider
+	Documents *DocumentDeps
 }
 
 // New builds a Service.
 func New(d Deps) *Service {
-	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs, identity: d.Identity, kyc: d.KYC}
+	return &Service{pool: d.Pool, clk: d.Clock, packs: d.Packs, identity: d.Identity, kyc: d.KYC, documents: d.Documents}
 }

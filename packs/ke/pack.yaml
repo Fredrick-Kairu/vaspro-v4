@@ -41,6 +41,12 @@ send_windows:
 kyb:
   registry: BRS
   tax_id_label: KRA PIN
+  # Uploaded before KYB can be submitted (task 2.8): the certificate of
+  # incorporation, the KRA PIN certificate and proof of address.
+  required_documents:
+    - incorporation_cert
+    - tax_certificate
+    - proof_of_address
 
 # Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
 # requirements' tier table. accounts syncs these into

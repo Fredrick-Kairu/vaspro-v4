@@ -8,11 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AccountServiceMinTier.
@@ -102,6 +105,90 @@ func (e BusinessOwnerRequestRole) Valid() bool {
 	}
 }
 
+// Defines values for DocumentStatus.
+const (
+	DocumentStatusAccepted DocumentStatus = "accepted"
+	DocumentStatusExpired  DocumentStatus = "expired"
+	DocumentStatusReceived DocumentStatus = "received"
+	DocumentStatusRejected DocumentStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the DocumentStatus enum.
+func (e DocumentStatus) Valid() bool {
+	switch e {
+	case DocumentStatusAccepted:
+		return true
+	case DocumentStatusExpired:
+		return true
+	case DocumentStatusReceived:
+		return true
+	case DocumentStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DocumentType.
+const (
+	DocumentTypeAuthorisationLetter DocumentType = "authorisation_letter"
+	DocumentTypeIncorporationCert   DocumentType = "incorporation_cert"
+	DocumentTypeNationalId          DocumentType = "national_id"
+	DocumentTypePassport            DocumentType = "passport"
+	DocumentTypeProofOfAddress      DocumentType = "proof_of_address"
+	DocumentTypeTaxCertificate      DocumentType = "tax_certificate"
+)
+
+// Valid indicates whether the value is a known member of the DocumentType enum.
+func (e DocumentType) Valid() bool {
+	switch e {
+	case DocumentTypeAuthorisationLetter:
+		return true
+	case DocumentTypeIncorporationCert:
+		return true
+	case DocumentTypeNationalId:
+		return true
+	case DocumentTypePassport:
+		return true
+	case DocumentTypeProofOfAddress:
+		return true
+	case DocumentTypeTaxCertificate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DocumentUploadType.
+const (
+	DocumentUploadTypeAuthorisationLetter DocumentUploadType = "authorisation_letter"
+	DocumentUploadTypeIncorporationCert   DocumentUploadType = "incorporation_cert"
+	DocumentUploadTypeNationalId          DocumentUploadType = "national_id"
+	DocumentUploadTypePassport            DocumentUploadType = "passport"
+	DocumentUploadTypeProofOfAddress      DocumentUploadType = "proof_of_address"
+	DocumentUploadTypeTaxCertificate      DocumentUploadType = "tax_certificate"
+)
+
+// Valid indicates whether the value is a known member of the DocumentUploadType enum.
+func (e DocumentUploadType) Valid() bool {
+	switch e {
+	case DocumentUploadTypeAuthorisationLetter:
+		return true
+	case DocumentUploadTypeIncorporationCert:
+		return true
+	case DocumentUploadTypeNationalId:
+		return true
+	case DocumentUploadTypePassport:
+		return true
+	case DocumentUploadTypeProofOfAddress:
+		return true
+	case DocumentUploadTypeTaxCertificate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for KycCheckKind.
 const (
 	KycCheckKindBusiness   KycCheckKind = "business"
@@ -125,25 +212,25 @@ func (e KycCheckKind) Valid() bool {
 
 // Defines values for KycCheckStatus.
 const (
-	Expired KycCheckStatus = "expired"
-	Failed  KycCheckStatus = "failed"
-	Passed  KycCheckStatus = "passed"
-	Pending KycCheckStatus = "pending"
-	Review  KycCheckStatus = "review"
+	KycCheckStatusExpired KycCheckStatus = "expired"
+	KycCheckStatusFailed  KycCheckStatus = "failed"
+	KycCheckStatusPassed  KycCheckStatus = "passed"
+	KycCheckStatusPending KycCheckStatus = "pending"
+	KycCheckStatusReview  KycCheckStatus = "review"
 )
 
 // Valid indicates whether the value is a known member of the KycCheckStatus enum.
 func (e KycCheckStatus) Valid() bool {
 	switch e {
-	case Expired:
+	case KycCheckStatusExpired:
 		return true
-	case Failed:
+	case KycCheckStatusFailed:
 		return true
-	case Passed:
+	case KycCheckStatusPassed:
 		return true
-	case Pending:
+	case KycCheckStatusPending:
 		return true
-	case Review:
+	case KycCheckStatusReview:
 		return true
 	default:
 		return false
@@ -427,6 +514,39 @@ type BusinessProfileRequest struct {
 	TaxId *string `json:"tax_id,omitempty"`
 }
 
+// Document defines model for Document.
+type Document struct {
+	CreatedAt time.Time `json:"created_at"`
+	Id        string    `json:"id"`
+	MimeType  string    `json:"mime_type"`
+
+	// Sha256 Hex SHA-256 of the file.
+	Sha256    string         `json:"sha256"`
+	SizeBytes int            `json:"size_bytes"`
+	Status    DocumentStatus `json:"status"`
+	Type      DocumentType   `json:"type"`
+}
+
+// DocumentStatus defines model for Document.Status.
+type DocumentStatus string
+
+// DocumentType defines model for Document.Type.
+type DocumentType string
+
+// DocumentList defines model for DocumentList.
+type DocumentList struct {
+	Documents []Document `json:"documents"`
+}
+
+// DocumentUpload defines model for DocumentUpload.
+type DocumentUpload struct {
+	File openapi_types.File `json:"file"`
+	Type DocumentUploadType `json:"type"`
+}
+
+// DocumentUploadType defines model for DocumentUpload.Type.
+type DocumentUploadType string
+
 // InvitationRequest defines model for InvitationRequest.
 type InvitationRequest struct {
 	Email  string `json:"email"`
@@ -647,6 +767,12 @@ type RemoveBusinessOwnerParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// UploadDocumentParams defines parameters for UploadDocument.
+type UploadDocumentParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateInvitationParams defines parameters for CreateInvitation.
 type CreateInvitationParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -707,6 +833,9 @@ type SetBusinessProfileJSONRequestBody = BusinessProfileRequest
 // AddBusinessOwnerJSONRequestBody defines body for AddBusinessOwner for application/json ContentType.
 type AddBusinessOwnerJSONRequestBody = BusinessOwnerRequest
 
+// UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
+type UploadDocumentMultipartRequestBody = DocumentUpload
+
 // CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
 type CreateInvitationJSONRequestBody = InvitationRequest
 
@@ -751,6 +880,15 @@ type ServerInterface interface {
 	// RemoveBusinessOwner Remove a director, owner or signatory
 	// (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
 	RemoveBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, ownerId string, params RemoveBusinessOwnerParams)
+	// ListDocuments List an account's documents
+	// (GET /v1/accounts/tenants/{id}/documents)
+	ListDocuments(w http.ResponseWriter, r *http.Request, id TenantID)
+	// UploadDocument Upload a document
+	// (POST /v1/accounts/tenants/{id}/documents)
+	UploadDocument(w http.ResponseWriter, r *http.Request, id TenantID, params UploadDocumentParams)
+	// GetDocumentContent Download a document
+	// (GET /v1/accounts/tenants/{id}/documents/{docId}/content)
+	GetDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string)
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams)
@@ -850,6 +988,24 @@ func (_ Unimplemented) AddBusinessOwner(w http.ResponseWriter, r *http.Request, 
 // RemoveBusinessOwner Remove a director, owner or signatory
 // (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
 func (_ Unimplemented) RemoveBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, ownerId string, params RemoveBusinessOwnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListDocuments List an account's documents
+// (GET /v1/accounts/tenants/{id}/documents)
+func (_ Unimplemented) ListDocuments(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UploadDocument Upload a document
+// (POST /v1/accounts/tenants/{id}/documents)
+func (_ Unimplemented) UploadDocument(w http.ResponseWriter, r *http.Request, id TenantID, params UploadDocumentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetDocumentContent Download a document
+// (GET /v1/accounts/tenants/{id}/documents/{docId}/content)
+func (_ Unimplemented) GetDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1301,6 +1457,121 @@ func (siw *ServerInterfaceWrapper) RemoveBusinessOwner(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveBusinessOwner(w, r, id, ownerId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDocuments(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadDocument operation middleware
+func (siw *ServerInterfaceWrapper) UploadDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UploadDocumentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadDocument(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDocumentContent operation middleware
+func (siw *ServerInterfaceWrapper) GetDocumentContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "docId" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "docId", chi.URLParam(r, "docId"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "docId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDocumentContent(w, r, id, docId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2060,6 +2331,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/kyb-submissions", wrapper.SubmitKyb)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/documents", wrapper.ListDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/documents", wrapper.UploadDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/documents/{docId}/content", wrapper.GetDocumentContent)
 	})
 
 	return r
@@ -2839,6 +3119,334 @@ type RemoveBusinessOwnerdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response RemoveBusinessOwnerdefaultApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocumentsRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type ListDocumentsResponseObject interface {
+	VisitListDocumentsResponse(w http.ResponseWriter) error
+}
+
+type ListDocuments200JSONResponse DocumentList
+
+func (response ListDocuments200JSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocuments401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListDocuments401ApplicationProblemPlusJSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocuments403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListDocuments403ApplicationProblemPlusJSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocuments404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListDocuments404ApplicationProblemPlusJSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDocumentsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListDocumentsdefaultApplicationProblemPlusJSONResponse) VisitListDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocumentRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params UploadDocumentParams
+	Body   *multipart.Reader
+}
+
+type UploadDocumentResponseObject interface {
+	VisitUploadDocumentResponse(w http.ResponseWriter) error
+}
+
+type UploadDocument200JSONResponse Document
+
+func (response UploadDocument200JSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument201JSONResponse Document
+
+func (response UploadDocument201JSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UploadDocument400ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument401ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument401ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument403ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument403ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument404ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument404ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument413ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument413ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument415ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument415ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocument422ApplicationProblemPlusJSONResponse Problem
+
+func (response UploadDocument422ApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDocumentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UploadDocumentdefaultApplicationProblemPlusJSONResponse) VisitUploadDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDocumentContentRequestObject struct {
+	Id    TenantID `json:"id"`
+	DocId string   `json:"docId"`
+}
+
+type GetDocumentContentResponseObject interface {
+	VisitGetDocumentContentResponse(w http.ResponseWriter) error
+}
+
+type GetDocumentContent200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetDocumentContent200ApplicationoctetStreamResponse) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetDocumentContent401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetDocumentContent401ApplicationProblemPlusJSONResponse) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDocumentContent403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetDocumentContent403ApplicationProblemPlusJSONResponse) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDocumentContent404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetDocumentContent404ApplicationProblemPlusJSONResponse) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDocumentContentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetDocumentContentdefaultApplicationProblemPlusJSONResponse) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3994,6 +4602,15 @@ type StrictServerInterface interface {
 	// RemoveBusinessOwner Remove a director, owner or signatory
 	// (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
 	RemoveBusinessOwner(ctx context.Context, request RemoveBusinessOwnerRequestObject) (RemoveBusinessOwnerResponseObject, error)
+	// ListDocuments List an account's documents
+	// (GET /v1/accounts/tenants/{id}/documents)
+	ListDocuments(ctx context.Context, request ListDocumentsRequestObject) (ListDocumentsResponseObject, error)
+	// UploadDocument Upload a document
+	// (POST /v1/accounts/tenants/{id}/documents)
+	UploadDocument(ctx context.Context, request UploadDocumentRequestObject) (UploadDocumentResponseObject, error)
+	// GetDocumentContent Download a document
+	// (GET /v1/accounts/tenants/{id}/documents/{docId}/content)
+	GetDocumentContent(ctx context.Context, request GetDocumentContentRequestObject) (GetDocumentContentResponseObject, error)
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(ctx context.Context, request CreateInvitationRequestObject) (CreateInvitationResponseObject, error)
@@ -4353,6 +4970,93 @@ func (sh *strictHandler) RemoveBusinessOwner(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveBusinessOwnerResponseObject); ok {
 		if err := validResponse.VisitRemoveBusinessOwnerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDocuments operation middleware
+func (sh *strictHandler) ListDocuments(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request ListDocumentsRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDocuments(ctx, request.(ListDocumentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDocuments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDocumentsResponseObject); ok {
+		if err := validResponse.VisitListDocumentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadDocument operation middleware
+func (sh *strictHandler) UploadDocument(w http.ResponseWriter, r *http.Request, id TenantID, params UploadDocumentParams) {
+	var request UploadDocumentRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadDocument(ctx, request.(UploadDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadDocument")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadDocumentResponseObject); ok {
+		if err := validResponse.VisitUploadDocumentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDocumentContent operation middleware
+func (sh *strictHandler) GetDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string) {
+	var request GetDocumentContentRequestObject
+
+	request.Id = id
+	request.DocId = docId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDocumentContent(ctx, request.(GetDocumentContentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDocumentContent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDocumentContentResponseObject); ok {
+		if err := validResponse.VisitGetDocumentContentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

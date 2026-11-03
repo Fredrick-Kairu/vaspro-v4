@@ -21,6 +21,7 @@ var (
 	ErrNoBusinessProfile      = errors.New("domain: no business profile")
 	ErrNoDirector             = errors.New("domain: a business needs at least one director")
 	ErrBusinessProfileLocked  = errors.New("domain: the business profile is in review or verified")
+	ErrMissingDocuments       = errors.New("domain: required documents are missing")
 )
 
 // BusinessProfileInput is what a client enters (task 2.7). The registry

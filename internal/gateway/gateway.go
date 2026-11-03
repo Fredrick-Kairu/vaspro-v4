@@ -103,7 +103,8 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))
-	r.Use(httpx.BodyLimit(1 << 20))
+	r.Use(refuseOversizedUploads)
+	r.Use(httpx.BodyLimitFunc(bodyLimit))
 
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz())

@@ -39,8 +39,9 @@ type Pack struct {
 
 // KYB is a country's business verification rule.
 type KYB struct {
-	Registry   string // BRS, BRELA, URSB
-	TaxIDLabel string // KRA PIN, TIN
+	Registry          string   // BRS, BRELA, URSB
+	TaxIDLabel        string   // KRA PIN, TIN
+	RequiredDocuments []string // document types KYB needs uploaded (task 2.8)
 }
 
 // ServiceRule is one service's rule in a country.
@@ -99,8 +100,9 @@ type jsonPack struct {
 		} `json:"promotional"`
 	} `json:"send_windows"`
 	KYB *struct {
-		Registry   string `json:"registry"`
-		TaxIDLabel string `json:"tax_id_label"`
+		Registry          string   `json:"registry"`
+		TaxIDLabel        string   `json:"tax_id_label"`
+		RequiredDocuments []string `json:"required_documents"`
 	} `json:"kyb"`
 	Services map[string]struct {
 		MinTier string `json:"min_tier"`
@@ -150,7 +152,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 
 	var kyb *KYB
 	if jp.KYB != nil {
-		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel}
+		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel, RequiredDocuments: jp.KYB.RequiredDocuments}
 	}
 
 	return &Pack{

@@ -774,7 +774,7 @@ paths:
             schema:
               $ref: '#/components/schemas/GoogleEnrollmentRequest'
             example:
-              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed" # gitleaks:allow (a truncated example, not a token)
       responses:
         "200":
           description: Enrollment started.
@@ -799,7 +799,7 @@ paths:
             schema:
               $ref: '#/components/schemas/GoogleTotpEnrollmentConfirmationRequest'
             example:
-              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed" # gitleaks:allow (a truncated example, not a token)
               code: "042918"
       responses:
         "200":
@@ -825,7 +825,7 @@ paths:
             schema:
               $ref: '#/components/schemas/GoogleEnrollmentRequest'
             example:
-              enrollment_token: "eyJ1c2VyX2lkIjoi...signed"
+              enrollment_token: "eyJ1c2VyX2lkIjoi...signed" # gitleaks:allow (a truncated example, not a token)
       responses:
         "200":
           description: Registration begun.

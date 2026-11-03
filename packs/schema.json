@@ -33,7 +33,13 @@
       "additionalProperties": false,
       "properties": {
         "registry": { "type": "string", "pattern": "^[A-Z]{2,10}$" },
-        "tax_id_label": { "type": "string", "minLength": 1 }
+        "tax_id_label": { "type": "string", "minLength": 1 },
+        "required_documents": {
+          "type": "array",
+          "description": "Document types a KYB submission needs uploaded first (task 2.8).",
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["national_id", "passport", "incorporation_cert", "tax_certificate", "proof_of_address", "authorisation_letter"] }
+        }
       }
     },
     "services": {

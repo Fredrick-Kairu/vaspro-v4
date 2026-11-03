@@ -5,6 +5,7 @@ package accounts
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net"
@@ -17,9 +18,11 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
+	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/httpx"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/objectstore"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/server"
@@ -59,18 +62,31 @@ type Config struct {
 	KYCProvider      string `env:"ACCOUNTS_KYC_PROVIDER" envDefault:"fake"`
 	KYCFakeURL       string `env:"ACCOUNTS_KYC_FAKE_URL"`
 	KYCWebhookSecret string `env:"ACCOUNTS_KYC_WEBHOOK_SECRET"`
+	// Documents (task 2.8, OQ-09): S3-compatible object storage, the
+	// 32-byte base64 key documents are sealed under before they're
+	// stored, and clamd for virus scanning. With no endpoint, documents
+	// are off; with an endpoint, the key and clamd are required, so
+	// nothing is ever stored unencrypted or unscanned.
+	ObjectStorageEndpoint  string `env:"ACCOUNTS_OBJECT_STORAGE_ENDPOINT"`
+	ObjectStorageAccessKey string `env:"ACCOUNTS_OBJECT_STORAGE_ACCESS_KEY"`
+	ObjectStorageSecretKey string `env:"ACCOUNTS_OBJECT_STORAGE_SECRET_KEY"`
+	ObjectStorageBucket    string `env:"ACCOUNTS_OBJECT_STORAGE_BUCKET" envDefault:"documents"`
+	ObjectStorageUseTLS    bool   `env:"ACCOUNTS_OBJECT_STORAGE_USE_TLS"`
+	DocumentsKMSKey        string `env:"ACCOUNTS_DOCUMENTS_KMS_KEY"`
+	ClamAVAddr             string `env:"ACCOUNTS_CLAMAV_ADDR"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country.
 	PacksDir string `env:"ACCOUNTS_PACKS_DIR" envDefault:"packs"`
 }
 
 // Service wires accounts' dependencies together and runs them.
 type Service struct {
-	cfg   Config
-	pool  *db.Pool
-	bus   *bus.Bus
-	app   *app.Service
-	packs map[string]*packs.Pack
-	rtr   http.Handler
+	cfg     Config
+	pool    *db.Pool
+	bus     *bus.Bus
+	app     *app.Service
+	packs   map[string]*packs.Pack
+	objects *objectstore.Store // nil when documents are off
+	rtr     http.Handler
 }
 
 // New builds a Service from already-connected dependencies.
@@ -83,11 +99,48 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) (*Se
 	if err != nil {
 		return nil, err
 	}
-	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity, KYC: kyc})
+	documents, objects, err := documentDeps(cfg)
+	if err != nil {
+		return nil, err
+	}
+	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity, KYC: kyc, Documents: documents})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
-	return &Service{cfg: cfg, pool: pool, bus: b, app: a, packs: loaded, rtr: rtr}, nil
+	return &Service{cfg: cfg, pool: pool, bus: b, app: a, packs: loaded, objects: objects, rtr: rtr}, nil
+}
+
+// documentsKMSKeyID names the documents' master key in LocalKMS.
+const documentsKMSKeyID = "accounts-documents"
+
+// documentDeps builds object storage, the scanner and the envelope for
+// documents, or nil when documents are off (no endpoint).
+func documentDeps(cfg Config) (*app.DocumentDeps, *objectstore.Store, error) {
+	if cfg.ObjectStorageEndpoint == "" {
+		return nil, nil, nil
+	}
+	if cfg.ClamAVAddr == "" || cfg.DocumentsKMSKey == "" {
+		return nil, nil, fmt.Errorf("accounts: ACCOUNTS_CLAMAV_ADDR and ACCOUNTS_DOCUMENTS_KMS_KEY are required with ACCOUNTS_OBJECT_STORAGE_ENDPOINT")
+	}
+	key, err := base64.StdEncoding.DecodeString(cfg.DocumentsKMSKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: decoding ACCOUNTS_DOCUMENTS_KMS_KEY: %w", err)
+	}
+	kms, err := vascrypto.NewLocalKMS(map[string][]byte{documentsKMSKeyID: key})
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: building the documents KMS: %w", err)
+	}
+	objects, err := objectstore.New(objectstore.Config{
+		Endpoint: cfg.ObjectStorageEndpoint, AccessKey: cfg.ObjectStorageAccessKey, SecretKey: cfg.ObjectStorageSecretKey,
+		Bucket: cfg.ObjectStorageBucket, UseTLS: cfg.ObjectStorageUseTLS,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: %w", err)
+	}
+	return &app.DocumentDeps{
+		Store: objects, Scanner: adapters.NewClamdScanner(cfg.ClamAVAddr),
+		Envelope: vascrypto.NewEnvelope(kms), KeyID: documentsKMSKeyID,
+	}, objects, nil
 }
 
 // kycProvider builds the configured KYC adapter, or nil when KYC is
@@ -156,6 +209,11 @@ func (s *Service) Run(ctx context.Context) error {
 	// per country (task 2.4); a code a pack misspells stops startup.
 	if err := s.app.SyncServiceRules(ctx, s.packs); err != nil {
 		return fmt.Errorf("accounts: syncing service rules from the packs: %w", err)
+	}
+	if s.objects != nil {
+		if err := s.objects.EnsureBucket(ctx); err != nil {
+			return fmt.Errorf("accounts: %w", err)
+		}
 	}
 	if err := s.bus.EnsureStream(ctx, "ACCOUNTS_EVENTS", []string{"accounts.>"}); err != nil {
 		return fmt.Errorf("accounts: ensuring stream: %w", err)

@@ -2,6 +2,7 @@ package packs_test
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -95,6 +96,9 @@ func TestParse_RealKEPack_HasKYB(t *testing.T) {
 	}
 	if p.KYB == nil || p.KYB.Registry != "BRS" || p.KYB.TaxIDLabel != "KRA PIN" {
 		t.Fatalf("KYB = %+v, want BRS and KRA PIN", p.KYB)
+	}
+	if want := []string{"incorporation_cert", "tax_certificate", "proof_of_address"}; !slices.Equal(p.KYB.RequiredDocuments, want) {
+		t.Fatalf("required documents %v, want %v (task 2.8)", p.KYB.RequiredDocuments, want)
 	}
 }
 

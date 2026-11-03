@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "vaspro",
+      "credentials": [{ "accessKey": "vaspro-local", "secretKey": "vaspro-local-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

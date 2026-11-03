@@ -15,6 +15,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/clamd"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/kycvendor"
 )
 
@@ -30,9 +32,19 @@ func TestGateway_OnboardingThroughKYC_EndToEnd(t *testing.T) {
 	vendor := kycvendor.New([]byte(secret))
 	t.Cleanup(vendor.Close)
 
+	storage := testkit.StartObjectStorage(t)
+	scanner, err := clamd.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(scanner.Close)
+
 	identityGRPC := freeTCPAddr(t)
 	acc := startRealAccountsWith(t, identityGRPC,
-		"ACCOUNTS_KYC_PROVIDER=fake", "ACCOUNTS_KYC_FAKE_URL="+vendor.URL(), "ACCOUNTS_KYC_WEBHOOK_SECRET="+secret)
+		"ACCOUNTS_KYC_PROVIDER=fake", "ACCOUNTS_KYC_FAKE_URL="+vendor.URL(), "ACCOUNTS_KYC_WEBHOOK_SECRET="+secret,
+		"ACCOUNTS_OBJECT_STORAGE_ENDPOINT="+storage.Endpoint, "ACCOUNTS_OBJECT_STORAGE_ACCESS_KEY="+storage.AccessKey,
+		"ACCOUNTS_OBJECT_STORAGE_SECRET_KEY="+storage.SecretKey, "ACCOUNTS_CLAMAV_ADDR="+scanner.Addr(),
+		"ACCOUNTS_DOCUMENTS_KMS_KEY="+randomBase64Key(t))
 	identityBaseURL := startRealIdentityWithLogs(t, smtp.Addr(), nil,
 		"IDENTITY_ACCOUNTS_GRPC_ADDR="+acc.grpcAddr, "IDENTITY_GRPC_ADDR="+identityGRPC)
 	r := newTestGatewayWithAccounts(t, identityBaseURL, acc.baseURL, nil, slog.New(slog.NewJSONHandler(&syncBuffer{}, nil)))
@@ -96,6 +108,17 @@ func TestGateway_OnboardingThroughKYC_EndToEnd(t *testing.T) {
 	if status, got := gwDoJSON(t, r, http.MethodPost, profilePath+"/owners", ada,
 		map[string]string{"full_name": "Ada Lovelace", "role": "director", "ownership_pct": "100"}, "kyb-director"); status != http.StatusCreated {
 		t.Fatalf("director: got %d %v", status, got)
+	}
+	if status, got := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants/"+id+"/kyb-submissions", ada, nil, "kyb-too-early"); status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+		t.Fatalf("KYB before the documents: got %d %v, want 400 naming them", status, got)
+	}
+	// The documents Kenya's KYB needs (packs/ke), each scanned, encrypted
+	// and stored in object storage by the real accounts process (2.8).
+	for _, docType := range []string{"incorporation_cert", "tax_certificate", "proof_of_address"} {
+		file := []byte("%PDF-1.4\n% " + docType + " for Acme Deliveries Limited\n%%EOF\n")
+		if status, got := sendMultipart(t, r, "/v1/accounts/tenants/"+id+"/documents", ada, docType, file); status != http.StatusCreated {
+			t.Fatalf("uploading %s: got %d %v", docType, status, got)
+		}
 	}
 	if status, got := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants/"+id+"/kyb-submissions", ada, nil, "kyb-submit"); status != http.StatusCreated || got["status"] != "review" {
 		t.Fatalf("KYB submission: got %d %v, want a check in review", status, got)

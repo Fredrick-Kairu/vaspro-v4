@@ -51,3 +51,27 @@ func TestBodyLimit_AllowsBodyWithinLimit(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, "hello")
 	}
 }
+
+func TestBodyLimitFunc_PicksTheLimitPerRequest(t *testing.T) {
+	limit := httpx.BodyLimitFunc(func(r *http.Request) int64 {
+		if r.URL.Path == "/upload" {
+			return 100
+		}
+		return 10
+	})
+	read := func(path string, size int) error {
+		var readErr error
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, readErr = io.ReadAll(r.Body) })
+		limit(next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, path, strings.NewReader(strings.Repeat("x", size))))
+		return readErr
+	}
+	if err := read("/upload", 100); err != nil {
+		t.Fatalf("100 bytes to the larger route: %v", err)
+	}
+	if err := read("/upload", 101); err == nil {
+		t.Fatal("101 bytes to the larger route were read")
+	}
+	if err := read("/other", 11); err == nil {
+		t.Fatal("11 bytes to a 10-byte route were read")
+	}
+}

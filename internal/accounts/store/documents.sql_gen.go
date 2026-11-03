@@ -89,3 +89,67 @@ func (q *Queries) GetDocumentByID(ctx context.Context, arg GetDocumentByIDParams
 	)
 	return i, err
 }
+
+const getDocumentBySHA256 = `-- name: GetDocumentBySHA256 :one
+SELECT id, tenant_id, type, storage_key, sha256, mime_type, size_bytes, status, expires_at, uploaded_by, created_at FROM accounts.documents WHERE tenant_id = $1 AND sha256 = $2
+`
+
+type GetDocumentBySHA256Params struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	Sha256   []byte    `json:"sha256"`
+}
+
+func (q *Queries) GetDocumentBySHA256(ctx context.Context, arg GetDocumentBySHA256Params) (AccountsDocument, error) {
+	row := q.db.QueryRow(ctx, getDocumentBySHA256, arg.TenantID, arg.Sha256)
+	var i AccountsDocument
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Type,
+		&i.StorageKey,
+		&i.Sha256,
+		&i.MimeType,
+		&i.SizeBytes,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.UploadedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listDocuments = `-- name: ListDocuments :many
+SELECT id, tenant_id, type, storage_key, sha256, mime_type, size_bytes, status, expires_at, uploaded_by, created_at FROM accounts.documents WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC
+`
+
+func (q *Queries) ListDocuments(ctx context.Context, tenantID uuid.UUID) ([]AccountsDocument, error) {
+	rows, err := q.db.Query(ctx, listDocuments, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsDocument
+	for rows.Next() {
+		var i AccountsDocument
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Type,
+			&i.StorageKey,
+			&i.Sha256,
+			&i.MimeType,
+			&i.SizeBytes,
+			&i.Status,
+			&i.ExpiresAt,
+			&i.UploadedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

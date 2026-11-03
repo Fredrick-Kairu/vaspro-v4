@@ -49,6 +49,9 @@ const (
 	VAL4004  Code = "VAL-4004"
 	VAL4005  Code = "VAL-4005"
 	VAL4006  Code = "VAL-4006"
+	VAL4007  Code = "VAL-4007"
+	VAL4008  Code = "VAL-4008"
+	VAL4009  Code = "VAL-4009"
 )
 
 var registry = map[Code]entry{
@@ -305,6 +308,30 @@ var registry = map[Code]entry{
 		Title:     "Business profile is locked",
 		Cause:     "The business profile and its owners can't change while a business verification is in review or after it has passed.",
 		Fix:       "Wait for the review's decision; changes after verification come with re-verification.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4007: {
+		Status:    415,
+		Title:     "File type not allowed",
+		Cause:     "Documents must be PDF, JPEG or PNG files. The type is read from the file itself, not its name.",
+		Fix:       "Upload the document as a PDF, JPEG or PNG.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4008: {
+		Status:    413,
+		Title:     "File too large",
+		Cause:     "Documents are limited to 10 MB.",
+		Fix:       "Upload a smaller file, for example a lower-resolution scan.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4009: {
+		Status:    422,
+		Title:     "File failed the virus scan",
+		Cause:     "The virus scanner found something in the file, so it wasn't stored.",
+		Fix:       "Scan the file on your side and upload a clean copy.",
 		Retryable: false,
 		Billable:  false,
 	},

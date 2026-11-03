@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.7 done (2026-11-03; registry lookup deferred, OQ-08). Next: 2.8 documents. Also done: 2.1–2.6, the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
+**Current task:** 2.8 done (2026-11-03). Next: 2.9 staff review queue. Also done: 2.1–2.7 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -394,6 +394,67 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Mutation-checked:** dropping the duplicate count, the lock, or the Starter requirement each failed the intended tests.
   - **`make check`:** the first run failed only in `platform/testkit`'s `TestStartRabbitMQ_PublishAndConsumeRoundTrips`. The RabbitMQ module's own startup wait (a log line, 60s) timed out under the full parallel load; the rerun was green. That's the third container-startup failure since the readiness fix, all under the full run: limiting `test-int`'s package parallelism (noted in 2.3a) is now worth doing.
   - **Deployment note:** like 2.3a's and 2.6's roles, `accounts_registration_lookup` needs a grant to the service's login role where that isn't the migration role. That's now three grants: worth scripting with the deployment work.
+
+- 2.8 Documents (OQ-09).
+  - **`platform/objectstore`:** an S3 client (`Put`/`Get`/`Delete`/`EnsureBucket`, `ErrNotFound`) on **`github.com/minio/minio-go/v7` v7.4.1**. The tech stack named no client; minio-go is the lighter of the two common ones, released 12 Oct.
+    - `testkit.StartObjectStorage` runs SeaweedFS **4.48**, now pinned in compose too (it was `:latest`). It has a local-only S3 identity, because without one SeaweedFS refuses signed uploads (found by the first test run), and it waits until a bucket can really be created.
+  - **ClamAV:**
+    - `adapters.ClamdScanner` speaks clamd's INSTREAM (1 MB chunks, length-prefixed, a zero terminator) and PING.
+    - `tools/fakes/clamd` speaks the same protocol, flags the EICAR test string (assembled at runtime so no file carries it whole), and counts scans.
+    - `testkit.StartClamAV` runs **`clamav/clamav:1.5.4-debian`**: the plain tag has no arm64 build, and this Mac is arm64. It waits for PING.
+    - **Only one test uses real ClamAV** (`TestClamdScanner_AgainstRealClamAV`, about 21 s here): clamd needs about 1 GB of memory. Everything else, the e2e included, uses the fake.
+    - Compose gains a `clamav` service.
+  - **Rules** (`domain/documents.go`):
+    - types: `national_id`, `passport`, `incorporation_cert`, `tax_certificate`, **`proof_of_address`** (added: the requirements list it, data model §4's comment doesn't), `authorisation_letter`;
+    - `CheckUpload`: a known type, 1 byte to 10 MB, and PDF/JPEG/PNG from `http.DetectContentType`, never the client's name or header;
+    - `MissingDocuments`: rejected and expired documents don't count.
+  - **App:**
+    - `UploadDocument` (`account:manage`), in order:
+      1. check;
+      2. sha256;
+      3. **the same hash in this account returns the existing document**, before any scan or storage;
+      4. ClamAV, where infected is the new **VAL-4009** and a scan error refuses;
+      5. seal with `Envelope` under a new documents key (`ACCOUNTS_DOCUMENTS_KMS_KEY`, LocalKMS);
+      6. put at `tenants/<t>/documents/<id>`;
+      7. record (`received`). If recording fails, the object is deleted.
+    - A new unique index `(tenant_id, sha256)` (migration `20261104090000`, an addition to data model §4) covers concurrent duplicates; the loser returns the winner.
+    - Duplicates are per account, never across accounts.
+    - `ListDocuments` (`account:read`, metadata) and `DownloadDocument` (**`account:manage`**: identity documents are sensitive) decrypt.
+    - There are no document events (none in the data model).
+  - **KYB:** `packs/ke` lists `required_documents` (incorporation certificate, tax certificate, proof of address). `SubmitKYB` refuses until each has a usable document (VAL-4000 naming the missing types) and records `document_ids` in the check's result for 2.9's reviewer. That's also how applications (Part 3) will reuse documents.
+  - **API:**
+    - `uploadDocument` (multipart: `type` and `file`; 201, or 200 for an existing duplicate), `listDocuments`, `getDocumentContent` (the real MIME type, `attachment`, `nosniff`);
+    - new codes **VAL-4007** (415 type), **VAL-4008** (413 size), **VAL-4009** (422 infected).
+  - **Body limits:**
+    - new `httpx.BodyLimitFunc` picks a limit per request: 1 MB everywhere, 10 MB + 1 MB of framing for the upload route, in both the gateway and accounts;
+    - an upload whose declared length is over that gets VAL-4008 before anything reads it. Without this the idempotency middleware's read reported a cut-off body as unreadable (found by the API test).
+  - **Config:** `ACCOUNTS_OBJECT_STORAGE_*`, `ACCOUNTS_DOCUMENTS_KMS_KEY`, `ACCOUNTS_CLAMAV_ADDR`.
+    - With no endpoint, documents are off (VAL-4000).
+    - With an endpoint, the key and clamd are required at startup, so nothing is ever stored unencrypted or unscanned.
+    - `Run` ensures the bucket.
+  - **Tests:**
+    - domain: types, sizes (exactly 10 MB OK, one byte more not), bytes, and `MissingDocuments`;
+    - objectstore: round trip, ErrNotFound, idempotent bucket;
+    - scanner: against the fake (clean, EICAR at the end of 3 MB across chunks, clamd down fails closed) and against **real ClamAV**;
+    - app (real SeaweedFS + fake clamd):
+      - the stored object contains neither the text nor `%PDF`, and a download returns the original;
+      - **the same file again is the same document, with no second scan and one row**;
+      - another account's copy is separate;
+      - a Viewer lists but can't upload or download;
+      - another account's document is not found;
+      - a wrong type, too large and infected store nothing;
+      - unconfigured is VAL-4000;
+      - KYB is refused while documents are missing, with a rejected one not counting, and the check lists the three IDs;
+    - API: codes, including over the route limit, and the download headers;
+    - gateway: a 5 MB upload passes, 12 MB is 413 VAL-4008 before accounts, and a 2 MB JSON body elsewhere is still refused;
+    - **e2e:** the real accounts process stores the three documents in SeaweedFS (fake clamd), and KYB is refused before them and accepted after.
+    - **Order of work:** domain, objectstore, scanner, app and gateway tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:**
+      - skipping the duplicate lookup failed the "no second scan" check. Without that check the unique index's fallback would have hidden it, so I added the scan count after spotting this before running the mutation;
+      - ignoring the scan's verdict failed the infected test;
+      - trusting a fixed type failed the type table.
+  - **`make check`:** the first run failed only on `TestStartRabbitMQ_PublishAndConsumeRoundTrips` timing out at startup (the RabbitMQ module's 60s log wait), the same as 2.7's first run; the rerun was green. That's two `make check` runs in a row needing a rerun, so limiting `test-int`'s package parallelism is overdue.
+  - **Also fixed:** three example enrollment tokens in `docs/api/identity.yaml` (from 1.16) were gitleaks findings that CI would have failed on. Running gitleaks 8.30.1 locally through Docker found them. They're now marked `gitleaks:allow` like the other examples, and the tree scans clean.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

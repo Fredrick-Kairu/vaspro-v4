@@ -80,19 +80,38 @@ services:
   # minio/minio was removed from Docker Hub (the repository no longer
   # resolves, even authenticated — see docs/STATUS.md). SeaweedFS's S3
   # gateway is the stand-in: same S3 API surface, freely pullable.
+  # Pinned (task 2.8; testkit runs the same tag). The S3 gateway gets
+  # one local-only identity (seaweedfs-s3.json): without one SeaweedFS
+  # allows only anonymous requests and refuses signed uploads.
   object-storage:
-    image: chrislusf/seaweedfs:latest
-    command: ["server", "-dir=/data", "-s3", "-ip.bind=0.0.0.0"]
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
     ports:
       - "9000:8333" # S3 API
       - "9001:9333" # master status / cluster UI
     volumes:
       - object-storage-data:/data
+      - ./seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9333/cluster/status || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Virus scanning for document uploads (task 2.8): accounts streams
+  # each file to clamd before storing it. The "-debian" tag is the
+  # multi-architecture image. It needs about 1 GB of memory and a minute
+  # or two to load its signatures; freshclam keeps them current.
+  clamav:
+    image: clamav/clamav:1.5.4-debian
+    ports:
+      - "3310:3310"
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
 
   mailpit:
     image: axllent/mailpit:v1.20

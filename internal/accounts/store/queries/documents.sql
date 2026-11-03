@@ -6,3 +6,9 @@ RETURNING *;
 
 -- name: GetDocumentByID :one
 SELECT * FROM accounts.documents WHERE id = $1 AND tenant_id = $2;
+
+-- name: GetDocumentBySHA256 :one
+SELECT * FROM accounts.documents WHERE tenant_id = $1 AND sha256 = $2;
+
+-- name: ListDocuments :many
+SELECT * FROM accounts.documents WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC;

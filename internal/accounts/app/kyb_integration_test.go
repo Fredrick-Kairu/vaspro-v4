@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,6 +17,29 @@ import (
 
 var acmeProfile = domain.BusinessProfileInput{
 	RegistrationNumber: "pvt-ab1cdef2", RegisteredName: "Acme Deliveries Limited", TaxID: "p051234567x", RegisteredAddress: "Moi Avenue, Nairobi",
+}
+
+// addDocument records a document of docType for tenant directly, as a
+// fixture: KYB only needs the row (uploads themselves are tested in
+// documents_integration_test.go).
+func (h harness) addDocument(t *testing.T, tenant uuid.UUID, docType, status string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	if _, err := h.super.Exec(context.Background(), `INSERT INTO documents (id, tenant_id, type, storage_key, sha256, mime_type, size_bytes, status, uploaded_by)
+		VALUES ($1, $2, $3, 'fixture', $4, 'application/pdf', 1, $5, $6)`, id, tenant, docType, id[:], status, uuid.New()); err != nil {
+		t.Fatalf("insert document: %v", err)
+	}
+	return id
+}
+
+// addKYBDocuments gives tenant every document KE's KYB needs.
+func (h harness) addKYBDocuments(t *testing.T, tenant uuid.UUID) []uuid.UUID {
+	t.Helper()
+	var ids []uuid.UUID
+	for _, docType := range []string{domain.DocIncorporationCert, domain.DocTaxCertificate, domain.DocProofOfAddress} {
+		ids = append(ids, h.addDocument(t, tenant, docType, domain.DocumentReceived))
+	}
+	return ids
 }
 
 // starterTeam is newTeam promoted to starter by staff.
@@ -144,6 +168,18 @@ func TestSubmitKYB(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Run("documents the pack requires must be on file first", func(t *testing.T) {
+		h.addDocument(t, tenant, domain.DocIncorporationCert, domain.DocumentReceived)
+		h.addDocument(t, tenant, domain.DocTaxCertificate, domain.DocumentRejected)
+		_, err := h.svc.SubmitKYB(ctx, admin, tenant)
+		if !errors.Is(err, domain.ErrMissingDocuments) || !strings.Contains(err.Error(), "tax_certificate") ||
+			!strings.Contains(err.Error(), "proof_of_address") || strings.Contains(err.Error(), "incorporation_cert") {
+			t.Fatalf("got %v, want the missing tax certificate (only a rejected one) and proof of address named", err)
+		}
+	})
+	taxCert := h.addDocument(t, tenant, domain.DocTaxCertificate, domain.DocumentReceived)
+	proof := h.addDocument(t, tenant, domain.DocProofOfAddress, domain.DocumentReceived)
+
 	check, err := h.svc.SubmitKYB(ctx, admin, tenant)
 	if err != nil || check.Kind != domain.KYCKindBusiness || check.Status != domain.KYCReview {
 		t.Fatalf("SubmitKYB: %+v, %v; want a business check in review", check, err)
@@ -158,6 +194,10 @@ func TestSubmitKYB(t *testing.T) {
 	_ = json.Unmarshal(result, &summary)
 	if subject != profile.ID || provider != "manual" || summary["duplicate_registration"] != true || summary["other_accounts"] != float64(1) {
 		t.Fatalf("subject %s, provider %s, result %v; want the profile, manual, and the duplicate flagged", subject, provider, summary)
+	}
+	docIDs, _ := summary["document_ids"].([]any)
+	if len(docIDs) != 3 || !containsString(docIDs, taxCert.String()) || !containsString(docIDs, proof.String()) {
+		t.Fatalf("the check's documents %v; want the three it was submitted with, not the rejected one", docIDs)
 	}
 	if data := assertEventValid(t, h, "kyc.check_started", tenant); data["kind"] != "business" || data["provider"] != "manual" {
 		t.Fatalf("got event data %v", data)
@@ -187,6 +227,7 @@ func TestSubmitKYB(t *testing.T) {
 		if _, err := h.svc.AddOwner(ctx, otherAdmin, other, domain.OwnerInput{FullName: "D", Role: domain.OwnerDirector}); err != nil {
 			t.Fatal(err)
 		}
+		h.addKYBDocuments(t, other)
 		c, err := h.svc.SubmitKYB(ctx, otherAdmin, other)
 		if err != nil {
 			t.Fatal(err)
@@ -218,4 +259,13 @@ func TestSubmitKYB(t *testing.T) {
 			t.Fatalf("submitting again after a failure: %v", err)
 		}
 	})
+}
+
+func containsString(items []any, want string) bool {
+	for _, it := range items {
+		if it == want {
+			return true
+		}
+	}
+	return false
 }

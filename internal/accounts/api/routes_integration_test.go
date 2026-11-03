@@ -5,7 +5,10 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +19,9 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/domain"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/objectstore"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/clamd"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/identityusers"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/kycvendor"
 )
@@ -41,6 +46,43 @@ const testKYCSecret = "kyc-webhook-test-secret" //nolint:gosec // G101: a fixtur
 // (task 2.3b) and the fake KYC vendor (task 2.6).
 func newRouterWithFakes(t *testing.T) (http.Handler, *vasdb.Pool, *identityusers.Fake, *kycvendor.Vendor) {
 	t.Helper()
+	return newRouterConfigured(t, nil)
+}
+
+// newRouterWithDocuments is newRouter with documents on: real object
+// storage (SeaweedFS) and the fake clamd (task 2.8).
+func newRouterWithDocuments(t *testing.T) (http.Handler, *vasdb.Pool) {
+	t.Helper()
+	storage := testkit.StartObjectStorage(t)
+	scanner, err := clamd.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(scanner.Close)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	r, pool, _, _ := newRouterConfigured(t, func(cfg *accounts.Config) {
+		cfg.ObjectStorageEndpoint, cfg.ObjectStorageAccessKey, cfg.ObjectStorageSecretKey = storage.Endpoint, storage.AccessKey, storage.SecretKey
+		cfg.ObjectStorageBucket = "documents"
+		cfg.ClamAVAddr = scanner.Addr()
+		cfg.DocumentsKMSKey = base64.StdEncoding.EncodeToString(key)
+	})
+	objects, err := objectstore.New(objectstore.Config{
+		Endpoint: storage.Endpoint, AccessKey: storage.AccessKey, SecretKey: storage.SecretKey, Bucket: "documents",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := objects.EnsureBucket(context.Background()); err != nil { // Run does this in the real process
+		t.Fatal(err)
+	}
+	return r, pool
+}
+
+func newRouterConfigured(t *testing.T, configure func(*accounts.Config)) (http.Handler, *vasdb.Pool, *identityusers.Fake, *kycvendor.Vendor) {
+	t.Helper()
 	identity := &identityusers.Fake{}
 	vendor := kycvendor.New([]byte(testKYCSecret))
 	t.Cleanup(vendor.Close)
@@ -51,9 +93,13 @@ func newRouterWithFakes(t *testing.T) (http.Handler, *vasdb.Pool, *identityusers
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	svc, err := accounts.New(accounts.Config{
+	cfg := accounts.Config{
 		PacksDir: "../../../packs", KYCProvider: "fake", KYCFakeURL: vendor.URL(), KYCWebhookSecret: testKYCSecret,
-	}, pool, nil, identity)
+	}
+	if configure != nil {
+		configure(&cfg)
+	}
+	svc, err := accounts.New(cfg, pool, nil, identity)
 	if err != nil {
 		t.Fatalf("accounts.New: %v", err)
 	}
@@ -545,6 +591,13 @@ func TestKYBAPI(t *testing.T) {
 		t.Fatalf("a bad percentage: got %d %v", status, got)
 	}
 
+	for _, docType := range []string{"incorporation_cert", "tax_certificate", "proof_of_address"} {
+		docID := uuid.New()
+		if _, err := pool.Exec(context.Background(), `INSERT INTO documents (id, tenant_id, type, storage_key, sha256, mime_type, size_bytes, status, uploaded_by)
+			VALUES ($1, $2, $3, 'fixture', $4, 'application/pdf', 1, 'received', $5)`, docID, tenant, docType, docID[:], admin); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if status, got := do(t, r, http.MethodPost, submitPath, admin, "submit-sandbox", nil); status != http.StatusForbidden || got["code"] != "KYC-4020" {
 		t.Fatalf("submitting in the sandbox: got %d %v", status, got)
 	}
@@ -572,5 +625,81 @@ func TestKYBAPI(t *testing.T) {
 	}
 	if status, got := do(t, r, http.MethodGet, profilePath, viewer, "", nil); status != http.StatusOK || len(got["owners"].([]any)) != 1 {
 		t.Fatalf("a Viewer reading: got %d %v", status, got)
+	}
+}
+
+// upload posts a multipart document upload as the dashboard would.
+func upload(t *testing.T, r http.Handler, path string, user uuid.UUID, key, docType string, data []byte) (int, map[string]any) {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	_ = form.WriteField("type", docType)
+	part, _ := form.CreateFormFile("file", "document.pdf")
+	_, _ = part.Write(data)
+	_ = form.Close()
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	req.Header.Set("X-Vaspro-User-Id", user.String())
+	req.Header.Set("Idempotency-Key", key)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var decoded map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+	return rec.Code, decoded
+}
+
+func TestDocumentsAPI(t *testing.T) {
+	r, pool := newRouterWithDocuments(t)
+	admin, viewer := uuid.New(), uuid.New()
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	docsPath := "/v1/accounts/tenants/" + tenant + "/documents"
+	pdf := []byte("%PDF-1.4\n% certificate of incorporation\n%%EOF\n")
+
+	status, doc := upload(t, r, docsPath, admin, "up-1", "incorporation_cert", pdf)
+	if status != http.StatusCreated || doc["mime_type"] != "application/pdf" || doc["status"] != "received" {
+		t.Fatalf("upload: got %d %v", status, doc)
+	}
+	if status, again := upload(t, r, docsPath, admin, "up-2", "incorporation_cert", pdf); status != http.StatusOK || again["id"] != doc["id"] {
+		t.Fatalf("the same file again: got %d %v, want 200 and the same document", status, again)
+	}
+	cases := []struct {
+		name   string
+		data   []byte
+		status int
+		code   string
+	}{
+		{"a GIF", []byte("GIF89a\x01\x00\x01\x00"), http.StatusUnsupportedMediaType, "VAL-4007"},
+		{"an infected file", append(append([]byte{}, pdf...), clamd.EICAR()...), http.StatusUnprocessableEntity, "VAL-4009"},
+		{"over 10 MB", append(append([]byte{}, pdf...), make([]byte, domain.MaxDocumentBytes)...), http.StatusRequestEntityTooLarge, "VAL-4008"},
+		{"over the route's body limit", append(append([]byte{}, pdf...), make([]byte, domain.MaxDocumentBytes+2<<20)...), http.StatusRequestEntityTooLarge, "VAL-4008"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if status, got := upload(t, r, docsPath, admin, "k-"+tc.name, "tax_certificate", tc.data); status != tc.status || got["code"] != tc.code {
+				t.Fatalf("got %d %v, want %d %s", status, got, tc.status, tc.code)
+			}
+		})
+	}
+	if status, got := upload(t, r, docsPath, viewer, "viewer-up", "passport", pdf); status != http.StatusForbidden || got["code"] != "AUTH-4024" {
+		t.Fatalf("a Viewer uploading: got %d %v", status, got)
+	}
+
+	status, list := do(t, r, http.MethodGet, docsPath, viewer, "", nil)
+	if docs, _ := list["documents"].([]any); status != http.StatusOK || len(docs) != 1 {
+		t.Fatalf("a Viewer listing: got %d %v", status, list)
+	}
+	id, _ := doc["id"].(string)
+	req := httptest.NewRequest(http.MethodGet, docsPath+"/"+id+"/content", nil)
+	req.Header.Set("X-Vaspro-User-Id", admin.String())
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), pdf) || rec.Header().Get("Content-Type") != "application/pdf" ||
+		rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("download: %d %q %v", rec.Code, rec.Body.Bytes(), rec.Header())
+	}
+	if status, got := do(t, r, http.MethodGet, docsPath+"/"+id+"/content", viewer, "", nil); status != http.StatusForbidden {
+		t.Fatalf("a Viewer downloading: got %d %v", status, got)
 	}
 }

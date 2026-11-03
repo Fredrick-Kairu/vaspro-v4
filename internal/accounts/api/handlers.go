@@ -6,6 +6,10 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -352,6 +356,120 @@ func (h *Handlers) SubmitKyb(ctx context.Context, request SubmitKybRequestObject
 	return SubmitKyb201JSONResponse(kycCheckResponse(check)), nil
 }
 
+func (h *Handlers) UploadDocument(ctx context.Context, request UploadDocumentRequestObject) (UploadDocumentResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	docType, data, err := readUpload(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	doc, created, err := h.app.UploadDocument(ctx, callerFromContext(ctx), tenantID, docType, data)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	if created {
+		return UploadDocument201JSONResponse(documentResponse(doc)), nil
+	}
+	return UploadDocument200JSONResponse(documentResponse(doc)), nil
+}
+
+// readUpload reads the multipart form's type and file. A body over the
+// route's limit (bodyLimit) is VAL-4008, as is a file part over 10 MB.
+func readUpload(form *multipart.Reader) (docType string, data []byte, err error) {
+	var sawFile bool
+	for {
+		part, err := form.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", nil, uploadReadProblem(err)
+		}
+		switch part.FormName() {
+		case "type":
+			b, err := io.ReadAll(io.LimitReader(part, 64))
+			if err != nil {
+				return "", nil, uploadReadProblem(err)
+			}
+			docType = string(b)
+		case "file":
+			if data, err = io.ReadAll(io.LimitReader(part, domain.MaxDocumentBytes+1)); err != nil {
+				return "", nil, uploadReadProblem(err)
+			}
+			sawFile = true
+		}
+	}
+	if !sawFile || docType == "" {
+		return "", nil, problem.New(problem.VAL4000, "a multipart form with type and file is required")
+	}
+	return docType, data, nil
+}
+
+func uploadReadProblem(err error) error {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		return problem.New(problem.VAL4008, "files are limited to 10 MB")
+	}
+	return problem.New(problem.VAL4000, "the upload could not be read")
+}
+
+func (h *Handlers) ListDocuments(ctx context.Context, request ListDocumentsRequestObject) (ListDocumentsResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	docs, err := h.app.ListDocuments(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := DocumentList{Documents: make([]Document, len(docs))}
+	for i := range docs {
+		resp.Documents[i] = documentResponse(&docs[i])
+	}
+	return ListDocuments200JSONResponse(resp), nil
+}
+
+func (h *Handlers) GetDocumentContent(ctx context.Context, request GetDocumentContentRequestObject) (GetDocumentContentResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	docID, err := uuid.Parse(request.DocId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	data, mime, err := h.app.DownloadDocument(ctx, callerFromContext(ctx), tenantID, docID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return documentContent{data: data, mime: mime}, nil
+}
+
+// documentContent sends the file with its real type. It's served as an
+// attachment with nosniff, so a browser never renders an upload inline.
+type documentContent struct {
+	data []byte
+	mime string
+}
+
+func (d documentContent) VisitGetDocumentContentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", d.mime)
+	w.Header().Set("Content-Disposition", "attachment")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write(d.data)
+	return err
+}
+
+func documentResponse(d *app.Document) Document {
+	return Document{
+		Id: d.ID.String(), Type: DocumentType(d.Type), MimeType: d.MIMEType, SizeBytes: int(d.SizeBytes),
+		Sha256: d.SHA256, Status: DocumentStatus(d.Status), CreatedAt: d.CreatedAt,
+	}
+}
+
 func businessProfileResponse(p *app.BusinessProfile) BusinessProfile {
 	resp := BusinessProfile{
 		Id: p.ID.String(), Registry: p.Registry, RegistrationNumber: p.RegistrationNumber, RegisteredName: p.RegisteredName,
@@ -459,6 +577,16 @@ func toProblem(err error) error {
 		return problem.New(problem.KYC4020, "business verification needs the starter tier first")
 	case errors.Is(err, domain.ErrNoBusinessProfile):
 		return problem.New(problem.VAL4000, "enter the business profile first")
+	case errors.Is(err, domain.ErrDocumentTypeNotAllowed):
+		return problem.New(problem.VAL4007, "documents must be PDF, JPEG or PNG files")
+	case errors.Is(err, domain.ErrDocumentTooLarge):
+		return problem.New(problem.VAL4008, "files are limited to 10 MB")
+	case errors.Is(err, app.ErrInfected):
+		return problem.New(problem.VAL4009, "the virus scanner found something in the file; it wasn't stored")
+	case errors.Is(err, domain.ErrUnknownDocumentType):
+		return problem.New(problem.VAL4000, "unknown document type")
+	case errors.Is(err, domain.ErrMissingDocuments):
+		return problem.New(problem.VAL4000, strings.TrimPrefix(err.Error(), domain.ErrMissingDocuments.Error()+": "))
 	case errors.Is(err, domain.ErrNoDirector):
 		return problem.New(problem.VAL4000, "a business needs at least one director")
 	case errors.Is(err, domain.ErrBusinessProfileLocked):

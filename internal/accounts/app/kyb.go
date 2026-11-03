@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -271,6 +272,45 @@ func (s *Service) RemoveOwner(ctx context.Context, userID, tenantID, ownerID uui
 	})
 }
 
+// kybDocuments returns, for each document type tenant's country pack
+// requires for KYB (task 2.8), the account's newest usable document of
+// that type, or domain.ErrMissingDocuments naming the types it lacks. A
+// rejected or expired document doesn't count. The IDs go into the
+// check's result, so the reviewer (2.9) sees exactly what was submitted
+// and applications (Part 3) can reuse the same documents.
+func (s *Service) kybDocuments(ctx context.Context, q *store.Queries, tenant store.AccountsTenant) ([]string, error) {
+	var required []string
+	if pack, ok := s.packs[tenant.CountryCode]; ok && pack.KYB != nil {
+		required = pack.KYB.RequiredDocuments
+	}
+	rows, err := q.ListDocuments(ctx, tenant.ID)
+	if err != nil {
+		return nil, fmt.Errorf("app: listing documents: %w", err)
+	}
+	best := map[string]store.AccountsDocument{} // newest usable per type; rows are newest first
+	have := map[string]string{}
+	for _, r := range rows {
+		usable := r.Status != domain.DocumentRejected && r.Status != domain.DocumentExpired
+		if _, ok := best[r.Type]; ok {
+			continue
+		}
+		if usable {
+			best[r.Type] = r
+			have[r.Type] = r.Status
+		} else if _, seen := have[r.Type]; !seen {
+			have[r.Type] = r.Status
+		}
+	}
+	if missing := domain.MissingDocuments(required, have); len(missing) > 0 {
+		return nil, fmt.Errorf("%w: upload %s first", domain.ErrMissingDocuments, strings.Join(missing, ", "))
+	}
+	ids := make([]string, 0, len(required))
+	for _, t := range required {
+		ids = append(ids, best[t].ID.String())
+	}
+	return ids, nil
+}
+
 // SubmitKYB sends tenantID's business for verification (account:manage;
 // task 2.7, OQ-08): from the starter tier, with a profile and a
 // director, one at a time (domain.CanSubmitKYB). There's no registry
@@ -337,8 +377,14 @@ func (s *Service) SubmitKYB(ctx context.Context, userID, tenantID uuid.UUID) (*K
 		if err := domain.CanSubmitKYB(domain.Tier(tenant.Tier), profile != nil, directors, latest); err != nil {
 			return err
 		}
+		documentIDs, err := s.kybDocuments(ctx, q, tenant)
+		if err != nil {
+			return err
+		}
 
-		result, err := json.Marshal(map[string]any{"duplicate_registration": others > 0, "other_accounts": others})
+		result, err := json.Marshal(map[string]any{
+			"duplicate_registration": others > 0, "other_accounts": others, "document_ids": documentIDs,
+		})
 		if err != nil {
 			return fmt.Errorf("app: encoding the check summary: %w", err)
 		}
