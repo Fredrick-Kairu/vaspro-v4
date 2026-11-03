@@ -280,6 +280,13 @@ func (h *Handlers) SelectSessionTenant(ctx context.Context, request SelectSessio
 	return SelectSessionTenant200JSONResponse{TenantId: tenantID.String()}, nil
 }
 
+func (h *Handlers) CreateStaffUnlock(ctx context.Context, request CreateStaffUnlockRequestObject) (CreateStaffUnlockResponseObject, error) {
+	if err := h.app.UnlockByStaff(ctx, sessionUserIDFromContext(ctx), request.Body.Email); err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateStaffUnlock204Response{}, nil
+}
+
 func (h *Handlers) CreateApiClient(ctx context.Context, request CreateApiClientRequestObject) (CreateApiClientResponseObject, error) {
 	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
 	if err != nil {
@@ -533,6 +540,8 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4023, "select an account you belong to")
 	case errors.Is(err, app.ErrPermissionDenied):
 		return problem.New(problem.AUTH4024, "your role in this account doesn't allow this")
+	case errors.Is(err, app.ErrNotStaff):
+		return problem.New(problem.AUTH4025, "staff only")
 	case errors.Is(err, app.ErrNotFound):
 		return problem.New(problem.VAL4003, "not found")
 	case errors.Is(err, app.ErrExternalSignInFailed):

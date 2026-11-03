@@ -224,3 +224,36 @@ func TestEnsureInviteeAndGetUsers(t *testing.T) {
 		t.Fatalf("a malformed id: got %v, want InvalidArgument", err)
 	}
 }
+
+func TestIsStaff(t *testing.T) {
+	client, svc, sender := newClient(t)
+	ctx := context.Background()
+	_, ada := signInAs(t, svc, sender, "ada@example.com")
+	_, bob := signInAs(t, svc, sender, "bob@example.com")
+	if err := svc.GrantStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	isStaff := func(userID string) bool {
+		t.Helper()
+		resp, err := client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: userID})
+		if err != nil {
+			t.Fatalf("IsStaff: %v", err)
+		}
+		return resp.GetIsStaff()
+	}
+	if !isStaff(ada) {
+		t.Fatal("ada was granted staff")
+	}
+	if isStaff(bob) || isStaff(uuid.NewString()) {
+		t.Fatal("a stranger or unknown user is staff")
+	}
+	if err := svc.RevokeStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if isStaff(ada) {
+		t.Fatal("revoked staff still staff")
+	}
+	if _, err := client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: "x"}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("malformed id: got %v, want InvalidArgument", err)
+	}
+}

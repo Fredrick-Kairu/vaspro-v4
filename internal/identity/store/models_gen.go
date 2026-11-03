@@ -256,6 +256,12 @@ type IdentitySsoConnection struct {
 	Enabled  bool      `json:"enabled"`
 }
 
+type IdentityStaffMember struct {
+	UserID    uuid.UUID `json:"user_id"`
+	GrantedBy string    `json:"granted_by"`
+	GrantedAt time.Time `json:"granted_at"`
+}
+
 type IdentityUser struct {
 	ID              uuid.UUID          `json:"id"`
 	Email           string             `json:"email"`

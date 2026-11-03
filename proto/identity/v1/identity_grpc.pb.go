@@ -24,6 +24,7 @@ const (
 	IdentityService_SendInvitation_FullMethodName = "/identity.v1.IdentityService/SendInvitation"
 	IdentityService_IsStepUpFresh_FullMethodName  = "/identity.v1.IdentityService/IsStepUpFresh"
 	IdentityService_GetUsers_FullMethodName       = "/identity.v1.IdentityService/GetUsers"
+	IdentityService_IsStaff_FullMethodName        = "/identity.v1.IdentityService/IsStaff"
 )
 
 // IdentityServiceClient is the client API for IdentityService service.
@@ -55,6 +56,10 @@ type IdentityServiceClient interface {
 	// GetUsers returns the email and name of each known user ID, for
 	// showing an account's members. Unknown IDs are left out.
 	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error)
+	// IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
+	// ask on every staff action, so a revocation takes effect at once.
+	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+	IsStaff(ctx context.Context, in *IsStaffRequest, opts ...grpc.CallOption) (*IsStaffResponse, error)
 }
 
 type identityServiceClient struct {
@@ -115,6 +120,16 @@ func (c *identityServiceClient) GetUsers(ctx context.Context, in *GetUsersReques
 	return out, nil
 }
 
+func (c *identityServiceClient) IsStaff(ctx context.Context, in *IsStaffRequest, opts ...grpc.CallOption) (*IsStaffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsStaffResponse)
+	err := c.cc.Invoke(ctx, IdentityService_IsStaff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IdentityServiceServer is the server API for IdentityService service.
 // All implementations must embed UnimplementedIdentityServiceServer
 // for forward compatibility.
@@ -144,6 +159,10 @@ type IdentityServiceServer interface {
 	// GetUsers returns the email and name of each known user ID, for
 	// showing an account's members. Unknown IDs are left out.
 	GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error)
+	// IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
+	// ask on every staff action, so a revocation takes effect at once.
+	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+	IsStaff(context.Context, *IsStaffRequest) (*IsStaffResponse, error)
 	mustEmbedUnimplementedIdentityServiceServer()
 }
 
@@ -168,6 +187,9 @@ func (UnimplementedIdentityServiceServer) IsStepUpFresh(context.Context, *IsStep
 }
 func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUsers not implemented")
+}
+func (UnimplementedIdentityServiceServer) IsStaff(context.Context, *IsStaffRequest) (*IsStaffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method IsStaff not implemented")
 }
 func (UnimplementedIdentityServiceServer) mustEmbedUnimplementedIdentityServiceServer() {}
 func (UnimplementedIdentityServiceServer) testEmbeddedByValue()                         {}
@@ -280,6 +302,24 @@ func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_IsStaff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IsStaffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).IsStaff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_IsStaff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).IsStaff(ctx, req.(*IsStaffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IdentityService_ServiceDesc is the grpc.ServiceDesc for IdentityService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -306,6 +346,10 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUsers",
 			Handler:    _IdentityService_GetUsers_Handler,
+		},
+		{
+			MethodName: "IsStaff",
+			Handler:    _IdentityService_IsStaff_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

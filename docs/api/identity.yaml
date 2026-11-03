@@ -1194,6 +1194,41 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/auth/staff/unlocks:
+    post:
+      operationId: createStaffUnlock
+      summary: Unlock a user locked out by failed sign-ins (staff only)
+      description: >
+        VASPRO staff unlock a user the rolling sign-in lockout has
+        locked (task 2.9, OQ-10). Failures before the unlock stop
+        counting; new failures count again. A caller who isn't staff
+        gets AUTH-4025; an unknown email is VAL-4003. Unlocking a user
+        who isn't locked is harmless.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffUnlockRequest'
+            example:
+              email: "locked@example.com"
+      responses:
+        "204":
+          description: The user is unlocked.
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
   /v1/auth/smpp-accounts:
     post:
       operationId: createSmppAccount
@@ -1660,6 +1695,12 @@ components:
         tenant_id:
           type: string
           description: The account this session has selected (selectSessionTenant), if any.
+    StaffUnlockRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
     SessionTenantRequest:
       type: object
       required: [tenant_id]

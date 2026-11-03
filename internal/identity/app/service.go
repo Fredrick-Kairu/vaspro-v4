@@ -205,9 +205,17 @@ func toNetipAddr(ip net.IP) *netip.Addr {
 // more sign_in_failed security events within the last lockoutWindow —
 // the rolling-window lockout check shared by password and TOTP/recovery
 // verification. "Unlocks by time" for free: once a failure ages out of
-// the window, the count (and the lockout) drops on its own.
+// the window, the count (and the lockout) drops on its own. Failures
+// before the latest unlock by staff (task 2.9) don't count either.
 func (s *Service) tooManyRecentFailures(ctx context.Context, q *store.Queries, userID uuid.UUID) (bool, error) {
 	since := s.clk.Now().Add(-lockoutWindow)
+	unlockedAt, err := q.LatestStaffUnlockAt(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	if err != nil {
+		return false, fmt.Errorf("app: finding the latest staff unlock: %w", err)
+	}
+	if unlockedAt.After(since) {
+		since = unlockedAt
+	}
 	count, err := q.CountRecentSignInFailures(ctx, store.CountRecentSignInFailuresParams{
 		UserID:     pgtype.UUID{Bytes: userID, Valid: true},
 		OccurredAt: since,

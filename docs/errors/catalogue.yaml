@@ -140,6 +140,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4025
+    status: 403
+    title: Staff only
+    cause: This action is for VASPRO staff, and you aren't listed as staff.
+    fix: Ask VASPRO operations if you believe you should have staff access.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
@@ -233,6 +241,22 @@ codes:
     title: File failed the virus scan
     cause: The virus scanner found something in the file, so it wasn't stored.
     fix: Scan the file on your side and upload a clean copy.
+    retryable: false
+    billable: false
+
+  - code: VAL-4010
+    status: 409
+    title: Check already decided
+    cause: The check isn't waiting for review any more; a reviewer or the vendor has already decided it.
+    fix: Reload the review queue; decided checks leave it.
+    retryable: false
+    billable: false
+
+  - code: VAL-4011
+    status: 409
+    title: Tier change not allowed
+    cause: The account's tier can't move this way, for example more than one step on a check alone, a promotion of a suspended account, or no change at all.
+    fix: Check the account's current tier and status, then ask for an allowed change.
     retryable: false
     billable: false
 

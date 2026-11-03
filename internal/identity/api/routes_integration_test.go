@@ -53,6 +53,15 @@ func newTestRouterWith(t *testing.T, configure func(*identity.Config)) (http.Han
 // every user into every account, so a test selects any account ID.
 func newTestRouterWithAccess(t *testing.T, configure func(*identity.Config), access adapters.TenantAccess) (http.Handler, *email.Sender) {
 	t.Helper()
+	r, sender, _ := newTestRouterWithPool(t, configure, access)
+	return r, sender
+}
+
+// newTestRouterWithPool is newTestRouterWithAccess that also returns
+// the database pool, for a test that must do what only the ops CLI
+// does (granting staff, task 2.9).
+func newTestRouterWithPool(t *testing.T, configure func(*identity.Config), access adapters.TenantAccess) (http.Handler, *email.Sender, *vasdb.Pool) {
+	t.Helper()
 	ctx := t.Context()
 
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/identity"))
@@ -88,7 +97,7 @@ func newTestRouterWithAccess(t *testing.T, configure func(*identity.Config), acc
 	if err := svc.EnsureActiveSigningKey(ctx); err != nil {
 		t.Fatalf("ensuring an active signing key: %v", err)
 	}
-	return svc.Router(), sender
+	return svc.Router(), sender, pool
 }
 
 func TestCreateSignup_MissingIdempotencyKey_Rejected(t *testing.T) {

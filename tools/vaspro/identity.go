@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"os"
 
@@ -19,16 +20,68 @@ import (
 const signingKeysKMSKeyID = "identity-signing-keys"
 
 func runIdentity(args []string) int {
-	if len(args) == 0 || args[0] != "rotate-signing-key" {
+	if len(args) == 0 {
 		identityUsage()
 		return 2
 	}
-	return rotateSigningKey(os.Stdout, os.Stderr)
+	switch args[0] {
+	case "rotate-signing-key":
+		return rotateSigningKey(os.Stdout, os.Stderr)
+	case "grant-staff", "revoke-staff":
+		return changeStaff(args[0], args[1:], os.Stdout, os.Stderr)
+	default:
+		identityUsage()
+		return 2
+	}
 }
 
 func identityUsage() {
 	_, _ = fmt.Fprintln(os.Stderr, "usage: vaspro identity rotate-signing-key")
-	_, _ = fmt.Fprintln(os.Stderr, "  reads IDENTITY_DATABASE_URL and IDENTITY_SIGNING_KEYS_KMS_KEY from the environment")
+	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity grant-staff -by <operator> <email>")
+	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity revoke-staff -by <operator> <email>")
+	_, _ = fmt.Fprintln(os.Stderr, "  reads IDENTITY_DATABASE_URL (and, to rotate, IDENTITY_SIGNING_KEYS_KMS_KEY) from the environment")
+}
+
+// changeStaff grants or revokes VASPRO staff (task 2.9, OQ-10). It is
+// the only way anyone becomes staff: there is no API for it. -by names
+// the operator running it, for the security event.
+func changeStaff(action string, args []string, stdout, stderr *os.File) int {
+	fs := flag.NewFlagSet(action, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	by := fs.String("by", "", "the operator making the change (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *by == "" || fs.NArg() != 1 {
+		identityUsage()
+		return 2
+	}
+	email := fs.Arg(0)
+
+	dsn := os.Getenv("IDENTITY_DATABASE_URL")
+	if dsn == "" {
+		_, _ = fmt.Fprintln(stderr, "vaspro: IDENTITY_DATABASE_URL is required")
+		return 2
+	}
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, dsn)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "vaspro: connecting to the database:", err)
+		return 1
+	}
+	defer pool.Close()
+
+	svc := app.New(app.Deps{Pool: pool, Clock: clock.Real{}})
+	change := svc.GrantStaff
+	if action == "revoke-staff" {
+		change = svc.RevokeStaff
+	}
+	if err := change(ctx, email, *by); err != nil {
+		_, _ = fmt.Fprintf(stderr, "vaspro: %s: %v\n", action, err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "ok   %s %s\n", action, email)
+	return 0
 }
 
 // rotateSigningKey is an ops action, not a public HTTP endpoint (task

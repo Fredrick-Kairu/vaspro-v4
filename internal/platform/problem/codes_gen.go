@@ -31,6 +31,7 @@ const (
 	AUTH4022 Code = "AUTH-4022"
 	AUTH4023 Code = "AUTH-4023"
 	AUTH4024 Code = "AUTH-4024"
+	AUTH4025 Code = "AUTH-4025"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
@@ -52,6 +53,8 @@ const (
 	VAL4007  Code = "VAL-4007"
 	VAL4008  Code = "VAL-4008"
 	VAL4009  Code = "VAL-4009"
+	VAL4010  Code = "VAL-4010"
+	VAL4011  Code = "VAL-4011"
 )
 
 var registry = map[Code]entry{
@@ -164,6 +167,14 @@ var registry = map[Code]entry{
 		Title:     "Your role doesn't allow this",
 		Cause:     "You are a member of this account, but your role doesn't include the permission this action needs.",
 		Fix:       "Ask an Admin of the account for a role that allows it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4025: {
+		Status:    403,
+		Title:     "Staff only",
+		Cause:     "This action is for VASPRO staff, and you aren't listed as staff.",
+		Fix:       "Ask VASPRO operations if you believe you should have staff access.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -332,6 +343,22 @@ var registry = map[Code]entry{
 		Title:     "File failed the virus scan",
 		Cause:     "The virus scanner found something in the file, so it wasn't stored.",
 		Fix:       "Scan the file on your side and upload a clean copy.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4010: {
+		Status:    409,
+		Title:     "Check already decided",
+		Cause:     "The check isn't waiting for review any more; a reviewer or the vendor has already decided it.",
+		Fix:       "Reload the review queue; decided checks leave it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4011: {
+		Status:    409,
+		Title:     "Tier change not allowed",
+		Cause:     "The account's tier can't move this way, for example more than one step on a check alone, a promotion of a suspended account, or no change at all.",
+		Fix:       "Check the account's current tier and status, then ask for an allowed change.",
 		Retryable: false,
 		Billable:  false,
 	},

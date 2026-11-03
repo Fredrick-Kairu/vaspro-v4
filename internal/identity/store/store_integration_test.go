@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
@@ -430,4 +431,33 @@ func TestAssertRowLevelSecurity_OnAPIClients(t *testing.T) {
 	}
 
 	testkit.AssertRowLevelSecurity(t, pool, insert, count)
+}
+
+func TestStaffMembers_Queries(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(newIdentityPool(t))
+	user, err := q.CreateUser(ctx, store.CreateUserParams{ID: uuid.New(), Email: "staff@example.com", FullName: "Staff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.GrantStaff(ctx, store.GrantStaffParams{UserID: uuid.New(), GrantedBy: "ops"}); err == nil {
+		t.Fatal("granted staff to a user that doesn't exist")
+	}
+	for i := 0; i < 2; i++ {
+		if err := q.GrantStaff(ctx, store.GrantStaffParams{UserID: user.ID, GrantedBy: "ops"}); err != nil {
+			t.Fatalf("grant %d: %v", i, err)
+		}
+	}
+	if staff, err := q.IsStaff(ctx, user.ID); err != nil || !staff {
+		t.Fatalf("IsStaff: %v %v", staff, err)
+	}
+	if n, err := q.RevokeStaff(ctx, user.ID); err != nil || n != 1 {
+		t.Fatalf("RevokeStaff: %d %v", n, err)
+	}
+	if n, _ := q.RevokeStaff(ctx, user.ID); n != 0 {
+		t.Fatalf("revoking again removed %d rows", n)
+	}
+	if at, err := q.LatestStaffUnlockAt(ctx, pgtype.UUID{Bytes: user.ID, Valid: true}); err != nil || at.Year() != 1970 {
+		t.Fatalf("never unlocked: got %v %v, want the epoch", at, err)
+	}
 }

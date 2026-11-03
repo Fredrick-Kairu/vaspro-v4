@@ -33,6 +33,11 @@ service IdentityService {
   // GetUsers returns the email and name of each known user ID, for
   // showing an account's members. Unknown IDs are left out.
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+
+  // IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
+  // ask on every staff action, so a revocation takes effect at once.
+  // A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+  rpc IsStaff(IsStaffRequest) returns (IsStaffResponse);
 }
 
 message ResolveSessionRequest {
@@ -83,4 +88,12 @@ message User {
 
 message GetUsersResponse {
   repeated User users = 1;
+}
+
+message IsStaffRequest {
+  string user_id = 1;
+}
+
+message IsStaffResponse {
+  bool is_staff = 1;
 }

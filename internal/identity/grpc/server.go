@@ -26,6 +26,7 @@ type UseCases interface {
 	SendInvitation(ctx context.Context, inviteeID, inviterID uuid.UUID, accountName string) error
 	IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error)
 	GetUsers(ctx context.Context, userIDs []uuid.UUID) ([]app.UserSummary, error)
+	IsStaff(ctx context.Context, userID uuid.UUID) (bool, error)
 }
 
 // Server implements identityv1.IdentityServiceServer.
@@ -104,6 +105,19 @@ func (s *Server) IsStepUpFresh(ctx context.Context, req *identityv1.IsStepUpFres
 		return nil, status.Error(codes.Internal, "checking step-up failed")
 	}
 	return &identityv1.IsStepUpFreshResponse{Fresh: fresh}, nil
+}
+
+// IsStaff implements identityv1.IdentityServiceServer (task 2.9).
+func (s *Server) IsStaff(ctx context.Context, req *identityv1.IsStaffRequest) (*identityv1.IsStaffResponse, error) {
+	userID, err := uuid.Parse(req.GetUserId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "user_id must be a UUID")
+	}
+	staff, err := s.sessions.IsStaff(ctx, userID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "checking staff failed")
+	}
+	return &identityv1.IsStaffResponse{IsStaff: staff}, nil
 }
 
 // GetUsers implements identityv1.IdentityServiceServer.

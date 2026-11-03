@@ -575,6 +575,11 @@ type SmppAccountWithPassword struct {
 	SystemId *string `json:"system_id,omitempty"`
 }
 
+// StaffUnlockRequest defines model for StaffUnlockRequest.
+type StaffUnlockRequest struct {
+	Email string `json:"email"`
+}
+
 // StepUpEmailConfirmationRequest defines model for StepUpEmailConfirmationRequest.
 type StepUpEmailConfirmationRequest struct {
 	// Code The step-up code emailed by createStepUpEmail.
@@ -785,6 +790,12 @@ type CreateSmppAccountPasswordParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateStaffUnlockParams defines parameters for CreateStaffUnlock.
+type CreateStaffUnlockParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateStepUpEmailParams defines parameters for CreateStepUpEmail.
 type CreateStepUpEmailParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -877,6 +888,9 @@ type CreateSmppAccountJSONRequestBody = SmppAccountCreateRequest
 
 // UpdateSmppAccountStatusJSONRequestBody defines body for UpdateSmppAccountStatus for application/json ContentType.
 type UpdateSmppAccountStatusJSONRequestBody = SmppAccountStatusUpdateRequest
+
+// CreateStaffUnlockJSONRequestBody defines body for CreateStaffUnlock for application/json ContentType.
+type CreateStaffUnlockJSONRequestBody = StaffUnlockRequest
 
 // CreateStepUpEmailConfirmationJSONRequestBody defines body for CreateStepUpEmailConfirmation for application/json ContentType.
 type CreateStepUpEmailConfirmationJSONRequestBody = StepUpEmailConfirmationRequest
@@ -1018,6 +1032,9 @@ type ServerInterface interface {
 	// CreateSmppAccountPassword Rotate an SMPP account's password
 	// (POST /v1/auth/smpp-accounts/{id}/password)
 	CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams)
+	// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+	// (POST /v1/auth/staff/unlocks)
+	CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams)
@@ -1288,6 +1305,12 @@ func (_ Unimplemented) UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Re
 // CreateSmppAccountPassword Rotate an SMPP account's password
 // (POST /v1/auth/smpp-accounts/{id}/password)
 func (_ Unimplemented) CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+// (POST /v1/auth/staff/unlocks)
+func (_ Unimplemented) CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2994,6 +3017,51 @@ func (siw *ServerInterfaceWrapper) CreateSmppAccountPassword(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// CreateStaffUnlock operation middleware
+func (siw *ServerInterfaceWrapper) CreateStaffUnlock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStaffUnlockParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStaffUnlock(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateStepUpEmail operation middleware
 func (siw *ServerInterfaceWrapper) CreateStepUpEmail(w http.ResponseWriter, r *http.Request) {
 
@@ -3494,6 +3562,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/security-events", wrapper.ListSecurityEvents)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/staff/unlocks", wrapper.CreateStaffUnlock)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/smpp-accounts", wrapper.ListSmppAccounts)
@@ -6277,6 +6348,98 @@ func (response CreateSmppAccountPassworddefaultApplicationProblemPlusJSONRespons
 	return err
 }
 
+type CreateStaffUnlockRequestObject struct {
+	Params CreateStaffUnlockParams
+	Body   *CreateStaffUnlockJSONRequestBody
+}
+
+type CreateStaffUnlockResponseObject interface {
+	VisitCreateStaffUnlockResponse(w http.ResponseWriter) error
+}
+
+type CreateStaffUnlock204Response struct {
+}
+
+func (response CreateStaffUnlock204Response) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CreateStaffUnlock400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStaffUnlock400ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock401ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock403ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock404ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlockdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStaffUnlockdefaultApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateStepUpEmailRequestObject struct {
 	Params CreateStepUpEmailParams
 }
@@ -6842,6 +7005,9 @@ type StrictServerInterface interface {
 	// CreateSmppAccountPassword Rotate an SMPP account's password
 	// (POST /v1/auth/smpp-accounts/{id}/password)
 	CreateSmppAccountPassword(ctx context.Context, request CreateSmppAccountPasswordRequestObject) (CreateSmppAccountPasswordResponseObject, error)
+	// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+	// (POST /v1/auth/staff/unlocks)
+	CreateStaffUnlock(ctx context.Context, request CreateStaffUnlockRequestObject) (CreateStaffUnlockResponseObject, error)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(ctx context.Context, request CreateStepUpEmailRequestObject) (CreateStepUpEmailResponseObject, error)
@@ -8105,6 +8271,39 @@ func (sh *strictHandler) CreateSmppAccountPassword(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSmppAccountPasswordResponseObject); ok {
 		if err := validResponse.VisitCreateSmppAccountPasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStaffUnlock operation middleware
+func (sh *strictHandler) CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams) {
+	var request CreateStaffUnlockRequestObject
+
+	request.Params = params
+
+	var body CreateStaffUnlockJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStaffUnlock(ctx, request.(CreateStaffUnlockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStaffUnlock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStaffUnlockResponseObject); ok {
+		if err := validResponse.VisitCreateStaffUnlockResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

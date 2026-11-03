@@ -31,7 +31,7 @@ func run(args []string) int {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: vaspro packs validate [pack.yaml ...]")
-	fmt.Fprintln(os.Stderr, "       vaspro identity rotate-signing-key")
+	fmt.Fprintln(os.Stderr, "       vaspro identity rotate-signing-key | grant-staff | revoke-staff")
 }
 
 func runPacks(args []string) int {
