@@ -4,6 +4,7 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -37,35 +38,32 @@ const seaweedfsS3Config = `{"identities":[{"name":"vaspro","credentials":[{"acce
 // succeeds. Cleans itself up via t.Cleanup.
 func StartObjectStorage(t *testing.T) objectstore.Config {
 	t.Helper()
-	ctx := context.Background()
-	ctr, err := testcontainers.Run(ctx, seaweedfsImage,
-		testcontainers.WithCmd("server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"),
-		testcontainers.WithFiles(testcontainers.ContainerFile{
-			Reader: strings.NewReader(seaweedfsS3Config), ContainerFilePath: "/etc/seaweedfs/s3.json", FileMode: 0o644,
-		}),
-		testcontainers.WithExposedPorts("8333/tcp"),
-		testcontainers.WithWaitStrategy(wait.ForListeningPort("8333/tcp").WithStartupTimeout(60*time.Second)),
-	)
-	if err != nil {
-		t.Fatalf("testkit: failed to start object storage: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-	endpoint, err := ctr.PortEndpoint(ctx, "8333/tcp", "")
-	if err != nil {
-		t.Fatalf("testkit: object storage endpoint: %v", err)
-	}
-	cfg := objectstore.Config{Endpoint: endpoint, AccessKey: objectStorageAccessKey, SecretKey: objectStorageSecretKey}
+	return startContainer(t, "object storage", func(ctx context.Context) (objectstore.Config, testcontainers.Container, error) {
+		ctr, err := testcontainers.Run(ctx, seaweedfsImage,
+			testcontainers.WithCmd("server", "-dir=/data", "-s3", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"),
+			testcontainers.WithFiles(testcontainers.ContainerFile{
+				Reader: strings.NewReader(seaweedfsS3Config), ContainerFilePath: "/etc/seaweedfs/s3.json", FileMode: 0o644,
+			}),
+			testcontainers.WithExposedPorts("8333/tcp"),
+			testcontainers.WithWaitStrategy(wait.ForListeningPort("8333/tcp").WithStartupTimeout(60*time.Second)),
+		)
+		if err != nil {
+			return objectstore.Config{}, ctr, fmt.Errorf("starting object storage: %w", err)
+		}
+		endpoint, err := ctr.PortEndpoint(ctx, "8333/tcp", "")
+		if err != nil {
+			return objectstore.Config{}, ctr, fmt.Errorf("object storage endpoint: %w", err)
+		}
+		cfg := objectstore.Config{Endpoint: endpoint, AccessKey: objectStorageAccessKey, SecretKey: objectStorageSecretKey}
 
-	// SeaweedFS answers on the port before its filer is ready; prove a
-	// bucket can be created the way callers will.
-	probe := cfg
-	probe.Bucket = "testkit-ready"
-	store, err := objectstore.New(probe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := waitUntilReady(ctx, "object storage", 60*time.Second, 500*time.Millisecond, store.EnsureBucket); err != nil {
-		t.Fatalf("testkit: %v", err)
-	}
-	return cfg
+		// SeaweedFS answers on the port before its filer is ready; prove a
+		// bucket can be created the way callers will.
+		probe := cfg
+		probe.Bucket = "testkit-ready"
+		store, err := objectstore.New(probe)
+		if err != nil {
+			return cfg, ctr, err
+		}
+		return cfg, ctr, waitUntilReady(ctx, "object storage", 60*time.Second, 500*time.Millisecond, store.EnsureBucket)
+	})
 }

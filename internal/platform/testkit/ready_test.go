@@ -81,3 +81,39 @@ func TestWaitUntilReady(t *testing.T) {
 		})
 	}
 }
+
+func TestStartWithRetries(t *testing.T) {
+	ctx := context.Background()
+	logf := func(string, ...any) {}
+
+	t.Run("a failed start is torn down and a fresh one tried", func(t *testing.T) {
+		attempts, terminated := 0, 0
+		got, terminate, err := startWithRetries(ctx, logf, "widget", 3, func(context.Context) (int, func(), error) {
+			attempts++
+			stop := func() { terminated++ }
+			if attempts < 3 {
+				return 0, stop, errors.New("port never came up")
+			}
+			return 42, stop, nil
+		})
+		if err != nil || got != 42 || attempts != 3 {
+			t.Fatalf("got %d, %v after %d attempts", got, err, attempts)
+		}
+		if terminated != 2 {
+			t.Fatalf("%d failed containers torn down, want 2", terminated)
+		}
+		terminate()
+		if terminated != 3 {
+			t.Fatal("the returned terminate doesn't stop the working container")
+		}
+	})
+	t.Run("after the last attempt the error names what and how many tries", func(t *testing.T) {
+		_, _, err := startWithRetries(ctx, logf, "widget", 2, func(context.Context) (int, func(), error) {
+			return 0, nil, errors.New("port never came up")
+		})
+		if err == nil || !strings.Contains(err.Error(), "widget") || !strings.Contains(err.Error(), "2 attempts") ||
+			!strings.Contains(err.Error(), "port never came up") {
+			t.Fatalf("got %v", err)
+		}
+	})
+}

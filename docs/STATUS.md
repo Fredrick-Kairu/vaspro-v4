@@ -464,7 +464,12 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - a Redis whose host port never became reachable in 60s (555 tries): Docker Desktop's port forward failing for that one container. Waiting longer can't fix that.
   - **The first measurement was invalid:** two `make check` runs came back in 35s because Go's test cache answered every package. It's noted so cached `make check` times aren't mistaken for real runs.
   - **`make check` for this change** also hit the Redis port-forward failure once (`TestStepUp_GatesTotpEnrollmentUntilSteppedUp`) and passed on rerun: 3 of the 6 full runs today hit a container fault.
-  - **Still open:** a container whose port forward never comes up. Either testkit starts a fresh container when one never becomes ready, or each package shares one container per kind (fewer containers, much faster runs, bigger change). The choice is with you.
+  - **Then, your choice: retry with a fresh container.**
+    - `testkit.startWithRetries` (untagged, unit-tested: a failed attempt's container is torn down, and the final error names the service and the number of attempts) runs each `Start*` helper's start-and-prove-ready up to 3 times.
+    - All six helpers (Postgres, NATS, Redis, RabbitMQ, object storage, ClamAV) go through it. Postgres's migrations run after, once, because a migration failure is a real error, not a container fault.
+    - Retries are logged through the standard log, so they show in a passing run's output too (`t.Logf` only prints for failures or `-v`).
+    - **Found while writing it:** RabbitMQ's first draft returned its connection before the dial had run (`return conn, ctr, waitUntilReady(...)` reads `conn` first). Fixed before any run.
+  - **After the retry:** three fresh full runs (`-p 4 -count=1`) were all green, at 391s, 423s and 415s. They printed no retries, but a retry would have been invisible then (the `t.Logf` point above), so they don't show whether any retry fired; the logging is fixed for later runs. Then `make check` (fresh: testkit changed) was green first time in 414s, with retries now visible and none needed.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

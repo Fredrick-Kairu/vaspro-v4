@@ -25,26 +25,23 @@ const clamavImage = "clamav/clamav:1.5.4-debian"
 // tools/fakes/clamd, which speaks the same protocol.
 func StartClamAV(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
-	ctr, err := testcontainers.Run(ctx, clamavImage,
-		testcontainers.WithEnv(map[string]string{"CLAMAV_NO_FRESHCLAMD": "true", "CLAMAV_NO_MILTERD": "true"}),
-		testcontainers.WithExposedPorts("3310/tcp"),
-		testcontainers.WithWaitStrategy(wait.ForListeningPort("3310/tcp").WithStartupTimeout(5*time.Minute)),
-	)
-	if err != nil {
-		t.Fatalf("testkit: failed to start clamav: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-	addr, err := ctr.PortEndpoint(ctx, "3310/tcp", "")
-	if err != nil {
-		t.Fatalf("testkit: clamav endpoint: %v", err)
-	}
-	if err := waitUntilReady(ctx, "clamav", 5*time.Minute, time.Second, func(ctx context.Context) error {
-		return clamdPing(ctx, addr)
-	}); err != nil {
-		t.Fatalf("testkit: %v", err)
-	}
-	return addr
+	return startContainer(t, "clamav", func(ctx context.Context) (string, testcontainers.Container, error) {
+		ctr, err := testcontainers.Run(ctx, clamavImage,
+			testcontainers.WithEnv(map[string]string{"CLAMAV_NO_FRESHCLAMD": "true", "CLAMAV_NO_MILTERD": "true"}),
+			testcontainers.WithExposedPorts("3310/tcp"),
+			testcontainers.WithWaitStrategy(wait.ForListeningPort("3310/tcp").WithStartupTimeout(5*time.Minute)),
+		)
+		if err != nil {
+			return "", ctr, fmt.Errorf("starting clamav: %w", err)
+		}
+		addr, err := ctr.PortEndpoint(ctx, "3310/tcp", "")
+		if err != nil {
+			return "", ctr, fmt.Errorf("clamav endpoint: %w", err)
+		}
+		return addr, ctr, waitUntilReady(ctx, "clamav", 5*time.Minute, time.Second, func(ctx context.Context) error {
+			return clamdPing(ctx, addr)
+		})
+	})
 }
 
 func clamdPing(ctx context.Context, addr string) error {

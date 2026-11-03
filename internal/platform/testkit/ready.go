@@ -37,3 +37,25 @@ func waitUntilReady(ctx context.Context, what string, timeout, interval time.Dur
 		}
 	}
 }
+
+// startWithRetries runs start until it succeeds, up to attempts times.
+// start returns what the caller needs and how to tear its container
+// down; a failed attempt's container is torn down before the next one
+// starts, and each retry is logged. After the last attempt the error
+// names what failed and every attempt's count.
+func startWithRetries[T any](ctx context.Context, logf func(string, ...any), what string, attempts int, start func(context.Context) (T, func(), error)) (T, func(), error) {
+	var zero T
+	for attempt := 1; ; attempt++ {
+		value, terminate, err := start(ctx)
+		if err == nil {
+			return value, terminate, nil
+		}
+		if terminate != nil {
+			terminate()
+		}
+		if attempt >= attempts {
+			return zero, nil, fmt.Errorf("%s didn't become ready after %d attempts: %w", what, attempt, err)
+		}
+		logf("testkit: %s attempt %d failed, starting a fresh container: %v", what, attempt, err)
+	}
+}
