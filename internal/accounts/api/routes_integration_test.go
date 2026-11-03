@@ -513,3 +513,64 @@ func TestKYCAPI(t *testing.T) {
 		t.Fatalf("the account after a passed check: %v, want starter", account)
 	}
 }
+
+func TestKYBAPI(t *testing.T) {
+	r, pool := newRouter(t)
+	admin, viewer := uuid.New(), uuid.New()
+	_, created := do(t, r, http.MethodPost, "/v1/accounts/tenants", admin, "create", map[string]string{"display_name": "Team", "country_code": "KE"})
+	tenant, _ := created["id"].(string)
+	addMember(t, pool, tenant, viewer, domain.BuiltinViewerRoleID)
+	profilePath := "/v1/accounts/tenants/" + tenant + "/business-profile"
+	submitPath := "/v1/accounts/tenants/" + tenant + "/kyb-submissions"
+
+	if status, got := do(t, r, http.MethodGet, profilePath, admin, "", nil); status != http.StatusNotFound || got["code"] != "VAL-4003" {
+		t.Fatalf("no profile yet: got %d %v", status, got)
+	}
+	status, profile := do(t, r, http.MethodPut, profilePath, admin, "profile-1",
+		map[string]string{"registration_number": "pvt-ab1cdef2", "registered_name": "Acme Deliveries Limited", "tax_id": "p051234567x"})
+	if status != http.StatusOK || profile["registry"] != "BRS" || profile["registration_number"] != "PVT-AB1CDEF2" {
+		t.Fatalf("setting the profile: got %d %v", status, profile)
+	}
+	if status, got := do(t, r, http.MethodPut, profilePath, viewer, "viewer-profile",
+		map[string]string{"registration_number": "X", "registered_name": "Y"}); status != http.StatusForbidden || got["code"] != "AUTH-4024" {
+		t.Fatalf("a Viewer editing: got %d %v", status, got)
+	}
+	status, owner := do(t, r, http.MethodPost, profilePath+"/owners", admin, "owner-1",
+		map[string]string{"full_name": "Grace Wanjiru", "role": "director", "ownership_pct": "60.5"})
+	if status != http.StatusCreated || owner["ownership_pct"] != "60.50" {
+		t.Fatalf("adding a director: got %d %v", status, owner)
+	}
+	if status, got := do(t, r, http.MethodPost, profilePath+"/owners", admin, "owner-bad",
+		map[string]string{"full_name": "X", "role": "owner", "ownership_pct": "12.345"}); status != http.StatusBadRequest || got["code"] != "VAL-4000" {
+		t.Fatalf("a bad percentage: got %d %v", status, got)
+	}
+
+	if status, got := do(t, r, http.MethodPost, submitPath, admin, "submit-sandbox", nil); status != http.StatusForbidden || got["code"] != "KYC-4020" {
+		t.Fatalf("submitting in the sandbox: got %d %v", status, got)
+	}
+	err := pgx.BeginFunc(context.Background(), pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `UPDATE tenants SET tier = 'starter' WHERE id = $1`, tenant); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `INSERT INTO tier_changes (id, tenant_id, from_tier, to_tier, reason, changed_by)
+			VALUES ($1, $2, 'sandbox', 'starter', 'fixture', $3)`, uuid.New(), tenant, uuid.New())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, check := do(t, r, http.MethodPost, submitPath, admin, "submit", nil)
+	if status != http.StatusCreated || check["kind"] != "business" || check["status"] != "review" {
+		t.Fatalf("submitting: got %d %v", status, check)
+	}
+	if status, got := do(t, r, http.MethodPost, submitPath, admin, "submit-again", nil); status != http.StatusConflict || got["code"] != "VAL-4006" {
+		t.Fatalf("submitting again: got %d %v", status, got)
+	}
+	ownerID, _ := owner["id"].(string)
+	if status, got := do(t, r, http.MethodDelete, profilePath+"/owners/"+ownerID, admin, "remove-locked", nil); status != http.StatusConflict || got["code"] != "VAL-4006" {
+		t.Fatalf("removing an owner while in review: got %d %v", status, got)
+	}
+	if status, got := do(t, r, http.MethodGet, profilePath, viewer, "", nil); status != http.StatusOK || len(got["owners"].([]any)) != 1 {
+		t.Fatalf("a Viewer reading: got %d %v", status, got)
+	}
+}

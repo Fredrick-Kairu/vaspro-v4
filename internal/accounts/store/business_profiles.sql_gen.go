@@ -12,6 +12,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countOtherProfilesWithRegistration = `-- name: CountOtherProfilesWithRegistration :one
+SELECT count(*) FROM accounts.business_profiles
+WHERE registry = $1 AND registration_number = $2 AND tenant_id <> $3
+`
+
+type CountOtherProfilesWithRegistrationParams struct {
+	Registry           string    `json:"registry"`
+	RegistrationNumber string    `json:"registration_number"`
+	TenantID           uuid.UUID `json:"tenant_id"`
+}
+
+// Only under the accounts_registration_lookup role (app.SubmitKYB):
+// data model §4 flags, not blocks, a registration number another
+// account also uses.
+func (q *Queries) CountOtherProfilesWithRegistration(ctx context.Context, arg CountOtherProfilesWithRegistrationParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countOtherProfilesWithRegistration, arg.Registry, arg.RegistrationNumber, arg.TenantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createBusinessProfile = `-- name: CreateBusinessProfile :one
 INSERT INTO accounts.business_profiles
   (id, tenant_id, registry, registration_number, registered_name, tax_id, registered_address)
@@ -59,6 +80,43 @@ SELECT id, tenant_id, registry, registration_number, registered_name, tax_id, re
 
 func (q *Queries) GetBusinessProfileByTenant(ctx context.Context, tenantID uuid.UUID) (AccountsBusinessProfile, error) {
 	row := q.db.QueryRow(ctx, getBusinessProfileByTenant, tenantID)
+	var i AccountsBusinessProfile
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Registry,
+		&i.RegistrationNumber,
+		&i.RegisteredName,
+		&i.TaxID,
+		&i.RegisteredAddress,
+		&i.VerifiedAt,
+	)
+	return i, err
+}
+
+const updateBusinessProfile = `-- name: UpdateBusinessProfile :one
+UPDATE accounts.business_profiles
+SET registration_number = $2, registered_name = $3, tax_id = $4, registered_address = $5
+WHERE tenant_id = $1
+RETURNING id, tenant_id, registry, registration_number, registered_name, tax_id, registered_address, verified_at
+`
+
+type UpdateBusinessProfileParams struct {
+	TenantID           uuid.UUID   `json:"tenant_id"`
+	RegistrationNumber string      `json:"registration_number"`
+	RegisteredName     string      `json:"registered_name"`
+	TaxID              pgtype.Text `json:"tax_id"`
+	RegisteredAddress  pgtype.Text `json:"registered_address"`
+}
+
+func (q *Queries) UpdateBusinessProfile(ctx context.Context, arg UpdateBusinessProfileParams) (AccountsBusinessProfile, error) {
+	row := q.db.QueryRow(ctx, updateBusinessProfile,
+		arg.TenantID,
+		arg.RegistrationNumber,
+		arg.RegisteredName,
+		arg.TaxID,
+		arg.RegisteredAddress,
+	)
 	var i AccountsBusinessProfile
 	err := row.Scan(
 		&i.ID,

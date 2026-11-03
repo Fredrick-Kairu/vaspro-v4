@@ -276,6 +276,107 @@ func (h *Handlers) ReceiveKycWebhook(ctx context.Context, request ReceiveKycWebh
 	return ReceiveKycWebhook200Response{}, nil
 }
 
+func (h *Handlers) GetBusinessProfile(ctx context.Context, request GetBusinessProfileRequestObject) (GetBusinessProfileResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	p, err := h.app.GetBusinessProfile(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return GetBusinessProfile200JSONResponse(businessProfileResponse(p)), nil
+}
+
+func (h *Handlers) SetBusinessProfile(ctx context.Context, request SetBusinessProfileRequestObject) (SetBusinessProfileResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	b := request.Body
+	in := domain.BusinessProfileInput{RegistrationNumber: b.RegistrationNumber, RegisteredName: b.RegisteredName}
+	if b.TaxId != nil {
+		in.TaxID = *b.TaxId
+	}
+	if b.RegisteredAddress != nil {
+		in.RegisteredAddress = *b.RegisteredAddress
+	}
+	p, err := h.app.SetBusinessProfile(ctx, callerFromContext(ctx), tenantID, in)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return SetBusinessProfile200JSONResponse(businessProfileResponse(p)), nil
+}
+
+func (h *Handlers) AddBusinessOwner(ctx context.Context, request AddBusinessOwnerRequestObject) (AddBusinessOwnerResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	b := request.Body
+	in := domain.OwnerInput{FullName: b.FullName, Role: string(b.Role)}
+	if b.OwnershipPct != nil {
+		in.OwnershipPct = *b.OwnershipPct
+	}
+	o, err := h.app.AddOwner(ctx, callerFromContext(ctx), tenantID, in)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return AddBusinessOwner201JSONResponse(businessOwnerResponse(*o)), nil
+}
+
+func (h *Handlers) RemoveBusinessOwner(ctx context.Context, request RemoveBusinessOwnerRequestObject) (RemoveBusinessOwnerResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	ownerID, err := uuid.Parse(request.OwnerId)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	if err := h.app.RemoveOwner(ctx, callerFromContext(ctx), tenantID, ownerID); err != nil {
+		return nil, toProblem(err)
+	}
+	return RemoveBusinessOwner204Response{}, nil
+}
+
+func (h *Handlers) SubmitKyb(ctx context.Context, request SubmitKybRequestObject) (SubmitKybResponseObject, error) {
+	tenantID, err := uuid.Parse(request.Id)
+	if err != nil {
+		return nil, toProblem(app.ErrNotFound)
+	}
+	check, err := h.app.SubmitKYB(ctx, callerFromContext(ctx), tenantID)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return SubmitKyb201JSONResponse(kycCheckResponse(check)), nil
+}
+
+func businessProfileResponse(p *app.BusinessProfile) BusinessProfile {
+	resp := BusinessProfile{
+		Id: p.ID.String(), Registry: p.Registry, RegistrationNumber: p.RegistrationNumber, RegisteredName: p.RegisteredName,
+		VerifiedAt: p.VerifiedAt, Owners: make([]BusinessOwner, len(p.Owners)),
+	}
+	if p.TaxID != "" {
+		resp.TaxId = &p.TaxID
+	}
+	if p.RegisteredAddress != "" {
+		resp.RegisteredAddress = &p.RegisteredAddress
+	}
+	for i, o := range p.Owners {
+		resp.Owners[i] = businessOwnerResponse(o)
+	}
+	return resp
+}
+
+func businessOwnerResponse(o app.BusinessOwner) BusinessOwner {
+	resp := BusinessOwner{Id: o.ID.String(), FullName: o.FullName, Role: BusinessOwnerRole(o.Role)}
+	if o.OwnershipPct != "" {
+		resp.OwnershipPct = &o.OwnershipPct
+	}
+	return resp
+}
+
 func kycCheckResponse(c *app.KYCCheck) KycCheck {
 	resp := KycCheck{Id: c.ID.String(), Kind: KycCheckKind(c.Kind), Status: KycCheckStatus(c.Status), DecidedAt: c.DecidedAt, CreatedAt: c.CreatedAt}
 	if c.URL != "" {
@@ -354,6 +455,14 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4004, "the account would have no active Admin")
 	case errors.Is(err, domain.ErrNotBuiltinRole):
 		return problem.New(problem.VAL4000, "only built-in roles can be assigned")
+	case errors.Is(err, domain.ErrKYBNeedsStarter):
+		return problem.New(problem.KYC4020, "business verification needs the starter tier first")
+	case errors.Is(err, domain.ErrNoBusinessProfile):
+		return problem.New(problem.VAL4000, "enter the business profile first")
+	case errors.Is(err, domain.ErrNoDirector):
+		return problem.New(problem.VAL4000, "a business needs at least one director")
+	case errors.Is(err, domain.ErrBusinessProfileLocked):
+		return problem.New(problem.VAL4006, "the business profile is in review or verified")
 	case errors.Is(err, domain.ErrNotReseller):
 		return problem.New(problem.KYC4021, "only a reseller account can create sub-accounts")
 	case errors.Is(err, domain.ErrTenantNotActive):

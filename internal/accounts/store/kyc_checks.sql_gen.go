@@ -57,6 +57,52 @@ func (q *Queries) CreateKycCheck(ctx context.Context, arg CreateKycCheckParams) 
 	return i, err
 }
 
+const createKycCheckWithResult = `-- name: CreateKycCheckWithResult :one
+INSERT INTO accounts.kyc_checks (id, tenant_id, kind, subject_id, provider, status, result)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, tenant_id, kind, subject_id, provider, provider_ref, status, result, reviewed_by, decided_at, expires_at, created_at
+`
+
+type CreateKycCheckWithResultParams struct {
+	ID        uuid.UUID `json:"id"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+	Kind      string    `json:"kind"`
+	SubjectID uuid.UUID `json:"subject_id"`
+	Provider  string    `json:"provider"`
+	Status    string    `json:"status"`
+	Result    []byte    `json:"result"`
+}
+
+// A check decided or sent to review when it's created (a manual KYB
+// submission, task 2.7).
+func (q *Queries) CreateKycCheckWithResult(ctx context.Context, arg CreateKycCheckWithResultParams) (AccountsKycCheck, error) {
+	row := q.db.QueryRow(ctx, createKycCheckWithResult,
+		arg.ID,
+		arg.TenantID,
+		arg.Kind,
+		arg.SubjectID,
+		arg.Provider,
+		arg.Status,
+		arg.Result,
+	)
+	var i AccountsKycCheck
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Kind,
+		&i.SubjectID,
+		&i.Provider,
+		&i.ProviderRef,
+		&i.Status,
+		&i.Result,
+		&i.ReviewedBy,
+		&i.DecidedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const decideKycCheck = `-- name: DecideKycCheck :exec
 UPDATE accounts.kyc_checks
 SET status = $1, result = $2,
@@ -145,6 +191,38 @@ type GetKycCheckForUpdateParams struct {
 
 func (q *Queries) GetKycCheckForUpdate(ctx context.Context, arg GetKycCheckForUpdateParams) (AccountsKycCheck, error) {
 	row := q.db.QueryRow(ctx, getKycCheckForUpdate, arg.ID, arg.TenantID)
+	var i AccountsKycCheck
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Kind,
+		&i.SubjectID,
+		&i.Provider,
+		&i.ProviderRef,
+		&i.Status,
+		&i.Result,
+		&i.ReviewedBy,
+		&i.DecidedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const latestKycCheckOfKind = `-- name: LatestKycCheckOfKind :one
+SELECT id, tenant_id, kind, subject_id, provider, provider_ref, status, result, reviewed_by, decided_at, expires_at, created_at FROM accounts.kyc_checks
+WHERE tenant_id = $1 AND kind = $2
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type LatestKycCheckOfKindParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+	Kind     string    `json:"kind"`
+}
+
+func (q *Queries) LatestKycCheckOfKind(ctx context.Context, arg LatestKycCheckOfKindParams) (AccountsKycCheck, error) {
+	row := q.db.QueryRow(ctx, latestKycCheckOfKind, arg.TenantID, arg.Kind)
 	var i AccountsKycCheck
 	err := row.Scan(
 		&i.ID,

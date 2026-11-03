@@ -60,6 +60,48 @@ func (e AccountServiceStatus) Valid() bool {
 	}
 }
 
+// Defines values for BusinessOwnerRole.
+const (
+	BusinessOwnerRoleDirector  BusinessOwnerRole = "director"
+	BusinessOwnerRoleOwner     BusinessOwnerRole = "owner"
+	BusinessOwnerRoleSignatory BusinessOwnerRole = "signatory"
+)
+
+// Valid indicates whether the value is a known member of the BusinessOwnerRole enum.
+func (e BusinessOwnerRole) Valid() bool {
+	switch e {
+	case BusinessOwnerRoleDirector:
+		return true
+	case BusinessOwnerRoleOwner:
+		return true
+	case BusinessOwnerRoleSignatory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BusinessOwnerRequestRole.
+const (
+	BusinessOwnerRequestRoleDirector  BusinessOwnerRequestRole = "director"
+	BusinessOwnerRequestRoleOwner     BusinessOwnerRequestRole = "owner"
+	BusinessOwnerRequestRoleSignatory BusinessOwnerRequestRole = "signatory"
+)
+
+// Valid indicates whether the value is a known member of the BusinessOwnerRequestRole enum.
+func (e BusinessOwnerRequestRole) Valid() bool {
+	switch e {
+	case BusinessOwnerRequestRoleDirector:
+		return true
+	case BusinessOwnerRequestRoleOwner:
+		return true
+	case BusinessOwnerRequestRoleSignatory:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for KycCheckKind.
 const (
 	KycCheckKindBusiness   KycCheckKind = "business"
@@ -338,6 +380,53 @@ type AccountServiceMinTier string
 // AccountServiceStatus Only for a selected service.
 type AccountServiceStatus string
 
+// BusinessOwner defines model for BusinessOwner.
+type BusinessOwner struct {
+	FullName     string            `json:"full_name"`
+	Id           string            `json:"id"`
+	OwnershipPct *string           `json:"ownership_pct,omitempty"`
+	Role         BusinessOwnerRole `json:"role"`
+}
+
+// BusinessOwnerRole defines model for BusinessOwner.Role.
+type BusinessOwnerRole string
+
+// BusinessOwnerRequest defines model for BusinessOwnerRequest.
+type BusinessOwnerRequest struct {
+	FullName string `json:"full_name"`
+
+	// OwnershipPct A percentage from 0 to 100 with up to two decimal places, as a string.
+	OwnershipPct *string                  `json:"ownership_pct,omitempty"`
+	Role         BusinessOwnerRequestRole `json:"role"`
+}
+
+// BusinessOwnerRequestRole defines model for BusinessOwnerRequest.Role.
+type BusinessOwnerRequestRole string
+
+// BusinessProfile defines model for BusinessProfile.
+type BusinessProfile struct {
+	Id                 string          `json:"id"`
+	Owners             []BusinessOwner `json:"owners"`
+	RegisteredAddress  *string         `json:"registered_address,omitempty"`
+	RegisteredName     string          `json:"registered_name"`
+	RegistrationNumber string          `json:"registration_number"`
+
+	// Registry From the country pack (BRS in Kenya).
+	Registry   string     `json:"registry"`
+	TaxId      *string    `json:"tax_id,omitempty"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+}
+
+// BusinessProfileRequest defines model for BusinessProfileRequest.
+type BusinessProfileRequest struct {
+	RegisteredAddress  *string `json:"registered_address,omitempty"`
+	RegisteredName     string  `json:"registered_name"`
+	RegistrationNumber string  `json:"registration_number"`
+
+	// TaxId The country's tax ID (KRA PIN in Kenya).
+	TaxId *string `json:"tax_id,omitempty"`
+}
+
 // InvitationRequest defines model for InvitationRequest.
 type InvitationRequest struct {
 	Email  string `json:"email"`
@@ -540,8 +629,32 @@ type CreateTenantParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// SetBusinessProfileParams defines parameters for SetBusinessProfile.
+type SetBusinessProfileParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// AddBusinessOwnerParams defines parameters for AddBusinessOwner.
+type AddBusinessOwnerParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RemoveBusinessOwnerParams defines parameters for RemoveBusinessOwner.
+type RemoveBusinessOwnerParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateInvitationParams defines parameters for CreateInvitation.
 type CreateInvitationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// SubmitKybParams defines parameters for SubmitKyb.
+type SubmitKybParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -588,6 +701,12 @@ type ReceiveKycWebhookJSONRequestBody = ReceiveKycWebhookJSONBody
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreateRequest
 
+// SetBusinessProfileJSONRequestBody defines body for SetBusinessProfile for application/json ContentType.
+type SetBusinessProfileJSONRequestBody = BusinessProfileRequest
+
+// AddBusinessOwnerJSONRequestBody defines body for AddBusinessOwner for application/json ContentType.
+type AddBusinessOwnerJSONRequestBody = BusinessOwnerRequest
+
 // CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
 type CreateInvitationJSONRequestBody = InvitationRequest
 
@@ -620,9 +739,24 @@ type ServerInterface interface {
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(w http.ResponseWriter, r *http.Request, id string)
+	// GetBusinessProfile The account's business profile and its owners
+	// (GET /v1/accounts/tenants/{id}/business-profile)
+	GetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID)
+	// SetBusinessProfile Enter or change the business profile
+	// (PUT /v1/accounts/tenants/{id}/business-profile)
+	SetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID, params SetBusinessProfileParams)
+	// AddBusinessOwner Add a director, owner or signatory
+	// (POST /v1/accounts/tenants/{id}/business-profile/owners)
+	AddBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, params AddBusinessOwnerParams)
+	// RemoveBusinessOwner Remove a director, owner or signatory
+	// (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
+	RemoveBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, ownerId string, params RemoveBusinessOwnerParams)
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams)
+	// SubmitKyb Submit the business for verification
+	// (POST /v1/accounts/tenants/{id}/kyb-submissions)
+	SubmitKyb(w http.ResponseWriter, r *http.Request, id TenantID, params SubmitKybParams)
 	// ListKycChecks List an account's KYC checks
 	// (GET /v1/accounts/tenants/{id}/kyc-checks)
 	ListKycChecks(w http.ResponseWriter, r *http.Request, id TenantID)
@@ -695,9 +829,39 @@ func (_ Unimplemented) GetTenant(w http.ResponseWriter, r *http.Request, id stri
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetBusinessProfile The account's business profile and its owners
+// (GET /v1/accounts/tenants/{id}/business-profile)
+func (_ Unimplemented) GetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetBusinessProfile Enter or change the business profile
+// (PUT /v1/accounts/tenants/{id}/business-profile)
+func (_ Unimplemented) SetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID, params SetBusinessProfileParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AddBusinessOwner Add a director, owner or signatory
+// (POST /v1/accounts/tenants/{id}/business-profile/owners)
+func (_ Unimplemented) AddBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, params AddBusinessOwnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RemoveBusinessOwner Remove a director, owner or signatory
+// (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
+func (_ Unimplemented) RemoveBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, ownerId string, params RemoveBusinessOwnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // CreateInvitation Invite someone to an account by email
 // (POST /v1/accounts/tenants/{id}/invitations)
 func (_ Unimplemented) CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SubmitKyb Submit the business for verification
+// (POST /v1/accounts/tenants/{id}/kyb-submissions)
+func (_ Unimplemented) SubmitKyb(w http.ResponseWriter, r *http.Request, id TenantID, params SubmitKybParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -949,6 +1113,203 @@ func (siw *ServerInterfaceWrapper) GetTenant(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetBusinessProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetBusinessProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBusinessProfile(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBusinessProfile operation middleware
+func (siw *ServerInterfaceWrapper) SetBusinessProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetBusinessProfileParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBusinessProfile(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddBusinessOwner operation middleware
+func (siw *ServerInterfaceWrapper) AddBusinessOwner(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AddBusinessOwnerParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddBusinessOwner(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveBusinessOwner operation middleware
+func (siw *ServerInterfaceWrapper) RemoveBusinessOwner(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "ownerId" -------------
+	var ownerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ownerId", chi.URLParam(r, "ownerId"), &ownerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ownerId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveBusinessOwnerParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveBusinessOwner(w, r, id, ownerId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateInvitation operation middleware
 func (siw *ServerInterfaceWrapper) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 
@@ -994,6 +1355,60 @@ func (siw *ServerInterfaceWrapper) CreateInvitation(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateInvitation(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitKyb operation middleware
+func (siw *ServerInterfaceWrapper) SubmitKyb(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitKybParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitKyb(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1631,6 +2046,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/accounts/kyc/webhooks/{provider}", wrapper.ReceiveKycWebhook)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/business-profile", wrapper.GetBusinessProfile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/accounts/tenants/{id}/business-profile", wrapper.SetBusinessProfile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/business-profile/owners", wrapper.AddBusinessOwner)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/accounts/tenants/{id}/business-profile/owners/{ownerId}", wrapper.RemoveBusinessOwner)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/tenants/{id}/kyb-submissions", wrapper.SubmitKyb)
+	})
 
 	return r
 }
@@ -2018,6 +2448,408 @@ func (response GetTenantdefaultApplicationProblemPlusJSONResponse) VisitGetTenan
 	return err
 }
 
+type GetBusinessProfileRequestObject struct {
+	Id TenantID `json:"id"`
+}
+
+type GetBusinessProfileResponseObject interface {
+	VisitGetBusinessProfileResponse(w http.ResponseWriter) error
+}
+
+type GetBusinessProfile200JSONResponse BusinessProfile
+
+func (response GetBusinessProfile200JSONResponse) VisitGetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBusinessProfile401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetBusinessProfile401ApplicationProblemPlusJSONResponse) VisitGetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBusinessProfile403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetBusinessProfile403ApplicationProblemPlusJSONResponse) VisitGetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBusinessProfile404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetBusinessProfile404ApplicationProblemPlusJSONResponse) VisitGetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBusinessProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetBusinessProfiledefaultApplicationProblemPlusJSONResponse) VisitGetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfileRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params SetBusinessProfileParams
+	Body   *SetBusinessProfileJSONRequestBody
+}
+
+type SetBusinessProfileResponseObject interface {
+	VisitSetBusinessProfileResponse(w http.ResponseWriter) error
+}
+
+type SetBusinessProfile200JSONResponse BusinessProfile
+
+func (response SetBusinessProfile200JSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfile400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SetBusinessProfile400ApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfile401ApplicationProblemPlusJSONResponse Problem
+
+func (response SetBusinessProfile401ApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfile403ApplicationProblemPlusJSONResponse Problem
+
+func (response SetBusinessProfile403ApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfile404ApplicationProblemPlusJSONResponse Problem
+
+func (response SetBusinessProfile404ApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfile409ApplicationProblemPlusJSONResponse Problem
+
+func (response SetBusinessProfile409ApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBusinessProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetBusinessProfiledefaultApplicationProblemPlusJSONResponse) VisitSetBusinessProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwnerRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params AddBusinessOwnerParams
+	Body   *AddBusinessOwnerJSONRequestBody
+}
+
+type AddBusinessOwnerResponseObject interface {
+	VisitAddBusinessOwnerResponse(w http.ResponseWriter) error
+}
+
+type AddBusinessOwner201JSONResponse BusinessOwner
+
+func (response AddBusinessOwner201JSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwner400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response AddBusinessOwner400ApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwner401ApplicationProblemPlusJSONResponse Problem
+
+func (response AddBusinessOwner401ApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwner403ApplicationProblemPlusJSONResponse Problem
+
+func (response AddBusinessOwner403ApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwner404ApplicationProblemPlusJSONResponse Problem
+
+func (response AddBusinessOwner404ApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwner409ApplicationProblemPlusJSONResponse Problem
+
+func (response AddBusinessOwner409ApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddBusinessOwnerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response AddBusinessOwnerdefaultApplicationProblemPlusJSONResponse) VisitAddBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveBusinessOwnerRequestObject struct {
+	Id      TenantID `json:"id"`
+	OwnerId string   `json:"ownerId"`
+	Params  RemoveBusinessOwnerParams
+}
+
+type RemoveBusinessOwnerResponseObject interface {
+	VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error
+}
+
+type RemoveBusinessOwner204Response struct {
+}
+
+func (response RemoveBusinessOwner204Response) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveBusinessOwner401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RemoveBusinessOwner401ApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveBusinessOwner403ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveBusinessOwner403ApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveBusinessOwner404ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveBusinessOwner404ApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveBusinessOwner409ApplicationProblemPlusJSONResponse Problem
+
+func (response RemoveBusinessOwner409ApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveBusinessOwnerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RemoveBusinessOwnerdefaultApplicationProblemPlusJSONResponse) VisitRemoveBusinessOwnerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateInvitationRequestObject struct {
 	Id     TenantID `json:"id"`
 	Params CreateInvitationParams
@@ -2120,6 +2952,118 @@ type CreateInvitationdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateInvitationdefaultApplicationProblemPlusJSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKybRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params SubmitKybParams
+}
+
+type SubmitKybResponseObject interface {
+	VisitSubmitKybResponse(w http.ResponseWriter) error
+}
+
+type SubmitKyb201JSONResponse KycCheck
+
+func (response SubmitKyb201JSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKyb400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitKyb400ApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKyb401ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitKyb401ApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKyb403ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitKyb403ApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKyb404ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitKyb404ApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKyb409ApplicationProblemPlusJSONResponse Problem
+
+func (response SubmitKyb409ApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitKybdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SubmitKybdefaultApplicationProblemPlusJSONResponse) VisitSubmitKybResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3038,9 +3982,24 @@ type StrictServerInterface interface {
 	// GetTenant Show a client account the caller belongs to
 	// (GET /v1/accounts/tenants/{id})
 	GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error)
+	// GetBusinessProfile The account's business profile and its owners
+	// (GET /v1/accounts/tenants/{id}/business-profile)
+	GetBusinessProfile(ctx context.Context, request GetBusinessProfileRequestObject) (GetBusinessProfileResponseObject, error)
+	// SetBusinessProfile Enter or change the business profile
+	// (PUT /v1/accounts/tenants/{id}/business-profile)
+	SetBusinessProfile(ctx context.Context, request SetBusinessProfileRequestObject) (SetBusinessProfileResponseObject, error)
+	// AddBusinessOwner Add a director, owner or signatory
+	// (POST /v1/accounts/tenants/{id}/business-profile/owners)
+	AddBusinessOwner(ctx context.Context, request AddBusinessOwnerRequestObject) (AddBusinessOwnerResponseObject, error)
+	// RemoveBusinessOwner Remove a director, owner or signatory
+	// (DELETE /v1/accounts/tenants/{id}/business-profile/owners/{ownerId})
+	RemoveBusinessOwner(ctx context.Context, request RemoveBusinessOwnerRequestObject) (RemoveBusinessOwnerResponseObject, error)
 	// CreateInvitation Invite someone to an account by email
 	// (POST /v1/accounts/tenants/{id}/invitations)
 	CreateInvitation(ctx context.Context, request CreateInvitationRequestObject) (CreateInvitationResponseObject, error)
+	// SubmitKyb Submit the business for verification
+	// (POST /v1/accounts/tenants/{id}/kyb-submissions)
+	SubmitKyb(ctx context.Context, request SubmitKybRequestObject) (SubmitKybResponseObject, error)
 	// ListKycChecks List an account's KYC checks
 	// (GET /v1/accounts/tenants/{id}/kyc-checks)
 	ListKycChecks(ctx context.Context, request ListKycChecksRequestObject) (ListKycChecksResponseObject, error)
@@ -3279,6 +4238,128 @@ func (sh *strictHandler) GetTenant(w http.ResponseWriter, r *http.Request, id st
 	}
 }
 
+// GetBusinessProfile operation middleware
+func (sh *strictHandler) GetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID) {
+	var request GetBusinessProfileRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBusinessProfile(ctx, request.(GetBusinessProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBusinessProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBusinessProfileResponseObject); ok {
+		if err := validResponse.VisitGetBusinessProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetBusinessProfile operation middleware
+func (sh *strictHandler) SetBusinessProfile(w http.ResponseWriter, r *http.Request, id TenantID, params SetBusinessProfileParams) {
+	var request SetBusinessProfileRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body SetBusinessProfileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetBusinessProfile(ctx, request.(SetBusinessProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetBusinessProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetBusinessProfileResponseObject); ok {
+		if err := validResponse.VisitSetBusinessProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddBusinessOwner operation middleware
+func (sh *strictHandler) AddBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, params AddBusinessOwnerParams) {
+	var request AddBusinessOwnerRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body AddBusinessOwnerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddBusinessOwner(ctx, request.(AddBusinessOwnerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddBusinessOwner")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddBusinessOwnerResponseObject); ok {
+		if err := validResponse.VisitAddBusinessOwnerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveBusinessOwner operation middleware
+func (sh *strictHandler) RemoveBusinessOwner(w http.ResponseWriter, r *http.Request, id TenantID, ownerId string, params RemoveBusinessOwnerParams) {
+	var request RemoveBusinessOwnerRequestObject
+
+	request.Id = id
+	request.OwnerId = ownerId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveBusinessOwner(ctx, request.(RemoveBusinessOwnerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveBusinessOwner")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveBusinessOwnerResponseObject); ok {
+		if err := validResponse.VisitRemoveBusinessOwnerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateInvitation operation middleware
 func (sh *strictHandler) CreateInvitation(w http.ResponseWriter, r *http.Request, id TenantID, params CreateInvitationParams) {
 	var request CreateInvitationRequestObject
@@ -3306,6 +4387,33 @@ func (sh *strictHandler) CreateInvitation(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateInvitationResponseObject); ok {
 		if err := validResponse.VisitCreateInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SubmitKyb operation middleware
+func (sh *strictHandler) SubmitKyb(w http.ResponseWriter, r *http.Request, id TenantID, params SubmitKybParams) {
+	var request SubmitKybRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SubmitKyb(ctx, request.(SubmitKybRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SubmitKyb")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SubmitKybResponseObject); ok {
+		if err := validResponse.VisitSubmitKybResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

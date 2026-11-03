@@ -86,6 +86,21 @@ func TestGateway_OnboardingThroughKYC_EndToEnd(t *testing.T) {
 		}
 	}
 
+	// --- Tier 2 starts: the business profile, a director, and KYB goes
+	// to the staff review queue (task 2.7, OQ-08) ---
+	profilePath := "/v1/accounts/tenants/" + id + "/business-profile"
+	if status, got := gwDoJSON(t, r, http.MethodPut, profilePath, ada,
+		map[string]string{"registration_number": "PVT-AB1CDEF2", "registered_name": "Acme Deliveries Limited", "tax_id": "P051234567X"}, "kyb-profile"); status != http.StatusOK || got["registry"] != "BRS" {
+		t.Fatalf("business profile: got %d %v", status, got)
+	}
+	if status, got := gwDoJSON(t, r, http.MethodPost, profilePath+"/owners", ada,
+		map[string]string{"full_name": "Ada Lovelace", "role": "director", "ownership_pct": "100"}, "kyb-director"); status != http.StatusCreated {
+		t.Fatalf("director: got %d %v", status, got)
+	}
+	if status, got := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants/"+id+"/kyb-submissions", ada, nil, "kyb-submit"); status != http.StatusCreated || got["status"] != "review" {
+		t.Fatalf("KYB submission: got %d %v, want a check in review", status, got)
+	}
+
 	// --- tenant.tier_changed reached the bus ---
 	msg, err := events.Next(jetstream.FetchMaxWait(15 * time.Second))
 	if err != nil {

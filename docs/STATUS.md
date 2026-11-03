@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-02
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.6 done (2026-11-02). Next: 2.7 KYB (business profile, owners, registry lookup). Also done: 2.1, 2.2, 2.3, 2.4, 2.5, the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
+**Current task:** 2.7 done (2026-11-03; registry lookup deferred, OQ-08). Next: 2.8 documents. Also done: 2.1–2.6, the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -364,6 +364,36 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Mutation-checked:** making a pass not final failed the domain test and the out-of-order app test; skipping the signature check failed the adapter, app and API refusals; skipping the timestamp window failed the stale and future cases.
   - **`make check`:** the first run failed on lint: two unchecked `Body.Close`, a gosec SSRF warning on the vendor call (its URL is operator configuration, now marked so) and a staticcheck struct conversion. All fixed; the second run was green. With `-tags=integration`, lint also reports two pre-existing findings in older tests (an unchecked `sqlDB.Close` in accounts' store test and a gosec G101 in the gateway backends test). `make check` doesn't lint with that tag, so they're noted here rather than fixed in this task.
   - **Deployment note:** like 2.3a's lookup role, `accounts_kyc_webhook` needs a grant to the service's login role where that isn't the migration role.
+
+- 2.7 KYB: business profile, directors and owners, submission to staff review (OQ-08).
+  - **Registry:** there's no BRS, BRELA or URSB access here, so per your answer details are entered by the client and verified by staff. ROADMAP 2.7's registry lookup adapter is deferred until access exists, and OQ-08 keeps that open.
+  - **Pack:** `packs/schema.json` gains an optional `kyb` block (`registry`, `tax_id_label`), and KE has `BRS` / `KRA PIN`. The profile's registry comes from the pack, never from the client; a country without the block can't do KYB.
+  - **Rules** (`domain/kyb.go`):
+    - `NormalizeBusinessProfile`: trims the fields and upper-cases the number and tax ID; no format checks, since staff verify;
+    - `NormalizeOwner`: name; role director/owner/signatory; `ownership_pct` as a string from 0 to 100 with up to 2 places, held in hundredths with no float;
+    - `CanSubmitKYB`: needs Starter, a profile, at least one director, and no business check in review or passed;
+    - `BusinessProfileLocked`: true in review or after a pass.
+  - **App:**
+    - `SetBusinessProfile` (create or update the one profile), `GetBusinessProfile`, `AddOwner`, `RemoveOwner`: `account:manage` to edit, `account:read` to read; edits while locked are the new **VAL-4006** (409).
+    - `SubmitKYB` writes a `business` check with provider `manual`, subject = the profile, **status review**, and `kyc.check_started`.
+      - The result records `duplicate_registration` and `other_accounts`, counted across accounts by a new narrow role `accounts_registration_lookup` (migration `20261103170000`; SELECT on `business_profiles`; `WITH INHERIT FALSE`; `WithRoleTx` only).
+      - A duplicate is flagged, not refused (data model §4).
+      - The count runs in its own transaction before the locked insert; a stale count could only mis-flag, and the profile locks once the check exists.
+    - Below Starter is KYC-4020; no profile or no director is VAL-4000.
+    - The staff decision and the promotion to business are 2.9.
+  - **API:** `getBusinessProfile`, `setBusinessProfile`, `addBusinessOwner`, `removeBusinessOwner`, `submitKyb`. `createKycCheck` stays individual-only.
+  - **Tests:**
+    - domain: normalisation, 13 percentage edge cases, a `CanSubmitKYB` table, the lock;
+    - packs: KE's KYB block;
+    - store: the lookup role counts other accounts only inside `WithRoleTx`;
+    - app: profile create/update with the pack's registry; owners added (with and without a percentage) and removed; a Viewer reads but can't edit; bad input; another account's owner not found; submission refusals (sandbox, no profile, no director, Viewer) write nothing; a submission is a review check on the profile with its event and no promotion; **a duplicate registration number is flagged and still goes to review**; a unique one isn't flagged; locked while in review and after a pass; editable and resubmittable after a failure;
+    - API: codes and shapes;
+    - **gateway e2e:** the onboarding e2e continues past Starter: profile, director, KYB submission in review.
+    - **Order of work:** domain, packs and app tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **A test fix while writing it:** the refusals subtest first reused the main subtest's registration number, which made the duplicate count 2 instead of 1. It now has its own number.
+    - **Mutation-checked:** dropping the duplicate count, the lock, or the Starter requirement each failed the intended tests.
+  - **`make check`:** the first run failed only in `platform/testkit`'s `TestStartRabbitMQ_PublishAndConsumeRoundTrips`. The RabbitMQ module's own startup wait (a log line, 60s) timed out under the full parallel load; the rerun was green. That's the third container-startup failure since the readiness fix, all under the full run: limiting `test-int`'s package parallelism (noted in 2.3a) is now worth doing.
+  - **Deployment note:** like 2.3a's and 2.6's roles, `accounts_registration_lookup` needs a grant to the service's login role where that isn't the migration role. That's now three grants: worth scripting with the deployment work.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

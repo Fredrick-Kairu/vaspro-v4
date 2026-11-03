@@ -129,3 +129,35 @@ func TestKYCWebhookRole_FindsChecksOnlyInsideWithRoleTx(t *testing.T) {
 		t.Fatalf("the role reading tenants: got %v, want permission denied (42501)", err)
 	}
 }
+
+// TestRegistrationLookupRole_CountsAcrossAccountsOnlyInsideWithRoleTx:
+// KYB's duplicate flag counts other accounts' profiles with the same
+// registration number, only as the narrow role.
+func TestRegistrationLookupRole_CountsAcrossAccountsOnlyInsideWithRoleTx(t *testing.T) {
+	db := newAccountsDB(t)
+	ctx := context.Background()
+	mine, theirs := mustTenant(t, db.super), mustTenant(t, db.super)
+	for _, tenant := range []uuid.UUID{mine, theirs} {
+		if _, err := db.super.Exec(ctx, `INSERT INTO business_profiles (id, tenant_id, registry, registration_number, registered_name)
+			VALUES ($1, $2, 'BRS', 'PVT-SHARED', 'Acme')`, uuid.New(), tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	params := store.CountOtherProfilesWithRegistrationParams{Registry: "BRS", RegistrationNumber: "PVT-SHARED", TenantID: mine}
+
+	var n int64
+	if err := db.app.WithRoleTx(ctx, "accounts_registration_lookup", func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		n, err = store.New(tx).CountOtherProfilesWithRegistration(ctx, params)
+		return err
+	}); err != nil || n != 1 {
+		t.Fatalf("inside WithRoleTx: got %d, %v; want 1 other account", n, err)
+	}
+	if err := pgx.BeginFunc(ctx, db.app, func(tx pgx.Tx) error {
+		var err error
+		n, err = store.New(tx).CountOtherProfilesWithRegistration(ctx, params)
+		return err
+	}); err != nil || n != 0 {
+		t.Fatalf("outside WithRoleTx: got %d, %v; want 0 (WITH INHERIT FALSE)", n, err)
+	}
+}

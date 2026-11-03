@@ -35,6 +35,13 @@ send_windows:
     end: "20:00"
     timezone: Africa/Nairobi
 
+# Business verification (task 2.7): profiles are checked against the
+# Business Registration Service, by staff until a registry integration
+# exists (OQ-08).
+kyb:
+  registry: BRS
+  tax_id_label: KRA PIN
+
 # Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
 # requirements' tier table. accounts syncs these into
 # service_country_rules at startup.

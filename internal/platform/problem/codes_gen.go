@@ -48,6 +48,7 @@ const (
 	VAL4003  Code = "VAL-4003"
 	VAL4004  Code = "VAL-4004"
 	VAL4005  Code = "VAL-4005"
+	VAL4006  Code = "VAL-4006"
 )
 
 var registry = map[Code]entry{
@@ -296,6 +297,14 @@ var registry = map[Code]entry{
 		Title:     "Already a member",
 		Cause:     "The person invited is already an active member of this account.",
 		Fix:       "Change their role instead of inviting them again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4006: {
+		Status:    409,
+		Title:     "Business profile is locked",
+		Cause:     "The business profile and its owners can't change while a business verification is in review or after it has passed.",
+		Fix:       "Wait for the review's decision; changes after verification come with re-verification.",
 		Retryable: false,
 		Billable:  false,
 	},

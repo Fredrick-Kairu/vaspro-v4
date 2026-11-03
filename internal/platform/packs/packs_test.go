@@ -87,6 +87,17 @@ func TestParse_RealKEPack_HasServiceRules(t *testing.T) {
 	}
 }
 
+// KYB's registry and tax ID name are country rules (task 2.7).
+func TestParse_RealKEPack_HasKYB(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.KYB == nil || p.KYB.Registry != "BRS" || p.KYB.TaxIDLabel != "KRA PIN" {
+		t.Fatalf("KYB = %+v, want BRS and KRA PIN", p.KYB)
+	}
+}
+
 func TestParse_ServiceRule_EnabledDefaultsToTrueAndTierIsChecked(t *testing.T) {
 	schema := readFile(t, realSchemaPath)
 	base := string(readFile(t, realKEPackPath))

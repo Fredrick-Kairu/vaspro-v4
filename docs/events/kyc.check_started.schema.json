@@ -10,7 +10,7 @@
     "check_id": {"type": "string", "format": "uuid"},
     "kind": {"type": "string", "enum": ["individual", "business", "screening"]},
     "subject_id": {"type": "string", "format": "uuid"},
-    "provider": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "minLength": 1, "description": "The KYC adapter's name, or manual for a business check staff verify (task 2.7)."},
     "started_by": {"type": "string", "format": "uuid"}
   },
   "additionalProperties": false

@@ -6,3 +6,16 @@ RETURNING *;
 
 -- name: GetBusinessProfileByTenant :one
 SELECT * FROM accounts.business_profiles WHERE tenant_id = $1;
+
+-- name: UpdateBusinessProfile :one
+UPDATE accounts.business_profiles
+SET registration_number = $2, registered_name = $3, tax_id = $4, registered_address = $5
+WHERE tenant_id = $1
+RETURNING *;
+
+-- name: CountOtherProfilesWithRegistration :one
+-- Only under the accounts_registration_lookup role (app.SubmitKYB):
+-- data model §4 flags, not blocks, a registration number another
+-- account also uses.
+SELECT count(*) FROM accounts.business_profiles
+WHERE registry = $1 AND registration_number = $2 AND tenant_id <> $3;

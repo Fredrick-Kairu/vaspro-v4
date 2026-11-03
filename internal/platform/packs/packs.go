@@ -32,6 +32,15 @@ type Pack struct {
 	// Services is each service's minimum tier and availability here,
 	// keyed by accounts' service code (task 2.4).
 	Services map[string]ServiceRule
+	// KYB is business verification here (task 2.7); nil when the
+	// country can't do KYB yet.
+	KYB *KYB
+}
+
+// KYB is a country's business verification rule.
+type KYB struct {
+	Registry   string // BRS, BRELA, URSB
+	TaxIDLabel string // KRA PIN, TIN
 }
 
 // ServiceRule is one service's rule in a country.
@@ -89,6 +98,10 @@ type jsonPack struct {
 			Timezone string `json:"timezone"`
 		} `json:"promotional"`
 	} `json:"send_windows"`
+	KYB *struct {
+		Registry   string `json:"registry"`
+		TaxIDLabel string `json:"tax_id_label"`
+	} `json:"kyb"`
 	Services map[string]struct {
 		MinTier string `json:"min_tier"`
 		Enabled *bool  `json:"enabled"`
@@ -135,7 +148,13 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		services[code] = ServiceRule{MinTier: r.MinTier, Enabled: r.Enabled == nil || *r.Enabled}
 	}
 
+	var kyb *KYB
+	if jp.KYB != nil {
+		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel}
+	}
+
 	return &Pack{
+		KYB:         kyb,
 		Services:    services,
 		Version:     jp.Version,
 		CountryCode: jp.CountryCode,

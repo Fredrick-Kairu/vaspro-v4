@@ -455,7 +455,8 @@ paths:
         and, once passed, moves a sandbox account to the starter tier;
         the response's url is the vendor's hosted flow (ID document and
         selfie). Only individual checks in 2.6; business checks come
-        with KYB (2.7). VAL-4000 when KYC isn't configured.
+        with KYB, which is submitted with submitKyb. VAL-4000 when KYC
+        isn't configured.
       security:
         - sessionBearer: []
       parameters:
@@ -540,6 +541,181 @@ paths:
         "401":
           $ref: '#/components/responses/Problem'
         "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile:
+    get:
+      operationId: getBusinessProfile
+      summary: The account's business profile and its owners
+      description: Needs account:read. VAL-4003 when the account has no profile yet.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessProfile'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: setBusinessProfile
+      summary: Enter or change the business profile
+      description: >
+        Needs account:manage (task 2.7). The registry comes from the
+        country pack (BRS in Kenya). Staff verify the details when KYB
+        is submitted (OQ-08: no registry lookup yet). Locked while a
+        business verification is in review or after it passed
+        (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessProfileRequest'
+            example:
+              registration_number: "PVT-AB1CDEF2"
+              registered_name: "Acme Deliveries Limited"
+              tax_id: "P051234567X"
+              registered_address: "Moi Avenue, Nairobi"
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessProfile'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile/owners:
+    post:
+      operationId: addBusinessOwner
+      summary: Add a director, owner or signatory
+      description: >
+        Needs account:manage and an existing profile. ownership_pct is a
+        decimal string from 0 to 100 with up to two places. Locked like
+        the profile (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessOwnerRequest'
+            example:
+              full_name: "Grace Wanjiru"
+              role: director
+              ownership_pct: "60.00"
+      responses:
+        "201":
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessOwner'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile/owners/{ownerId}:
+    delete:
+      operationId: removeBusinessOwner
+      summary: Remove a director, owner or signatory
+      description: Needs account:manage. Locked like the profile (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/kyb-submissions:
+    post:
+      operationId: submitKyb
+      summary: Submit the business for verification
+      description: >
+        Needs account:manage, the starter tier (KYC-4020 below it), a
+        business profile and at least one director (VAL-4000). Creates
+        a business check that goes to the staff review queue (OQ-08);
+        staff decide it, promoting the account to the business tier
+        when it passes (task 2.9). A registration number another
+        account also uses is flagged for the reviewer, not refused
+        (data model §4). One submission at a time: VAL-4006 while one
+        is in review or after one passed.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "201":
+          description: Submitted for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
@@ -683,6 +859,68 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AccountService'
+    BusinessProfileRequest:
+      type: object
+      required: [registration_number, registered_name]
+      properties:
+        registration_number:
+          type: string
+        registered_name:
+          type: string
+        tax_id:
+          type: string
+          description: The country's tax ID (KRA PIN in Kenya).
+        registered_address:
+          type: string
+    BusinessProfile:
+      type: object
+      required: [id, registry, registration_number, registered_name, owners]
+      properties:
+        id:
+          type: string
+        registry:
+          type: string
+          description: From the country pack (BRS in Kenya).
+        registration_number:
+          type: string
+        registered_name:
+          type: string
+        tax_id:
+          type: string
+        registered_address:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+        owners:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessOwner'
+    BusinessOwnerRequest:
+      type: object
+      required: [full_name, role]
+      properties:
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [director, owner, signatory]
+        ownership_pct:
+          type: string
+          description: A percentage from 0 to 100 with up to two decimal places, as a string.
+    BusinessOwner:
+      type: object
+      required: [id, full_name, role]
+      properties:
+        id:
+          type: string
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [director, owner, signatory]
+        ownership_pct:
+          type: string
     KycCheckRequest:
       type: object
       required: [kind]

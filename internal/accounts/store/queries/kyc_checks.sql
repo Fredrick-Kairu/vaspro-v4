@@ -24,3 +24,16 @@ WHERE id = @id AND tenant_id = @tenant_id;
 
 -- name: ListKycChecks :many
 SELECT * FROM accounts.kyc_checks WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC;
+
+-- name: CreateKycCheckWithResult :one
+-- A check decided or sent to review when it's created (a manual KYB
+-- submission, task 2.7).
+INSERT INTO accounts.kyc_checks (id, tenant_id, kind, subject_id, provider, status, result)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING *;
+
+-- name: LatestKycCheckOfKind :one
+SELECT * FROM accounts.kyc_checks
+WHERE tenant_id = $1 AND kind = $2
+ORDER BY created_at DESC, id DESC
+LIMIT 1;

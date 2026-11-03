@@ -779,7 +779,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country. *Done 2026-11-02 (OQ-06): seven services; each country's minimum tiers in `packs/ke`, synced into `service_country_rules`; selected services follow the tier in `ChangeTier`'s transaction; a locked service reports the tier it needs (`TestServiceSelectionAndTiers`, and the account e2e picks SMS and USSD).*
 - [x] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
 - [x] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided. *Done 2026-11-02 (OQ-07, ADR 0008): `KYCProvider` with the fake vendor until OD-03 is decided; signed webhooks through the gateway; a decided check is final (`TestKYCWebhook_PassPromotesToStarter`'s out-of-order case).*
-- [ ] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter.
+- [x] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter. *Done 2026-11-03 (OQ-08) except the registry lookup adapter, deferred until registry access exists: profile and owners entered by the client, KYB submitted from Starter goes to staff review, a duplicate registration number is flagged (`TestSubmitKYB`).*
 - [ ] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications.
 - [ ] 2.9 Staff review queue for KYC and KYB decisions marked "review".
 - [ ] 2.10 Data residency tag per tenant.

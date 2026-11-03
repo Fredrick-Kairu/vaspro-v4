@@ -50,6 +50,7 @@ func newHarness(t *testing.T) harness {
 		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounts TO accounts_role;
 		GRANT accounts_membership_lookup TO accounts_role WITH INHERIT FALSE;
 		GRANT accounts_kyc_webhook TO accounts_role WITH INHERIT FALSE;
+		GRANT accounts_registration_lookup TO accounts_role WITH INHERIT FALSE;
 	`
 	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
 		t.Fatalf("setting up accounts_role: %v", err)

@@ -6,3 +6,11 @@ RETURNING *;
 
 -- name: GetBeneficialOwnerByID :one
 SELECT * FROM accounts.beneficial_owners WHERE id = $1 AND tenant_id = $2;
+
+-- name: ListBeneficialOwners :many
+SELECT * FROM accounts.beneficial_owners
+WHERE tenant_id = $1 AND business_profile_id = $2
+ORDER BY id;
+
+-- name: DeleteBeneficialOwner :execrows
+DELETE FROM accounts.beneficial_owners WHERE id = $1 AND tenant_id = $2;

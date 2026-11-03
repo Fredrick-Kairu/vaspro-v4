@@ -204,6 +204,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4006
+    status: 409
+    title: Business profile is locked
+    cause: The business profile and its owners can't change while a business verification is in review or after it has passed.
+    fix: Wait for the review's decision; changes after verification come with re-verification.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

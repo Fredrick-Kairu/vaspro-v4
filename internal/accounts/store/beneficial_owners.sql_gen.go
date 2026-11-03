@@ -51,6 +51,23 @@ func (q *Queries) CreateBeneficialOwner(ctx context.Context, arg CreateBeneficia
 	return i, err
 }
 
+const deleteBeneficialOwner = `-- name: DeleteBeneficialOwner :execrows
+DELETE FROM accounts.beneficial_owners WHERE id = $1 AND tenant_id = $2
+`
+
+type DeleteBeneficialOwnerParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+func (q *Queries) DeleteBeneficialOwner(ctx context.Context, arg DeleteBeneficialOwnerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBeneficialOwner, arg.ID, arg.TenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getBeneficialOwnerByID = `-- name: GetBeneficialOwnerByID :one
 SELECT id, tenant_id, business_profile_id, full_name, role, ownership_pct, screened_at, screening_result FROM accounts.beneficial_owners WHERE id = $1 AND tenant_id = $2
 `
@@ -74,4 +91,44 @@ func (q *Queries) GetBeneficialOwnerByID(ctx context.Context, arg GetBeneficialO
 		&i.ScreeningResult,
 	)
 	return i, err
+}
+
+const listBeneficialOwners = `-- name: ListBeneficialOwners :many
+SELECT id, tenant_id, business_profile_id, full_name, role, ownership_pct, screened_at, screening_result FROM accounts.beneficial_owners
+WHERE tenant_id = $1 AND business_profile_id = $2
+ORDER BY id
+`
+
+type ListBeneficialOwnersParams struct {
+	TenantID          uuid.UUID `json:"tenant_id"`
+	BusinessProfileID uuid.UUID `json:"business_profile_id"`
+}
+
+func (q *Queries) ListBeneficialOwners(ctx context.Context, arg ListBeneficialOwnersParams) ([]AccountsBeneficialOwner, error) {
+	rows, err := q.db.Query(ctx, listBeneficialOwners, arg.TenantID, arg.BusinessProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsBeneficialOwner
+	for rows.Next() {
+		var i AccountsBeneficialOwner
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.BusinessProfileID,
+			&i.FullName,
+			&i.Role,
+			&i.OwnershipPct,
+			&i.ScreenedAt,
+			&i.ScreeningResult,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
