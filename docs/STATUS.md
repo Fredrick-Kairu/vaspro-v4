@@ -1,8 +1,8 @@
 # Build status
 
-**Updated:** 2026-11-02
+**Updated:** 2026-11-03
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.8 done (2026-11-03). Next: 2.9 staff review queue. Also done: 2.1–2.7 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix, 1.16. Phase 2's onboarding e2e is green.
+**Current task:** 2.9 done (2026-11-03). Next: 2.10 data residency tag. Also done: 2.1–2.8 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -470,6 +470,28 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - Retries are logged through the standard log, so they show in a passing run's output too (`t.Logf` only prints for failures or `-v`).
     - **Found while writing it:** RabbitMQ's first draft returned its connection before the dial had run (`return conn, ctr, waitUntilReady(...)` reads `conn` first). Fixed before any run.
   - **After the retry:** three fresh full runs (`-p 4 -count=1`) were all green, at 391s, 423s and 415s. They printed no retries, but a retry would have been invisible then (the `t.Logf` point above), so they don't show whether any retry fired; the logging is fixed for later runs. Then `make check` (fresh: testkit changed) was green first time in 414s, with retries now visible and none needed.
+
+- 2.9 Staff review queue, staff decisions and unlock by staff (OQ-10). Two commits, like 2.3.
+  - **Your answers (3 Nov):** staff are a table in identity, granted only by an ops CLI and checked over gRPC on every call; all four extras (unlock, staff tier change, make reseller, staff document download); no step-up and no self-review rule for now.
+  - **2.9a identity:**
+    - Migration `20261105090000_staff_members.sql`: `identity.staff_members (user_id PK → users, granted_by, granted_at)`, global like `users` (no RLS). An addition to data model §3. `granted_by` is text, the operator's name from the CLI's `-by`, not a user ID as the plan said: the CLI has no signed-in user.
+    - `app.GrantStaff`/`RevokeStaff`/`IsStaff`, with `staff_granted`/`staff_revoked` security events. `vaspro identity grant-staff -by <operator> <email>` and `revoke-staff` are the only way in; there's no API.
+    - gRPC `IsStaff(user_id)`.
+    - **Unlock:** `POST /v1/auth/staff/unlocks {email}` (staff only, the new **AUTH-4025**; unknown email VAL-4003) writes `unlocked_by_staff`. The lockout now counts failures after the later of the window start and the latest unlock (`LatestStaffUnlockAt`), so new failures lock again.
+  - **2.9b accounts:**
+    - `adapters.Identity.IsStaff`; `app.requireStaff` asks identity on every call (revocation is immediate; identity down fails closed, SYS-9000). Staff act through the target account's own transaction, never as members.
+    - Migration `20261105100000_staff_review_role.sql`: NOLOGIN `accounts_staff_review`, `WITH INHERIT FALSE`, `WithRoleTx` only; SELECT on every `kyc_checks` row and on accounts that have a check. **Changed from the plan** (which said review rows only): a decision on a check someone already decided has to find it to answer VAL-4010 rather than 404. Fourth narrow role, same deployment-grant note.
+    - Six operations under `/v1/accounts/staff/`: `listKycReviews` (oldest first, a real `(created_at, id)` cursor, 1–100 per page, KYB duplicate flags), `getKycReview` (business: profile, owners and the check's documents; individual: the subject's email and name), `decideKycReview`, `createStaffTierChange`, `createStaffReseller`, `getStaffDocumentContent`.
+    - **Decisions** (`domain.ValidateStaffDecision`): passed or failed, always with a reason (shown to the client as `reason` on `listKycChecks`); only a failure may reject documents, and only the check's own. The check must still be in review, else the new **VAL-4010** (409), which also covers the vendor deciding first. A business pass verifies the profile, accepts its documents and moves an active starter account to business through `changeTierTx` with both the check and the reviewer; an individual pass moves sandbox to starter. A fail changes no tier and rejects the named documents, so KYB asks for them again. `kyc.check_decided` gains `reviewed_by`.
+    - Staff tier changes the rules refuse are the new **VAL-4011** (409); an unknown tier or no reason is VAL-4000; `MakeReseller` keeps KYC-4020/4021.
+  - **Tests:**
+    - identity: store (FK, repeat grant, revoke counts, the epoch default), app (grant/revoke/IsStaff and events; locked → unlocked → signs in → 5 new failures lock again; non-staff, unknown email and revoked staff refused and write nothing), gRPC IsStaff, API codes.
+    - accounts: the decision table; the role (reads across accounts only inside `WithRoleTx`, only accounts with checks, no writes, no memberships); app (every staff call refuses the account's own Admin, a stranger and revoked staff; identity down fails closed; the queue across accounts, oldest first, paged, flagged, decided checks gone; detail; business pass with `tier_changes`, reviewer, `verified_at`, accepted documents and schema-valid events; fail with rejected documents and resubmission; a second decision; the vendor and staff in either order; a pending check; financial → reseller → sub-account; document download); API (**spec-driven:** every `/v1/accounts/staff/` operation is 401 without a user and 403 AUTH-4025 for the account's own Admin, and nothing changes; plus each operation's codes).
+    - **Gateway e2e:** the onboarding e2e continues from KYB in review: an operator grants staff with the real `vaspro` binary; the client's Admin gets 403 on the queue; staff see the check, open the certificate, pass it; the account is on Business and `tenant.tier_changed` (starter → business) is on NATS; staff move it to Financial and make it a reseller; the client creates a sub-account; a user locked by 5 bad passwords is refused an unlock by the client and unlocked by staff.
+    - **Order of work:** identity's app tests and accounts' domain and app tests were seen failing first against stubs; the API tests and the e2e compiled only once the handlers existed.
+    - **A fixture fix while writing it:** the individual-review detail test first used a subject the identity fake didn't know, so it had no email; it now registers the user first.
+    - **Mutation-checked:** ignoring the unlock time in the lockout failed `TestUnlockByStaff`; skipping `requireStaff` failed the app and spec-driven API tests; dropping "must be in review" failed the second-decision, vendor-first and pending-check cases.
+  - **Not in 2.9:** step-up and a self-review rule (your call; revisit with the console, Phase 10); a separate audit table for staff opening documents (the gateway's audit log records the route and user; Phase 17).
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

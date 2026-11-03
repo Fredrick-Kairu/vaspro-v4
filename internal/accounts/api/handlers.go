@@ -500,6 +500,9 @@ func kycCheckResponse(c *app.KYCCheck) KycCheck {
 	if c.URL != "" {
 		resp.Url = &c.URL
 	}
+	if c.Reason != "" {
+		resp.Reason = &c.Reason
+	}
 	return resp
 }
 
@@ -597,7 +600,34 @@ func toProblem(err error) error {
 		return problem.New(problem.KYC4021, "the account is suspended or archived")
 	case errors.Is(err, domain.ErrResellerNeedsFinancial):
 		return problem.New(problem.KYC4020, "reseller accounts need the Financial tier")
+	case errors.Is(err, domain.ErrNotDirect):
+		return problem.New(problem.KYC4021, "only a direct account can become a reseller")
+	case errors.Is(err, app.ErrNotStaff):
+		return problem.New(problem.AUTH4025, "staff only")
+	case errors.Is(err, app.ErrAlreadyDecided):
+		return problem.New(problem.VAL4010, "the check isn't waiting for review")
+	case errors.Is(err, domain.ErrInvalidDecision):
+		return problem.New(problem.VAL4000, err.Error())
+	case errors.Is(err, app.ErrCheckNotUsable):
+		return problem.New(problem.VAL4000, "the KYC check can't back this tier change")
+	case errors.Is(err, domain.ErrUnknownTier), errors.Is(err, domain.ErrNoReason):
+		return problem.New(problem.VAL4000, err.Error())
+	case isTierRuleError(err):
+		return problem.New(problem.VAL4011, err.Error())
 	default:
 		return err
 	}
+}
+
+// isTierRuleError reports a tier change task 2.5's rules refuse.
+func isTierRuleError(err error) bool {
+	for _, rule := range []error{
+		domain.ErrSameTier, domain.ErrNoEvidence, domain.ErrPromotionWhileInactive,
+		domain.ErrFinancialNeedsStaff, domain.ErrSkipsTiers, domain.ErrCheckKindMismatch,
+	} {
+		if errors.Is(err, rule) {
+			return true
+		}
+	}
+	return false
 }

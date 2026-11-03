@@ -70,6 +70,7 @@ func newHarnessWith(t *testing.T, documents bool) harness {
 		GRANT accounts_membership_lookup TO accounts_role WITH INHERIT FALSE;
 		GRANT accounts_kyc_webhook TO accounts_role WITH INHERIT FALSE;
 		GRANT accounts_registration_lookup TO accounts_role WITH INHERIT FALSE;
+		GRANT accounts_staff_review TO accounts_role WITH INHERIT FALSE;
 	`
 	if _, err := pg.Pool.Exec(ctx, setup); err != nil {
 		t.Fatalf("setting up accounts_role: %v", err)

@@ -153,3 +153,20 @@ func (q *Queries) ListDocuments(ctx context.Context, tenantID uuid.UUID) ([]Acco
 	}
 	return items, nil
 }
+
+const setDocumentsStatus = `-- name: SetDocumentsStatus :exec
+UPDATE accounts.documents SET status = $1
+WHERE tenant_id = $2 AND id = ANY($3::uuid[])
+`
+
+type SetDocumentsStatusParams struct {
+	Status   string      `json:"status"`
+	TenantID uuid.UUID   `json:"tenant_id"`
+	Ids      []uuid.UUID `json:"ids"`
+}
+
+// A staff decision accepts or rejects the documents a check named (task 2.9).
+func (q *Queries) SetDocumentsStatus(ctx context.Context, arg SetDocumentsStatusParams) error {
+	_, err := q.db.Exec(ctx, setDocumentsStatus, arg.Status, arg.TenantID, arg.Ids)
+	return err
+}

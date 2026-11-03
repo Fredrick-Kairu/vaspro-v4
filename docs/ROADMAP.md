@@ -740,7 +740,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - TOTP against the RFC 6238 test vectors, including time-step drift of ±1.
 - WebAuthn registration and assertion with a virtual authenticator; a sign counter that goes backwards is rejected.
 - v3 password import: a known bcrypt(MD5) hash verifies once and is replaced by Argon2id; the old hash no longer works afterwards.
-- Lockout after the configured number of failures; unlock by time and by staff. *Unlock by staff deferred to Phase 2 (2026-10-25): no staff role or admin console exists before `accounts`; unlock by time is covered.*
+- Lockout after the configured number of failures; unlock by time and by staff. *Unlock by staff deferred to Phase 2 (2026-10-25), done in 2.9 (2026-11-03): `TestUnlockByStaff`, and the onboarding e2e unlocks a user through the gateway.*
 - JWT: expired, wrong audience, unknown key ID, and a key rotated out but still in its overlap window.
 - HMAC: wrong signature, timestamp older than 5 minutes, replayed nonce.
 - Rate limit returns 429 with `Retry-After`; a missing scope returns 403 with an `AUTH-` code; a sandbox credential cannot reach live routes.
@@ -781,7 +781,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided. *Done 2026-11-02 (OQ-07, ADR 0008): `KYCProvider` with the fake vendor until OD-03 is decided; signed webhooks through the gateway; a decided check is final (`TestKYCWebhook_PassPromotesToStarter`'s out-of-order case).*
 - [x] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter. *Done 2026-11-03 (OQ-08) except the registry lookup adapter, deferred until registry access exists: profile and owners entered by the client, KYB submitted from Starter goes to staff review, a duplicate registration number is flagged (`TestSubmitKYB`).*
 - [x] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications. *Done 2026-11-03 (OQ-09): envelope-encrypted in SeaweedFS (`platform/objectstore`), PDF/JPEG/PNG from the bytes, 10 MB, scanned by ClamAV, the same file stored once per account, KYB needs the pack's documents and records their IDs (`TestUploadDocument_*`, `TestDocumentsAPI`).*
-- [ ] 2.9 Staff review queue for KYC and KYB decisions marked "review".
+- [x] 2.9 Staff review queue for KYC and KYB decisions marked "review". *Done 2026-11-03 in two commits (OQ-10). 2.9a: staff are users in `identity.staff_members`, granted only by the ops CLI (`vaspro identity grant-staff`); unlock by staff (`TestUnlockByStaff`). 2.9b: the cross-account queue, staff decisions that promote or reject, staff tier changes, making a reseller and opening documents, all staff-only (`TestStaffAPI_EveryStaffOperationIsStaffOnly`, `TestDecideKYCReview_*`); the onboarding e2e continues through staff review to Business, Financial, a reseller and its first sub-account.*
 - [ ] 2.10 Data residency tag per tenant.
 - [ ] 2.11 v3 importers: clients, user-client links, permissions to roles, resellers to parent tenants.
 

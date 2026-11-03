@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -252,6 +253,45 @@ func (e KycCheckRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for KycDecisionRequestDecision.
+const (
+	KycDecisionRequestDecisionFailed KycDecisionRequestDecision = "failed"
+	KycDecisionRequestDecisionPassed KycDecisionRequestDecision = "passed"
+)
+
+// Valid indicates whether the value is a known member of the KycDecisionRequestDecision enum.
+func (e KycDecisionRequestDecision) Valid() bool {
+	switch e {
+	case KycDecisionRequestDecisionFailed:
+		return true
+	case KycDecisionRequestDecisionPassed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for KycReviewSummaryKind.
+const (
+	KycReviewSummaryKindBusiness   KycReviewSummaryKind = "business"
+	KycReviewSummaryKindIndividual KycReviewSummaryKind = "individual"
+	KycReviewSummaryKindScreening  KycReviewSummaryKind = "screening"
+)
+
+// Valid indicates whether the value is a known member of the KycReviewSummaryKind enum.
+func (e KycReviewSummaryKind) Valid() bool {
+	switch e {
+	case KycReviewSummaryKindBusiness:
+		return true
+	case KycReviewSummaryKindIndividual:
+		return true
+	case KycReviewSummaryKindScreening:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberStatus.
 const (
 	MemberStatusActive  MemberStatus = "active"
@@ -375,6 +415,30 @@ func (e ServiceCatalogueTier) Valid() bool {
 	case ServiceCatalogueTierSandbox:
 		return true
 	case ServiceCatalogueTierStarter:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for StaffTierChangeRequestTo.
+const (
+	StaffTierChangeRequestToBusiness  StaffTierChangeRequestTo = "business"
+	StaffTierChangeRequestToFinancial StaffTierChangeRequestTo = "financial"
+	StaffTierChangeRequestToSandbox   StaffTierChangeRequestTo = "sandbox"
+	StaffTierChangeRequestToStarter   StaffTierChangeRequestTo = "starter"
+)
+
+// Valid indicates whether the value is a known member of the StaffTierChangeRequestTo enum.
+func (e StaffTierChangeRequestTo) Valid() bool {
+	switch e {
+	case StaffTierChangeRequestToBusiness:
+		return true
+	case StaffTierChangeRequestToFinancial:
+		return true
+	case StaffTierChangeRequestToSandbox:
+		return true
+	case StaffTierChangeRequestToStarter:
 		return true
 	default:
 		return false
@@ -555,11 +619,14 @@ type InvitationRequest struct {
 
 // KycCheck defines model for KycCheck.
 type KycCheck struct {
-	CreatedAt time.Time      `json:"created_at"`
-	DecidedAt *time.Time     `json:"decided_at,omitempty"`
-	Id        string         `json:"id"`
-	Kind      KycCheckKind   `json:"kind"`
-	Status    KycCheckStatus `json:"status"`
+	CreatedAt time.Time    `json:"created_at"`
+	DecidedAt *time.Time   `json:"decided_at,omitempty"`
+	Id        string       `json:"id"`
+	Kind      KycCheckKind `json:"kind"`
+
+	// Reason The reviewer's reason, once staff have decided (task 2.9).
+	Reason *string        `json:"reason,omitempty"`
+	Status KycCheckStatus `json:"status"`
 
 	// Url The vendor's hosted flow; only when the check is started.
 	Url *string `json:"url,omitempty"`
@@ -583,6 +650,62 @@ type KycCheckRequest struct {
 
 // KycCheckRequestKind defines model for KycCheckRequest.Kind.
 type KycCheckRequestKind string
+
+// KycDecisionRequest defines model for KycDecisionRequest.
+type KycDecisionRequest struct {
+	Decision KycDecisionRequestDecision `json:"decision"`
+	Reason   string                     `json:"reason"`
+
+	// RejectedDocumentIds Only with failed; each must be one of the check's documents.
+	RejectedDocumentIds *[]string `json:"rejected_document_ids,omitempty"`
+}
+
+// KycDecisionRequestDecision defines model for KycDecisionRequest.Decision.
+type KycDecisionRequestDecision string
+
+// KycReview defines model for KycReview.
+type KycReview struct {
+	BusinessProfile *BusinessProfile `json:"business_profile,omitempty"`
+	Check           KycCheck         `json:"check"`
+
+	// Documents Business checks only; the documents it was submitted with.
+	Documents *[]Document `json:"documents,omitempty"`
+
+	// SubjectEmail Individual checks only.
+	SubjectEmail *string `json:"subject_email,omitempty"`
+
+	// SubjectName Individual checks only.
+	SubjectName *string          `json:"subject_name,omitempty"`
+	Summary     KycReviewSummary `json:"summary"`
+}
+
+// KycReviewList defines model for KycReviewList.
+type KycReviewList struct {
+	// NextCursor Pass as cursor for the next page; absent on the last page.
+	NextCursor *string            `json:"next_cursor,omitempty"`
+	Reviews    []KycReviewSummary `json:"reviews"`
+}
+
+// KycReviewSummary defines model for KycReviewSummary.
+type KycReviewSummary struct {
+	AccountName string    `json:"account_name"`
+	CheckId     string    `json:"check_id"`
+	CountryCode string    `json:"country_code"`
+	CreatedAt   time.Time `json:"created_at"`
+
+	// DuplicateRegistration KYB only; another account has the same registration number.
+	DuplicateRegistration *bool                `json:"duplicate_registration,omitempty"`
+	Kind                  KycReviewSummaryKind `json:"kind"`
+
+	// OtherAccounts KYB only; how many other accounts have it.
+	OtherAccounts *int   `json:"other_accounts,omitempty"`
+	TenantId      string `json:"tenant_id"`
+	TenantStatus  string `json:"tenant_status"`
+	Tier          string `json:"tier"`
+}
+
+// KycReviewSummaryKind defines model for KycReviewSummary.Kind.
+type KycReviewSummaryKind string
 
 // Member defines model for Member.
 type Member struct {
@@ -672,6 +795,21 @@ type ServiceCatalogueRequiredTier string
 // ServiceCatalogueTier defines model for ServiceCatalogue.Tier.
 type ServiceCatalogueTier string
 
+// StaffReasonRequest defines model for StaffReasonRequest.
+type StaffReasonRequest struct {
+	Reason string `json:"reason"`
+}
+
+// StaffTierChangeRequest defines model for StaffTierChangeRequest.
+type StaffTierChangeRequest struct {
+	KycCheckId *string                  `json:"kyc_check_id,omitempty"`
+	Reason     string                   `json:"reason"`
+	To         StaffTierChangeRequestTo `json:"to"`
+}
+
+// StaffTierChangeRequestTo defines model for StaffTierChangeRequest.To.
+type StaffTierChangeRequestTo string
+
 // SubAccountCreateRequest defines model for SubAccountCreateRequest.
 type SubAccountCreateRequest struct {
 	BillingEmail *string `json:"billing_email,omitempty"`
@@ -722,6 +860,9 @@ type TenantCreateRequest struct {
 	LegalName   *string `json:"legal_name,omitempty"`
 }
 
+// CheckID defines model for CheckID.
+type CheckID = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -739,6 +880,30 @@ type ReceiveKycWebhookJSONBody = map[string]interface{}
 
 // AcceptInvitationParams defines parameters for AcceptInvitation.
 type AcceptInvitationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ListKycReviewsParams defines parameters for ListKycReviews.
+type ListKycReviewsParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// DecideKycReviewParams defines parameters for DecideKycReview.
+type DecideKycReviewParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStaffResellerParams defines parameters for CreateStaffReseller.
+type CreateStaffResellerParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStaffTierChangeParams defines parameters for CreateStaffTierChange.
+type CreateStaffTierChangeParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -824,6 +989,15 @@ type CreateSubAccountParams struct {
 // ReceiveKycWebhookJSONRequestBody defines body for ReceiveKycWebhook for application/json ContentType.
 type ReceiveKycWebhookJSONRequestBody = ReceiveKycWebhookJSONBody
 
+// DecideKycReviewJSONRequestBody defines body for DecideKycReview for application/json ContentType.
+type DecideKycReviewJSONRequestBody = KycDecisionRequest
+
+// CreateStaffResellerJSONRequestBody defines body for CreateStaffReseller for application/json ContentType.
+type CreateStaffResellerJSONRequestBody = StaffReasonRequest
+
+// CreateStaffTierChangeJSONRequestBody defines body for CreateStaffTierChange for application/json ContentType.
+type CreateStaffTierChangeJSONRequestBody = StaffTierChangeRequest
+
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreateRequest
 
@@ -862,6 +1036,24 @@ type ServerInterface interface {
 	// ListRoles List the built-in roles and their permissions
 	// (GET /v1/accounts/roles)
 	ListRoles(w http.ResponseWriter, r *http.Request)
+	// ListKycReviews The staff review queue (staff only)
+	// (GET /v1/accounts/staff/kyc-reviews)
+	ListKycReviews(w http.ResponseWriter, r *http.Request, params ListKycReviewsParams)
+	// GetKycReview One check under review, with what the reviewer needs (staff only)
+	// (GET /v1/accounts/staff/kyc-reviews/{checkId})
+	GetKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID)
+	// DecideKycReview Pass or fail a check under review (staff only)
+	// (POST /v1/accounts/staff/kyc-reviews/{checkId}/decision)
+	DecideKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID, params DecideKycReviewParams)
+	// GetStaffDocumentContent Download an account's document (staff only)
+	// (GET /v1/accounts/staff/tenants/{id}/documents/{docId}/content)
+	GetStaffDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string)
+	// CreateStaffReseller Make an account a reseller (staff only)
+	// (POST /v1/accounts/staff/tenants/{id}/reseller)
+	CreateStaffReseller(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffResellerParams)
+	// CreateStaffTierChange Change an account's tier (staff only)
+	// (POST /v1/accounts/staff/tenants/{id}/tier-changes)
+	CreateStaffTierChange(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffTierChangeParams)
 	// CreateTenant Create a client account
 	// (POST /v1/accounts/tenants)
 	CreateTenant(w http.ResponseWriter, r *http.Request, params CreateTenantParams)
@@ -952,6 +1144,42 @@ func (_ Unimplemented) AcceptInvitation(w http.ResponseWriter, r *http.Request, 
 // ListRoles List the built-in roles and their permissions
 // (GET /v1/accounts/roles)
 func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListKycReviews The staff review queue (staff only)
+// (GET /v1/accounts/staff/kyc-reviews)
+func (_ Unimplemented) ListKycReviews(w http.ResponseWriter, r *http.Request, params ListKycReviewsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetKycReview One check under review, with what the reviewer needs (staff only)
+// (GET /v1/accounts/staff/kyc-reviews/{checkId})
+func (_ Unimplemented) GetKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DecideKycReview Pass or fail a check under review (staff only)
+// (POST /v1/accounts/staff/kyc-reviews/{checkId}/decision)
+func (_ Unimplemented) DecideKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID, params DecideKycReviewParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetStaffDocumentContent Download an account's document (staff only)
+// (GET /v1/accounts/staff/tenants/{id}/documents/{docId}/content)
+func (_ Unimplemented) GetStaffDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStaffReseller Make an account a reseller (staff only)
+// (POST /v1/accounts/staff/tenants/{id}/reseller)
+func (_ Unimplemented) CreateStaffReseller(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffResellerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStaffTierChange Change an account's tier (staff only)
+// (POST /v1/accounts/staff/tenants/{id}/tier-changes)
+func (_ Unimplemented) CreateStaffTierChange(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffTierChangeParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1189,6 +1417,275 @@ func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRoles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListKycReviews operation middleware
+func (siw *ServerInterfaceWrapper) ListKycReviews(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListKycReviewsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListKycReviews(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetKycReview operation middleware
+func (siw *ServerInterfaceWrapper) GetKycReview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "checkId" -------------
+	var checkId CheckID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "checkId", chi.URLParam(r, "checkId"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "checkId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetKycReview(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideKycReview operation middleware
+func (siw *ServerInterfaceWrapper) DecideKycReview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "checkId" -------------
+	var checkId CheckID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "checkId", chi.URLParam(r, "checkId"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "checkId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DecideKycReviewParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideKycReview(w, r, checkId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetStaffDocumentContent operation middleware
+func (siw *ServerInterfaceWrapper) GetStaffDocumentContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "docId" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "docId", chi.URLParam(r, "docId"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "docId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStaffDocumentContent(w, r, id, docId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStaffReseller operation middleware
+func (siw *ServerInterfaceWrapper) CreateStaffReseller(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStaffResellerParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStaffReseller(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStaffTierChange operation middleware
+func (siw *ServerInterfaceWrapper) CreateStaffTierChange(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStaffTierChangeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStaffTierChange(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2341,6 +2838,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/accounts/tenants/{id}/documents/{docId}/content", wrapper.GetDocumentContent)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/staff/kyc-reviews", wrapper.ListKycReviews)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/staff/kyc-reviews/{checkId}", wrapper.GetKycReview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/staff/kyc-reviews/{checkId}/decision", wrapper.DecideKycReview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/staff/tenants/{id}/tier-changes", wrapper.CreateStaffTierChange)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/accounts/staff/tenants/{id}/reseller", wrapper.CreateStaffReseller)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/accounts/staff/tenants/{id}/documents/{docId}/content", wrapper.GetStaffDocumentContent)
+	})
 
 	return r
 }
@@ -2578,6 +3093,629 @@ type ListRolesdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListRolesdefaultApplicationProblemPlusJSONResponse) VisitListRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviewsRequestObject struct {
+	Params ListKycReviewsParams
+}
+
+type ListKycReviewsResponseObject interface {
+	VisitListKycReviewsResponse(w http.ResponseWriter) error
+}
+
+type ListKycReviews200JSONResponse KycReviewList
+
+func (response ListKycReviews200JSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviews400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListKycReviews400ApplicationProblemPlusJSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviews401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListKycReviews401ApplicationProblemPlusJSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviews403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListKycReviews403ApplicationProblemPlusJSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviews404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListKycReviews404ApplicationProblemPlusJSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKycReviewsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListKycReviewsdefaultApplicationProblemPlusJSONResponse) VisitListKycReviewsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReviewRequestObject struct {
+	CheckId CheckID `json:"checkId"`
+}
+
+type GetKycReviewResponseObject interface {
+	VisitGetKycReviewResponse(w http.ResponseWriter) error
+}
+
+type GetKycReview200JSONResponse KycReview
+
+func (response GetKycReview200JSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReview400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetKycReview400ApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReview401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetKycReview401ApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReview403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetKycReview403ApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReview404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetKycReview404ApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReview409ApplicationProblemPlusJSONResponse Problem
+
+func (response GetKycReview409ApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKycReviewdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetKycReviewdefaultApplicationProblemPlusJSONResponse) VisitGetKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReviewRequestObject struct {
+	CheckId CheckID `json:"checkId"`
+	Params  DecideKycReviewParams
+	Body    *DecideKycReviewJSONRequestBody
+}
+
+type DecideKycReviewResponseObject interface {
+	VisitDecideKycReviewResponse(w http.ResponseWriter) error
+}
+
+type DecideKycReview200JSONResponse KycCheck
+
+func (response DecideKycReview200JSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReview400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response DecideKycReview400ApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReview401ApplicationProblemPlusJSONResponse Problem
+
+func (response DecideKycReview401ApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReview403ApplicationProblemPlusJSONResponse Problem
+
+func (response DecideKycReview403ApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReview404ApplicationProblemPlusJSONResponse Problem
+
+func (response DecideKycReview404ApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReview409ApplicationProblemPlusJSONResponse Problem
+
+func (response DecideKycReview409ApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideKycReviewdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DecideKycReviewdefaultApplicationProblemPlusJSONResponse) VisitDecideKycReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffDocumentContentRequestObject struct {
+	Id    TenantID `json:"id"`
+	DocId string   `json:"docId"`
+}
+
+type GetStaffDocumentContentResponseObject interface {
+	VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error
+}
+
+type GetStaffDocumentContent200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetStaffDocumentContent200ApplicationoctetStreamResponse) VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetStaffDocumentContent401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetStaffDocumentContent401ApplicationProblemPlusJSONResponse) VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffDocumentContent403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetStaffDocumentContent403ApplicationProblemPlusJSONResponse) VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffDocumentContent404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetStaffDocumentContent404ApplicationProblemPlusJSONResponse) VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffDocumentContentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetStaffDocumentContentdefaultApplicationProblemPlusJSONResponse) VisitGetStaffDocumentContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffResellerRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params CreateStaffResellerParams
+	Body   *CreateStaffResellerJSONRequestBody
+}
+
+type CreateStaffResellerResponseObject interface {
+	VisitCreateStaffResellerResponse(w http.ResponseWriter) error
+}
+
+type CreateStaffReseller200JSONResponse Tenant
+
+func (response CreateStaffReseller200JSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffReseller400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStaffReseller400ApplicationProblemPlusJSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffReseller401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffReseller401ApplicationProblemPlusJSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffReseller403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffReseller403ApplicationProblemPlusJSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffReseller404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffReseller404ApplicationProblemPlusJSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffResellerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStaffResellerdefaultApplicationProblemPlusJSONResponse) VisitCreateStaffResellerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChangeRequestObject struct {
+	Id     TenantID `json:"id"`
+	Params CreateStaffTierChangeParams
+	Body   *CreateStaffTierChangeJSONRequestBody
+}
+
+type CreateStaffTierChangeResponseObject interface {
+	VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error
+}
+
+type CreateStaffTierChange200JSONResponse Tenant
+
+func (response CreateStaffTierChange200JSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChange400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStaffTierChange400ApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChange401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffTierChange401ApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChange403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffTierChange403ApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChange404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffTierChange404ApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChange409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffTierChange409ApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffTierChangedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStaffTierChangedefaultApplicationProblemPlusJSONResponse) VisitCreateStaffTierChangeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4584,6 +5722,24 @@ type StrictServerInterface interface {
 	// ListRoles List the built-in roles and their permissions
 	// (GET /v1/accounts/roles)
 	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
+	// ListKycReviews The staff review queue (staff only)
+	// (GET /v1/accounts/staff/kyc-reviews)
+	ListKycReviews(ctx context.Context, request ListKycReviewsRequestObject) (ListKycReviewsResponseObject, error)
+	// GetKycReview One check under review, with what the reviewer needs (staff only)
+	// (GET /v1/accounts/staff/kyc-reviews/{checkId})
+	GetKycReview(ctx context.Context, request GetKycReviewRequestObject) (GetKycReviewResponseObject, error)
+	// DecideKycReview Pass or fail a check under review (staff only)
+	// (POST /v1/accounts/staff/kyc-reviews/{checkId}/decision)
+	DecideKycReview(ctx context.Context, request DecideKycReviewRequestObject) (DecideKycReviewResponseObject, error)
+	// GetStaffDocumentContent Download an account's document (staff only)
+	// (GET /v1/accounts/staff/tenants/{id}/documents/{docId}/content)
+	GetStaffDocumentContent(ctx context.Context, request GetStaffDocumentContentRequestObject) (GetStaffDocumentContentResponseObject, error)
+	// CreateStaffReseller Make an account a reseller (staff only)
+	// (POST /v1/accounts/staff/tenants/{id}/reseller)
+	CreateStaffReseller(ctx context.Context, request CreateStaffResellerRequestObject) (CreateStaffResellerResponseObject, error)
+	// CreateStaffTierChange Change an account's tier (staff only)
+	// (POST /v1/accounts/staff/tenants/{id}/tier-changes)
+	CreateStaffTierChange(ctx context.Context, request CreateStaffTierChangeRequestObject) (CreateStaffTierChangeResponseObject, error)
 	// CreateTenant Create a client account
 	// (POST /v1/accounts/tenants)
 	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
@@ -4789,6 +5945,187 @@ func (sh *strictHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListRolesResponseObject); ok {
 		if err := validResponse.VisitListRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListKycReviews operation middleware
+func (sh *strictHandler) ListKycReviews(w http.ResponseWriter, r *http.Request, params ListKycReviewsParams) {
+	var request ListKycReviewsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListKycReviews(ctx, request.(ListKycReviewsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListKycReviews")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListKycReviewsResponseObject); ok {
+		if err := validResponse.VisitListKycReviewsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetKycReview operation middleware
+func (sh *strictHandler) GetKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID) {
+	var request GetKycReviewRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetKycReview(ctx, request.(GetKycReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetKycReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetKycReviewResponseObject); ok {
+		if err := validResponse.VisitGetKycReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecideKycReview operation middleware
+func (sh *strictHandler) DecideKycReview(w http.ResponseWriter, r *http.Request, checkId CheckID, params DecideKycReviewParams) {
+	var request DecideKycReviewRequestObject
+
+	request.CheckId = checkId
+	request.Params = params
+
+	var body DecideKycReviewJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecideKycReview(ctx, request.(DecideKycReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecideKycReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecideKycReviewResponseObject); ok {
+		if err := validResponse.VisitDecideKycReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStaffDocumentContent operation middleware
+func (sh *strictHandler) GetStaffDocumentContent(w http.ResponseWriter, r *http.Request, id TenantID, docId string) {
+	var request GetStaffDocumentContentRequestObject
+
+	request.Id = id
+	request.DocId = docId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStaffDocumentContent(ctx, request.(GetStaffDocumentContentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStaffDocumentContent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStaffDocumentContentResponseObject); ok {
+		if err := validResponse.VisitGetStaffDocumentContentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStaffReseller operation middleware
+func (sh *strictHandler) CreateStaffReseller(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffResellerParams) {
+	var request CreateStaffResellerRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body CreateStaffResellerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStaffReseller(ctx, request.(CreateStaffResellerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStaffReseller")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStaffResellerResponseObject); ok {
+		if err := validResponse.VisitCreateStaffResellerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStaffTierChange operation middleware
+func (sh *strictHandler) CreateStaffTierChange(w http.ResponseWriter, r *http.Request, id TenantID, params CreateStaffTierChangeParams) {
+	var request CreateStaffTierChangeRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body CreateStaffTierChangeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStaffTierChange(ctx, request.(CreateStaffTierChangeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStaffTierChange")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStaffTierChangeResponseObject); ok {
+		if err := validResponse.VisitCreateStaffTierChangeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

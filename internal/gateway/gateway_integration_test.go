@@ -296,7 +296,30 @@ func startRealIdentityWithLogs(t *testing.T, smtpAddr string, logs io.Writer, ex
 	baseURL := "http://" + httpAddr
 	waitForHealthy(t, baseURL, 20*time.Second)
 	identityGRPCAddrs.Store(baseURL, grpcAddr)
+	identityDatabaseURLs.Store(baseURL, pg.DSN()+"&search_path=identity,public")
 	return baseURL
+}
+
+// runVasproCLI builds and runs the real ops CLI (tools/vaspro) against
+// the identity subprocess at identityBaseURL's database, as an
+// operator would (task 2.9: granting staff has no API).
+func runVasproCLI(t *testing.T, identityBaseURL string, args ...string) {
+	t.Helper()
+	dsn, ok := identityDatabaseURLs.Load(identityBaseURL)
+	if !ok {
+		t.Fatalf("no identity database for %s", identityBaseURL)
+	}
+	binPath := filepath.Join(t.TempDir(), "vaspro")
+	build := exec.Command("go", "build", "-o", binPath, "./tools/vaspro") //nolint:gosec // fixed "go build" invocation into our own t.TempDir()
+	build.Dir = repoRoot(t)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./tools/vaspro failed: %v\n%s", err, out)
+	}
+	run := exec.Command(binPath, args...) //nolint:gosec // the binary we just built; args are the test's own
+	run.Env = append(os.Environ(), "IDENTITY_DATABASE_URL="+dsn.(string))
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("vaspro %v failed: %v\n%s", args, err, out)
+	}
 }
 
 func hasEnv(env []string, key string) bool { return envValue(env, key) != "" }
@@ -314,6 +337,10 @@ func envValue(env []string, key string) string {
 // identityGRPCAddrs maps each identity subprocess's base URL to its gRPC
 // address, so newTestGateway can check sessions against it.
 var identityGRPCAddrs sync.Map
+
+// identityDatabaseURLs maps each identity subprocess's base URL to its
+// database, for runVasproCLI.
+var identityDatabaseURLs sync.Map
 
 // --- a tiny HTTP JSON helper, local to this test (identity/api's own
 // doJSON isn't importable: it's an unexported test helper in a

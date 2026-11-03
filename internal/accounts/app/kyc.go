@@ -34,11 +34,18 @@ type KYCCheck struct {
 	Status    string
 	URL       string // the vendor's hosted flow, only when just started
 	DecidedAt *time.Time
+	Reason    string // the reviewer's reason, once staff have decided (task 2.9)
 	CreatedAt time.Time
 }
 
 func kycCheckFromRow(row store.AccountsKycCheck) KYCCheck {
 	c := KYCCheck{ID: row.ID, Kind: row.Kind, Status: row.Status, CreatedAt: row.CreatedAt}
+	var result struct {
+		DecisionReason string `json:"decision_reason"`
+	}
+	if json.Unmarshal(row.Result, &result) == nil {
+		c.Reason = result.DecisionReason
+	}
 	if row.DecidedAt.Valid {
 		t := row.DecidedAt.Time
 		c.DecidedAt = &t

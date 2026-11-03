@@ -21,13 +21,14 @@ type Invitation struct {
 
 // Fake keeps users by email, creating one for a new address as
 // identity does; addresses without "@" are refused. Unreachable, when
-// set, makes GetUsers fail, standing in for identity being down.
+// set, makes GetUsers and IsStaff fail, standing in for identity being down.
 type Fake struct {
 	mu          sync.Mutex
 	byEmail     map[string]uuid.UUID
 	users       map[uuid.UUID]adapters.User
 	fresh       map[[2]uuid.UUID]bool // {user, session}
 	invitations []Invitation
+	staff       map[uuid.UUID]bool
 	Unreachable bool
 }
 
@@ -89,6 +90,25 @@ func (f *Fake) IsStepUpFresh(_ context.Context, userID, sessionID uuid.UUID) (bo
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.fresh[[2]uuid.UUID{userID, sessionID}], nil
+}
+
+// SetStaff grants (true) or revokes (false) staff for user (task 2.9).
+func (f *Fake) SetStaff(user uuid.UUID, staff bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.staff == nil {
+		f.staff = map[uuid.UUID]bool{}
+	}
+	f.staff[user] = staff
+}
+
+func (f *Fake) IsStaff(_ context.Context, userID uuid.UUID) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Unreachable {
+		return false, context.DeadlineExceeded
+	}
+	return f.staff[userID], nil
 }
 
 func (f *Fake) GetUsers(_ context.Context, userIDs []uuid.UUID) ([]adapters.User, error) {

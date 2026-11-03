@@ -12,3 +12,8 @@ SELECT * FROM accounts.documents WHERE tenant_id = $1 AND sha256 = $2;
 
 -- name: ListDocuments :many
 SELECT * FROM accounts.documents WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC;
+
+-- name: SetDocumentsStatus :exec
+-- A staff decision accepts or rejects the documents a check named (task 2.9).
+UPDATE accounts.documents SET status = @status
+WHERE tenant_id = @tenant_id AND id = ANY(@ids::uuid[]);

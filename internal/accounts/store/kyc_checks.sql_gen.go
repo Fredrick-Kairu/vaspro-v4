@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -128,6 +129,33 @@ func (q *Queries) DecideKycCheck(ctx context.Context, arg DecideKycCheckParams) 
 	return err
 }
 
+const decideKycCheckByStaff = `-- name: DecideKycCheckByStaff :exec
+UPDATE accounts.kyc_checks
+SET status = $1, result = result || $2::jsonb, reviewed_by = $3, decided_at = now()
+WHERE id = $4 AND tenant_id = $5
+`
+
+type DecideKycCheckByStaffParams struct {
+	Status     string      `json:"status"`
+	Extra      []byte      `json:"extra"`
+	ReviewedBy pgtype.UUID `json:"reviewed_by"`
+	ID         uuid.UUID   `json:"id"`
+	TenantID   uuid.UUID   `json:"tenant_id"`
+}
+
+// A staff decision (task 2.9): the decision, the reviewer, and extra
+// result fields merged over what the check already recorded.
+func (q *Queries) DecideKycCheckByStaff(ctx context.Context, arg DecideKycCheckByStaffParams) error {
+	_, err := q.db.Exec(ctx, decideKycCheckByStaff,
+		arg.Status,
+		arg.Extra,
+		arg.ReviewedBy,
+		arg.ID,
+		arg.TenantID,
+	)
+	return err
+}
+
 const findKycCheckByProviderRef = `-- name: FindKycCheckByProviderRef :one
 SELECT id, tenant_id FROM accounts.kyc_checks WHERE provider = $1 AND provider_ref = $2
 `
@@ -149,6 +177,19 @@ func (q *Queries) FindKycCheckByProviderRef(ctx context.Context, arg FindKycChec
 	var i FindKycCheckByProviderRefRow
 	err := row.Scan(&i.ID, &i.TenantID)
 	return i, err
+}
+
+const findKycCheckTenant = `-- name: FindKycCheckTenant :one
+SELECT tenant_id FROM accounts.kyc_checks WHERE id = $1
+`
+
+// Only under the accounts_staff_review role: which account a check
+// belongs to, so the staff action can run in that account's transaction.
+func (q *Queries) FindKycCheckTenant(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, findKycCheckTenant, id)
+	var tenant_id uuid.UUID
+	err := row.Scan(&tenant_id)
+	return tenant_id, err
 }
 
 const getKycCheckByID = `-- name: GetKycCheckByID :one
@@ -267,6 +308,69 @@ func (q *Queries) ListKycChecks(ctx context.Context, tenantID uuid.UUID) ([]Acco
 			&i.DecidedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listKycReviews = `-- name: ListKycReviews :many
+SELECT c.id, c.tenant_id, c.kind, c.result, c.created_at,
+       t.display_name, t.country_code, t.tier, t.status AS tenant_status
+FROM accounts.kyc_checks c
+JOIN accounts.tenants t ON t.id = c.tenant_id
+WHERE c.status = 'review'
+  AND ($1::timestamptz IS NULL
+       OR (c.created_at, c.id) > ($1::timestamptz, $2::uuid))
+ORDER BY c.created_at, c.id
+LIMIT $3
+`
+
+type ListKycReviewsParams struct {
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	MaxRows        int32              `json:"max_rows"`
+}
+
+type ListKycReviewsRow struct {
+	ID           uuid.UUID    `json:"id"`
+	TenantID     uuid.UUID    `json:"tenant_id"`
+	Kind         string       `json:"kind"`
+	Result       []byte       `json:"result"`
+	CreatedAt    time.Time    `json:"created_at"`
+	DisplayName  string       `json:"display_name"`
+	CountryCode  string       `json:"country_code"`
+	Tier         AccountsTier `json:"tier"`
+	TenantStatus string       `json:"tenant_status"`
+}
+
+// Only under the accounts_staff_review role (task 2.9): the staff queue,
+// oldest first, across accounts, after an optional (created_at, id)
+// cursor. Uses kyc_checks_review.
+func (q *Queries) ListKycReviews(ctx context.Context, arg ListKycReviewsParams) ([]ListKycReviewsRow, error) {
+	rows, err := q.db.Query(ctx, listKycReviews, arg.AfterCreatedAt, arg.AfterID, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListKycReviewsRow
+	for rows.Next() {
+		var i ListKycReviewsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Kind,
+			&i.Result,
+			&i.CreatedAt,
+			&i.DisplayName,
+			&i.CountryCode,
+			&i.Tier,
+			&i.TenantStatus,
 		); err != nil {
 			return nil, err
 		}

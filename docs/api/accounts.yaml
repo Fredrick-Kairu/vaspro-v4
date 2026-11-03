@@ -829,6 +829,238 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews:
+    get:
+      operationId: listKycReviews
+      summary: The staff review queue (staff only)
+      description: >
+        KYC and KYB checks waiting for a staff decision, across every
+        account, oldest first (task 2.9, OQ-10). Staff only (AUTH-4025
+        for anyone else, an account's own Admin included). Pages with
+        next_cursor; a decided check leaves the queue.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycReviewList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews/{checkId}:
+    get:
+      operationId: getKycReview
+      summary: One check under review, with what the reviewer needs (staff only)
+      description: >
+        The check and its account. A business check adds the business
+        profile, its owners and the metadata of the documents it was
+        submitted with; an individual check adds the subject's email and
+        name. A check that isn't in review is VAL-4010.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CheckID'
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycReview'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews/{checkId}/decision:
+    post:
+      operationId: decideKycReview
+      summary: Pass or fail a check under review (staff only)
+      description: >
+        Passing a business check moves a starter account to business,
+        marks the business profile verified and accepts its documents.
+        Passing an individual check moves a sandbox account to starter.
+        Failing changes no tier; documents named in
+        rejected_document_ids are rejected, so the client uploads them
+        again before resubmitting. The reason is shown to the client.
+        A check already decided (by staff or the vendor) is VAL-4010.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CheckID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycDecisionRequest'
+            example:
+              decision: passed
+              reason: "Certificate matches the registry extract"
+      responses:
+        "200":
+          description: The decided check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/tier-changes:
+    post:
+      operationId: createStaffTierChange
+      summary: Change an account's tier (staff only)
+      description: >
+        Staff may promote any number of tiers, and only staff reach
+        financial; demotions need staff or a failed or expired check
+        (task 2.5's rules). The account's services follow the tier. A
+        change the rules refuse is VAL-4011; a kyc_check_id that can't
+        back the change is VAL-4000.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffTierChangeRequest'
+            example:
+              to: financial
+              reason: "Existing v3 client with documents on file"
+      responses:
+        "200":
+          description: The account after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/reseller:
+    post:
+      operationId: createStaffReseller
+      summary: Make an account a reseller (staff only)
+      description: >
+        Only an active direct account on the financial tier (OQ-04);
+        below financial is KYC-4020, any other type or status is
+        KYC-4021.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffReasonRequest'
+            example:
+              reason: "Signed reseller agreement"
+      responses:
+        "200":
+          description: The account, now a reseller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/documents/{docId}/content:
+    get:
+      operationId: getStaffDocumentContent
+      summary: Download an account's document (staff only)
+      description: >
+        The decrypted file, for reviewing a check. The gateway's audit
+        log records the staff member and the route.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -847,6 +1079,12 @@ components:
         type: string
     ServiceCode:
       name: code
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckID:
+      name: checkId
       in: path
       required: true
       schema:
@@ -1096,6 +1334,9 @@ components:
         decided_at:
           type: string
           format: date-time
+        reason:
+          type: string
+          description: The reviewer's reason, once staff have decided (task 2.9).
         created_at:
           type: string
           format: date-time
@@ -1107,6 +1348,97 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/KycCheck'
+    KycReviewSummary:
+      type: object
+      required: [check_id, tenant_id, account_name, country_code, tier, tenant_status, kind, created_at]
+      properties:
+        check_id:
+          type: string
+        tenant_id:
+          type: string
+        account_name:
+          type: string
+        country_code:
+          type: string
+        tier:
+          type: string
+        tenant_status:
+          type: string
+        kind:
+          type: string
+          enum: [individual, business, screening]
+        created_at:
+          type: string
+          format: date-time
+        duplicate_registration:
+          type: boolean
+          description: KYB only; another account has the same registration number.
+        other_accounts:
+          type: integer
+          description: KYB only; how many other accounts have it.
+    KycReviewList:
+      type: object
+      required: [reviews]
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/KycReviewSummary'
+        next_cursor:
+          type: string
+          description: Pass as cursor for the next page; absent on the last page.
+    KycReview:
+      type: object
+      required: [summary, check]
+      properties:
+        summary:
+          $ref: '#/components/schemas/KycReviewSummary'
+        check:
+          $ref: '#/components/schemas/KycCheck'
+        subject_email:
+          type: string
+          description: Individual checks only.
+        subject_name:
+          type: string
+          description: Individual checks only.
+        business_profile:
+          $ref: '#/components/schemas/BusinessProfile'
+        documents:
+          type: array
+          description: Business checks only; the documents it was submitted with.
+          items:
+            $ref: '#/components/schemas/Document'
+    KycDecisionRequest:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [passed, failed]
+        reason:
+          type: string
+        rejected_document_ids:
+          type: array
+          description: Only with failed; each must be one of the check's documents.
+          items:
+            type: string
+    StaffTierChangeRequest:
+      type: object
+      required: [to, reason]
+      properties:
+        to:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        reason:
+          type: string
+        kyc_check_id:
+          type: string
+    StaffReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
     InvitationRequest:
       type: object
       required: [email, role_id]

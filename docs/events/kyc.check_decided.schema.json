@@ -2,15 +2,50 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.vaspro.io/events/kyc.check_decided.schema.json",
   "title": "kyc.check_decided",
-  "description": "Published by accounts when a KYC check's status changes on the vendor's result (data model §4's Events table, task 2.6), in the same transaction. Review is published too, since it sends the check to the staff queue (task 2.9). No personal data. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "description": "Published by accounts when a KYC check's status changes on the vendor's result or a staff decision (task 2.9) (data model \u00a74's Events table, task 2.6), in the same transaction. Review is published too, since it sends the check to the staff queue (task 2.9). No personal data. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
   "type": "object",
-  "required": ["tenant_id", "check_id", "kind", "status", "promoted"],
+  "required": [
+    "tenant_id",
+    "check_id",
+    "kind",
+    "status",
+    "promoted"
+  ],
   "properties": {
-    "tenant_id": {"type": "string", "format": "uuid"},
-    "check_id": {"type": "string", "format": "uuid"},
-    "kind": {"type": "string", "enum": ["individual", "business", "screening"]},
-    "status": {"type": "string", "enum": ["passed", "review", "failed", "expired"]},
-    "promoted": {"type": "boolean", "description": "Whether this result promoted the account's tier."}
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "check_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "individual",
+        "business",
+        "screening"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "review",
+        "failed",
+        "expired"
+      ]
+    },
+    "promoted": {
+      "type": "boolean",
+      "description": "Whether this result promoted the account's tier."
+    },
+    "reviewed_by": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The staff member who decided the check; absent for a vendor's result."
+    }
   },
   "additionalProperties": false
 }

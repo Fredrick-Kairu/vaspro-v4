@@ -94,6 +94,21 @@ func (q *Queries) GetBusinessProfileByTenant(ctx context.Context, tenantID uuid.
 	return i, err
 }
 
+const setBusinessProfileVerified = `-- name: SetBusinessProfileVerified :exec
+UPDATE accounts.business_profiles SET verified_at = now() WHERE id = $1 AND tenant_id = $2
+`
+
+type SetBusinessProfileVerifiedParams struct {
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// Set when staff pass the business check (task 2.9).
+func (q *Queries) SetBusinessProfileVerified(ctx context.Context, arg SetBusinessProfileVerifiedParams) error {
+	_, err := q.db.Exec(ctx, setBusinessProfileVerified, arg.ID, arg.TenantID)
+	return err
+}
+
 const updateBusinessProfile = `-- name: UpdateBusinessProfile :one
 UPDATE accounts.business_profiles
 SET registration_number = $2, registered_name = $3, tax_id = $4, registered_address = $5

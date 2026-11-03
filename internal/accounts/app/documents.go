@@ -190,6 +190,12 @@ func (s *Service) DownloadDocument(ctx context.Context, userID, tenantID, docume
 	if _, _, err := s.authorize(ctx, userID, tenantID, domain.PermAccountManage); err != nil {
 		return nil, "", err
 	}
+	return s.readDocument(ctx, tenantID, documentID)
+}
+
+// readDocument decrypts tenantID's document; callers have already
+// checked who may read it (a member with account:manage, or staff).
+func (s *Service) readDocument(ctx context.Context, tenantID, documentID uuid.UUID) ([]byte, string, error) {
 	if err := s.documentsConfigured(); err != nil {
 		return nil, "", err
 	}

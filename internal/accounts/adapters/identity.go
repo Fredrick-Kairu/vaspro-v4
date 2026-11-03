@@ -34,6 +34,9 @@ type Identity interface {
 	SendInvitation(ctx context.Context, inviteeID, inviterID uuid.UUID, accountName string) error
 	IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error)
 	GetUsers(ctx context.Context, userIDs []uuid.UUID) ([]User, error)
+	// IsStaff reports whether a user is VASPRO staff (task 2.9); asked
+	// on every staff action so a revocation takes effect at once.
+	IsStaff(ctx context.Context, userID uuid.UUID) (bool, error)
 }
 
 // GRPCIdentity is Identity over identity's gRPC API.
@@ -83,6 +86,14 @@ func (g *GRPCIdentity) IsStepUpFresh(ctx context.Context, userID, sessionID uuid
 		return false, fmt.Errorf("adapters: checking step-up: %w", err)
 	}
 	return resp.GetFresh(), nil
+}
+
+func (g *GRPCIdentity) IsStaff(ctx context.Context, userID uuid.UUID) (bool, error) {
+	resp, err := g.client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: userID.String()})
+	if err != nil {
+		return false, fmt.Errorf("adapters: checking staff: %w", err)
+	}
+	return resp.GetIsStaff(), nil
 }
 
 func (g *GRPCIdentity) GetUsers(ctx context.Context, userIDs []uuid.UUID) ([]User, error) {

@@ -19,3 +19,7 @@ RETURNING *;
 -- account also uses.
 SELECT count(*) FROM accounts.business_profiles
 WHERE registry = $1 AND registration_number = $2 AND tenant_id <> $3;
+
+-- name: SetBusinessProfileVerified :exec
+-- Set when staff pass the business check (task 2.9).
+UPDATE accounts.business_profiles SET verified_at = now() WHERE id = $1 AND tenant_id = $2;
