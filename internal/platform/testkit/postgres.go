@@ -24,8 +24,9 @@ const postgresTestDatabase = "vaspro_test"
 
 // readyTimeout is how long a Start* helper waits for its container to
 // accept a real client connection after the container's own wait
-// strategy has passed (see waitUntilReady).
-const readyTimeout = 30 * time.Second
+// strategy has passed (see waitUntilReady): long enough for a slow but
+// live container under load; a dead one still fails, naming its error.
+const readyTimeout = 60 * time.Second
 
 // Postgres is a running PostgreSQL test container, connected as its
 // superuser.

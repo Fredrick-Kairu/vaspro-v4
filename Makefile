@@ -59,9 +59,17 @@ test:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test: no Go packages yet, skipping"; \
 	else go test ./...; fi
 
+# Integration packages each start their own containers (Postgres, NATS,
+# Redis, RabbitMQ, SeaweedFS, ...). Go runs one package per CPU by
+# default, which on a 10-core machine meant ~300 containers at once on
+# an 8 GB Docker VM and containers that never became ready. Capping the
+# packages run at once keeps Docker within its means; override with
+# `make test-int INTEGRATION_PARALLELISM=n`.
+INTEGRATION_PARALLELISM ?= 4
+
 test-int:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test-int: no Go packages yet, skipping"; \
-	else go test -tags=integration ./...; fi
+	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) ./...; fi
 
 test-contract:
 	@if [ -z "$$(go list ./test/contract/... 2>/dev/null)" ]; then echo "test-contract: no packages under test/contract yet, skipping"; \

@@ -456,6 +456,16 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
   - **`make check`:** the first run failed only on `TestStartRabbitMQ_PublishAndConsumeRoundTrips` timing out at startup (the RabbitMQ module's 60s log wait), the same as 2.7's first run; the rerun was green. That's two `make check` runs in a row needing a rerun, so limiting `test-int`'s package parallelism is overdue.
   - **Also fixed:** three example enrollment tokens in `docs/api/identity.yaml` (from 1.16) were gitleaks findings that CI would have failed on. Running gitleaks 8.30.1 locally through Docker found them. They're now marked `gitleaks:allow` like the other examples, and the tree scans clean.
 
+- **Integration-test parallelism** (2026-11-03, before 2.9, your request).
+  - **Change:** `make test-int` runs at most `INTEGRATION_PARALLELISM` packages at once (default 4, overridable). Go's default is one per CPU: 10 here, which with every package starting its own containers meant hundreds on an 8 GB Docker VM.
+  - **Change:** testkit's readiness probe now gives each attempt 5s and the whole wait 60s (from 2s and 30s). Under a full run a live Postgres took more than 2s to answer a connection it had accepted.
+  - **Measured, four fresh runs (`-count=1`):** about 6 minutes each, two green and two each failing on one container:
+    - a Postgres that answered too slowly, now covered by the longer timeouts;
+    - a Redis whose host port never became reachable in 60s (555 tries): Docker Desktop's port forward failing for that one container. Waiting longer can't fix that.
+  - **The first measurement was invalid:** two `make check` runs came back in 35s because Go's test cache answered every package. It's noted so cached `make check` times aren't mistaken for real runs.
+  - **`make check` for this change** also hit the Redis port-forward failure once (`TestStepUp_GatesTotpEnrollmentUntilSteppedUp`) and passed on rerun: 3 of the 6 full runs today hit a container fault.
+  - **Still open:** a container whose port forward never comes up. Either testkit starts a fresh container when one never becomes ready, or each package shares one container per kind (fewer containers, much faster runs, bigger change). The choice is with you.
+
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0

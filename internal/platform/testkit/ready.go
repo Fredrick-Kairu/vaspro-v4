@@ -7,8 +7,10 @@ import (
 )
 
 // probeAttemptTimeout bounds one probe attempt, so a connection that
-// hangs (rather than failing fast) is cancelled and retried.
-const probeAttemptTimeout = 2 * time.Second
+// hangs (rather than failing fast) is cancelled and retried. A fresh
+// Postgres under a full integration run can take more than 2s to answer
+// a connection it has accepted (seen 2026-11-03), so attempts get 5s.
+const probeAttemptTimeout = 5 * time.Second
 
 // waitUntilReady calls probe until it succeeds or timeout passes. A
 // container's wait strategy can pass before a client on the host can
