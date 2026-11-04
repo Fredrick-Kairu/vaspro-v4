@@ -419,7 +419,28 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
   - **The second full run was green:** lint 0 issues, the changed packages fresh, the rest cached.
   - gitleaks 8.30.1 through Docker found no leaks.
   - **Don't run `make check` while the dev stack is up on an 8 GB Docker VM.**
-- **Next:** the Caddy step (item 7). It needs a decision on the gateway trusting `X-Forwarded-For` from the proxy: today rate limits and IP allowlists use the connection's address, so behind Caddy every caller would share one IP.
+- **Caddy step (item 7, same branch, second commit):**
+  - **Caddy (`caddy:2`)** is now the only service publishing ports: 80, 443 and 443/udp. It has volumes for `/data` and `/config`, and its `deploy/compose/Caddyfile` routes:
+    - `API_DOMAIN` to the gateway, with an 11 MiB body limit (the gateway's own 10 MB + 1 MB upload limit);
+    - `MAIL_DOMAIN` to Mailpit's UI behind basic auth (bcrypt hash in `.env`; `dev-secrets.sh` generates it and prints the password once).
+  - The gateway's port mapping is gone; no other service had one.
+  - Caddy has a fixed address (`10.213.0.10`) outside Docker's dynamic range.
+  - **Gateway behaviour change (approved 4 Nov):** `GATEWAY_TRUSTED_PROXIES` (IPs or CIDRs).
+    - Only when the direct peer is trusted does the gateway read `X-Forwarded-For`, right to left, skipping trusted hops. A malformed entry falls back to the peer, and empty is today's behaviour.
+    - Rate limits, IP allowlists and the audit log use the result (`internal/gateway/clientip.go`).
+    - Identity still records the gateway's IP for sign-ins, unchanged.
+  - **Tests:** `TestResolveClientIP` (10 cases) and `TestResolveClientIP_FeedsTheIPChecks` (allowlist and rate-limit key). They were written with the code, not seen failing first. Instead, two mutations each failed them and were reverted: trusting any peer, and ignoring the resolved address.
+  - **Verified from a fresh clean copy** with `api.localhost`/`mail.localhost` and Caddy's local CA:
+    - every container healthy;
+    - only Caddy publishes, and the gateway is unreachable on 8081;
+    - HTTPS over HTTP/2, and HTTP gets a 308 redirect;
+    - Mailpit gives 401 without or with a wrong password, and 200 with the right one;
+    - the whole sign-up → KYC → Starter → staff → document flow over HTTPS, with codes read through Mailpit's protected API;
+    - the CORS preflight through Caddy;
+    - the gateway logged the host's address (`192.168.65.1`), never Caddy's, and a spoofed `X-Forwarded-For` from outside was ignored;
+    - a 12 MiB body got 413 from Caddy, while 5 MiB reached the gateway.
+  - **`make check`** (dev stack down): green first time. Lint 0 issues; the gateway packages fresh, the rest cached. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not verified here:** a public Let's Encrypt certificate, which needs real DNS and open ports on the dev host.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -981,7 +1002,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-0. Dev environment's Caddy step (see "Dev environment" above), then back to Phase 3.
+0. Deploy the dev environment on its host (DNS for `API_DOMAIN`/`MAIL_DOMAIN`, ports 80/443), then back to Phase 3.
 1. Task 3.7: reversals with maker-checker (system design §4.3).
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).

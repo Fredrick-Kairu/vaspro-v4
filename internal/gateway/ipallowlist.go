@@ -28,11 +28,17 @@ func parseIPAllowlist(entries []string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-// callerIP extracts the caller's address from r.RemoteAddr — accurate
-// as long as the gateway is the first hop a request reaches (true
-// today; a future LB/CDN in front of it would need X-Forwarded-For
-// handling, deliberately not built ahead of that need).
+// callerIP is the caller's address: the client a trusted proxy named
+// (resolveClientIP), otherwise the connection's peer.
 func callerIP(r *http.Request) (netip.Addr, bool) {
+	if addr, ok := r.Context().Value(clientIPKey{}).(netip.Addr); ok {
+		return addr, true
+	}
+	return peerIP(r)
+}
+
+// peerIP is the address of whatever connected to the gateway.
+func peerIP(r *http.Request) (netip.Addr, bool) {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -41,7 +47,7 @@ func callerIP(r *http.Request) (netip.Addr, bool) {
 	if err != nil {
 		return netip.Addr{}, false
 	}
-	return addr, true
+	return addr.Unmap(), true
 }
 
 // requireIPAllowlist rejects a caller whose IP isn't on the

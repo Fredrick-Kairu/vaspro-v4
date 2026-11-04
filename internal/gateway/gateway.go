@@ -74,6 +74,12 @@ type Config struct {
 	// wildcard; empty means no CORS headers and preflights go to the
 	// backends as before.
 	CORSAllowedOrigins []string `env:"GATEWAY_CORS_ALLOWED_ORIGINS"`
+
+	// TrustedProxies are the reverse proxies (IPs or CIDRs,
+	// comma-separated) whose X-Forwarded-For names the real caller for
+	// rate limits, IP allowlists and the audit log (resolveClientIP).
+	// Empty: the connection's own address, as before.
+	TrustedProxies []string `env:"GATEWAY_TRUSTED_PROXIES"`
 }
 
 // Service wires the gateway's dependencies together.
@@ -99,6 +105,10 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	ledgerTarget, err := url.Parse(cfg.LedgerBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_LEDGER_BASE_URL: %w", err)
+	}
+	trustedProxies, err := parseIPAllowlist(cfg.TrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_TRUSTED_PROXIES: %w", err)
 	}
 	identitySpec, identityRoutes, err := loadSpecAndRoutes(cfg.IdentityOpenAPIPath)
 	if err != nil {
@@ -129,6 +139,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 		}))
 	}
 	r.Use(httpx.RequestID)
+	r.Use(resolveClientIP(trustedProxies))
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))
 	r.Use(refuseOversizedUploads)
