@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.2 done (2026-11-04). Next: 3.3, the posting API over gRPC.
+**Current task:** 3.1–3.3 done (2026-11-04). Next: 3.4, token purchase and lots.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -73,6 +73,81 @@
   - **`make check`:** green first time: gen-check, lint 0 issues, `ledger/store` fresh in 48s, and the other packages from Go's test cache, since nothing they depend on changed (the cache caveat from the parallelism task applies). No container retries fired. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.1–3.2:** the posting API (3.3); EXPLAIN of the EXISTS policies under load (OQ-13's fallback is a tenant_id column, measured with 3.3's benchmark); post-paid credit limits (ADR 0010).
   - **Still open (OQ-13):** `tax_payable` is "one per tax and country" but `accounts` has no tax or country column, so it's one per currency today.
+
+- 3.3 The posting API over gRPC (OQ-14). The ledger's first service code: `internal/ledger/{app,grpc}`, `internal/ledger/ledger.go`, `cmd/ledger`, registered in `cmd/vaspro-all`.
+  - **Contract** (`proto/ledger/v1`, `LedgerService`):
+    - `PostTransaction`, `PlaceHold`, `CaptureHold`, `ReleaseHold`, `GetBalances`;
+    - lines name accounts by key (type, service, rail, currency);
+    - an empty tenant is a system posting, VASPRO's accounts only;
+    - errors are gRPC codes plus a `google.rpc.ErrorInfo` whose reason is the VASPRO code (domain `ledger.vaspro.io`);
+    - new codes **BAL-4002** (account not open), **BAL-4003** (hold can't change this way), **BAL-4004** (allocation is final);
+    - new event `wallet.credited` (a top-up or refund raising a main wallet).
+  - **Migration** `20261106110000_posting_api.sql` (additions to data model §5):
+    - `holds.captured_minor`, with two CHECKs;
+    - **a read policy letting `ledger_system` read every line on VASPRO's accounts.** It was found while building `GetBalances`: 3.1's policies hid client postings' lines from it, so VASPRO's revenue and VAT would have summed to almost nothing. Client accounts' lines stay hidden from it.
+  - **Rules** (`domain/posting.go`, `domain/holds.go`):
+    - `ValidateAccountKey` mirrors 3.1's account CHECKs;
+    - `ValidatePosting` checks at least two lines, positive amounts, **balanced per currency**, system postings on VASPRO accounts only, and allocation final (a net rise in a main wallet with a net fall in a service or bonus wallet, unless a reversal);
+    - `NetDeltas`;
+    - the hold state machine (`CaptureHold`, `ReleaseHold`), where a release of a released or expired hold is a replay, and `HoldContribution`.
+    - **Changed from the plan:** the plan left the balance check to the database only. That would have answered an unbalanced request with SYS-9000 at commit, so the domain now refuses it (VAL-4000) and the database guard is the backstop.
+  - **Use cases** (`app/`), each in one tenant transaction (`ledger_system` for system postings):
+    - **Post:** replay by key (same type and line multiset, in any order); accounts opened by key; status and available-balance checks under `FOR UPDATE` locks in `account_id` order; lines inserted in that order; `wallet.credited` to the outbox. A concurrent duplicate key loses on the unique index and is answered as a replay.
+    - **PlaceHold:** replay by reference (same account and amount); locks the balance row; raises `held_minor`.
+    - **CaptureHold:** without a posting, releases the unused part; with one, checks the posting takes exactly the captured amount net from the held wallet, locks every client balance it touches in one ordered statement, un-holds, settles and posts. A replay with a posting must find that posting by its key, or it's BAL-4003. A posting key already used elsewhere rolls the capture back (VAL-4001), so nothing is un-held without a charge.
+    - **ReleaseHold**, and **GetBalances** (VASPRO's summed from the journal).
+    - A database guard refusing what the app accepted is logged and answered SYS-9000.
+  - **Service:**
+    - `LEDGER_DATABASE_URL`, `LEDGER_NATS_URL`, `LEDGER_HTTP_ADDR` (`:8083`, health only), `LEDGER_GRPC_ADDR` (`:9092`, plaintext until Phase 17's mTLS);
+    - the relay publishes on `ledger.<event>` to stream `LEDGER_EVENTS`.
+    - **Deployment notes:** the gRPC port must be reachable only from VASPRO services, because the API trusts the tenant a request names; the login role is granted `ledger_service`. `vaspro-all` now needs the `LEDGER_*` variables.
+  - **platform/testkit:** `StartPostgres` (and the internal `startContainer`) take `testing.TB` instead of `*testing.T`, so a benchmark can use them; every existing caller is unchanged.
+  - **Tests:**
+    - **domain:** key validation, posting validation (including allocation final in both directions and through a third account, and the per-currency balance), `NetDeltas`, every hold state × request, and a check that a capture's release plus what stays held always equals the hold.
+    - **app** (real Postgres as `ledger_app`):
+      - top-up replay (and in another line order) writes nothing new;
+      - the same key with other lines or another type is VAL-4001;
+      - another tenant may reuse a key;
+      - spending more than available, or held money, is BAL-4001;
+      - allocation final; a reversal allowed;
+      - frozen client and VASPRO accounts are BAL-4002;
+      - unbalanced and system-on-client postings are VAL-4000;
+      - 20 concurrent first posts open each account once;
+      - 10 concurrent posts with one key make one transaction;
+      - `wallet.credited` matches its schema;
+      - `GetBalances` on the worked example (main 5,000.00, SMS 7,696.00; VASPRO: clearing 13,000.00, revenue 262.07, VAT 41.93).
+    - **holds:**
+      - **the worked example's 320.00 hold, 304.00 captured and 16.00 released at once, with 304.00 still held (available 7,696.00)**;
+      - replays; another amount is VAL-4001;
+      - capturing a released hold, or more than the hold, is BAL-4003;
+      - unknown and other tenants' holds are not found;
+      - bad requests;
+      - capture with a posting (airtime): a wrong amount is refused and leaves the hold; the posting replays; a plain capture later sent with a posting doesn't post; a reused posting key un-holds nothing.
+    - **Concurrency** (`-race`): 200 goroutines hold 1.00 each against 100.00; exactly 100 placed, 100 refused for balance, 100.00 held.
+    - **Property test:** 400 seeded random top-ups, purchases, usage, holds, captures (with and without a posting) and releases across 3 tenants in KES and UGX. After every step it checks debits = credits per currency, balance = replay, `held_minor` = the sum of hold contributions, and no wallet below zero. It logs per-operation counts and fails if any operation never succeeded.
+      - **Found while writing it:** the first generator (150 steps, equal amounts) rarely reached holds, so a pass meant little. It now tops up more than it spends.
+      - **A generator bug:** a tiny usage made a zero VAT line, which the ledger rightly refused. Found by seed `1793797629158284000`, which now passes. 8 fresh seeds were green afterwards.
+    - **gRPC** over bufconn: the full flow, and every error's code and ErrorInfo reason.
+    - **service:** `TestService_RunsAndRelaysWalletCredited` runs `ledger.New(...).Run` against real Postgres and NATS: `/readyz`, a gRPC top-up, `wallet.credited` read off `ledger.wallet.credited`, and a clean shutdown. This replaces the plan's `make run` check (the local stack is down; this needs no change to it).
+    - **store:** the `captured_minor` CHECKs; `ledger_system` reads the revenue line of a client posting, and nothing else, only inside `WithRoleTx`.
+    - **Order of work:**
+      - the domain, app and gRPC tests were seen failing against stubs first;
+      - the domain balance test, the service test and the two store tests were written after the code;
+      - the mutation checks below stand in for seeing them fail.
+    - **Mutation-checked**, each failing its intended test, then reverted:
+      - dropping `FOR UPDATE` on balances (concurrency);
+      - skipping Post's available check (refusals: the database guard still stops the overspend, but as SYS-9000, not BAL-4001);
+      - releasing the whole hold on a plain capture (worked example);
+      - skipping the replay comparison (VAL-4001);
+      - dropping the domain balance check;
+      - dropping the `ledger_system` lines policy;
+      - dropping the `captured_minor` range CHECK.
+  - **Benchmark** (`BenchmarkHoldCapture`, `-benchtime=5s`, Apple M4 with 10 cores and 16 GB, Postgres 16 in Docker Desktop's 8 GB VM, pgx's default pool):
+    - **1,504 hold+capture pairs/s on separate wallets** (665 µs per pair);
+    - **765/s on one wallet** (1.31 ms), where the balance row lock serialises them.
+    - This is a development-machine figure: the exit gate wants the reference machine, which isn't defined yet.
+  - **`make check`:** the first run stopped at `gen-check` because the regenerated files weren't staged yet (the known working-tree-against-index behaviour in Notes, not stale code). After staging it was green: lint 0 issues, 36 packages fresh (testkit changed, so every integration package reran; `identity/app` 379s, `ledger/store` 81s), 32 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.3:** token holds and FIFO valuation (3.4/3.5); settling plain captures (3.5); hold expiry (3.6); `entries.tax_code` on VAT lines (3.5, where the tax is known); a per-tenant account cache (only if the benchmark calls for it).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -634,7 +709,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.3, the posting API over gRPC (post, hold, capture, release, balances; idempotent), with its benchmark.
+1. Task 3.4: token purchase into a service wallet at the client's price (deal, else list tier), lots, FIFO use; the staff deal screen with maker-checker.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).

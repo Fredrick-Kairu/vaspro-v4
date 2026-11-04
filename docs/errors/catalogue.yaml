@@ -268,6 +268,30 @@ codes:
     retryable: false
     billable: false
 
+  - code: BAL-4002
+    status: 403
+    title: Account not open
+    cause: The ledger account is frozen or closed, so it takes no new postings or holds.
+    fix: Ask VASPRO support why the account was frozen or closed.
+    retryable: false
+    billable: false
+
+  - code: BAL-4003
+    status: 409
+    title: Hold can't change this way
+    cause: The hold was already captured, released or expired, or the capture is larger than the hold.
+    fix: Read the hold's status; capture at most its amount, and only while it's active.
+    retryable: false
+    billable: false
+
+  - code: BAL-4004
+    status: 422
+    title: Tokens can't move back to the main wallet
+    cause: Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal.
+    fix: Use the reversal flow, which needs a staff member's approval.
+    retryable: false
+    billable: false
+
   - code: CMP-4030
     status: 422
     title: Blocked by a compliance rule

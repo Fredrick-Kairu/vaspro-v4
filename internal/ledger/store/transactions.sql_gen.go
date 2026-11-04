@@ -62,6 +62,55 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 	return i, err
 }
 
+const getClientTransactionByKey = `-- name: GetClientTransactionByKey :one
+SELECT id, tenant_id, type, idempotency_key, reference_type, reference_id, reverses_id, description, created_by, posted_at FROM ledger.transactions WHERE tenant_id = $1 AND idempotency_key = $2
+`
+
+type GetClientTransactionByKeyParams struct {
+	TenantID       pgtype.UUID `json:"tenant_id"`
+	IdempotencyKey string      `json:"idempotency_key"`
+}
+
+func (q *Queries) GetClientTransactionByKey(ctx context.Context, arg GetClientTransactionByKeyParams) (LedgerTransaction, error) {
+	row := q.db.QueryRow(ctx, getClientTransactionByKey, arg.TenantID, arg.IdempotencyKey)
+	var i LedgerTransaction
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Type,
+		&i.IdempotencyKey,
+		&i.ReferenceType,
+		&i.ReferenceID,
+		&i.ReversesID,
+		&i.Description,
+		&i.CreatedBy,
+		&i.PostedAt,
+	)
+	return i, err
+}
+
+const getSystemTransactionByKey = `-- name: GetSystemTransactionByKey :one
+SELECT id, tenant_id, type, idempotency_key, reference_type, reference_id, reverses_id, description, created_by, posted_at FROM ledger.transactions WHERE tenant_id IS NULL AND idempotency_key = $1
+`
+
+func (q *Queries) GetSystemTransactionByKey(ctx context.Context, idempotencyKey string) (LedgerTransaction, error) {
+	row := q.db.QueryRow(ctx, getSystemTransactionByKey, idempotencyKey)
+	var i LedgerTransaction
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Type,
+		&i.IdempotencyKey,
+		&i.ReferenceType,
+		&i.ReferenceID,
+		&i.ReversesID,
+		&i.Description,
+		&i.CreatedBy,
+		&i.PostedAt,
+	)
+	return i, err
+}
+
 const getTransaction = `-- name: GetTransaction :one
 SELECT id, tenant_id, type, idempotency_key, reference_type, reference_id, reverses_id, description, created_by, posted_at FROM ledger.transactions WHERE id = $1
 `

@@ -9,3 +9,9 @@ RETURNING *;
 
 -- name: GetTransaction :one
 SELECT * FROM ledger.transactions WHERE id = $1;
+
+-- name: GetClientTransactionByKey :one
+SELECT * FROM ledger.transactions WHERE tenant_id = $1 AND idempotency_key = $2;
+
+-- name: GetSystemTransactionByKey :one
+SELECT * FROM ledger.transactions WHERE tenant_id IS NULL AND idempotency_key = $1;

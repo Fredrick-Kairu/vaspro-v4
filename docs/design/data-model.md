@@ -697,6 +697,15 @@ CREATE TABLE ledger.reversals (
 >   - `transactions`, `entries` and `lot_consumptions` are append-only, TRUNCATE included;
 >   - main, service and bonus wallets keep `balance_minor >= 0` and `held_minor <= balance_minor` at commit.
 
+> **Built in task 3.3 (4 Nov 2026, OQ-14).**
+> - **`holds.captured_minor`:** set exactly when the hold is captured, from 1 to `amount_minor`.
+> - **What a hold contributes to `held_minor`:**
+>   - while active, its amount;
+>   - once captured, until settled (`settled_at`), the captured amount;
+>   - nothing after.
+> - **Settlement:** release and a capture carrying its own posting settle the hold at once; 3.5's settlement settles plain captures.
+> - **`ledger_system`** reads every line on VASPRO's own accounts, so their balances can be summed from the journal.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

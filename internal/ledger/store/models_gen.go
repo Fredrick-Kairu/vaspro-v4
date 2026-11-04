@@ -173,6 +173,7 @@ type LedgerHold struct {
 	CreatedAt     time.Time          `json:"created_at"`
 	ExpiresAt     time.Time          `json:"expires_at"`
 	SettledAt     pgtype.Timestamptz `json:"settled_at"`
+	CapturedMinor pgtype.Int8        `json:"captured_minor"`
 }
 
 type LedgerIdempotencyKey struct {

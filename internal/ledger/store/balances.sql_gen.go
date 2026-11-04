@@ -9,7 +9,26 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const adjustHeld = `-- name: AdjustHeld :exec
+UPDATE ledger.balances
+SET held_minor = held_minor + $1, version = version + 1, updated_at = now()
+WHERE account_id = $2
+`
+
+type AdjustHeldParams struct {
+	Delta     int64     `json:"delta"`
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// held_minor is the only balance column the service may write; the
+// wallet guard (3.2) checks it at commit.
+func (q *Queries) AdjustHeld(ctx context.Context, arg AdjustHeldParams) error {
+	_, err := q.db.Exec(ctx, adjustHeld, arg.Delta, arg.AccountID)
+	return err
+}
 
 const getBalance = `-- name: GetBalance :one
 SELECT account_id, balance_minor, held_minor, version, updated_at FROM ledger.balances WHERE account_id = $1
@@ -28,4 +47,98 @@ func (q *Queries) GetBalance(ctx context.Context, accountID uuid.UUID) (LedgerBa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listClientBalances = `-- name: ListClientBalances :many
+SELECT a.id, a.type, a.service_code, a.rail, a.currency, a.status, b.balance_minor, b.held_minor
+FROM ledger.accounts a
+JOIN ledger.balances b ON b.account_id = a.id
+WHERE a.tenant_id = $1
+ORDER BY a.type, a.currency, a.service_code
+`
+
+type ListClientBalancesRow struct {
+	ID           uuid.UUID         `json:"id"`
+	Type         LedgerAccountType `json:"type"`
+	ServiceCode  pgtype.Text       `json:"service_code"`
+	Rail         pgtype.Text       `json:"rail"`
+	Currency     string            `json:"currency"`
+	Status       string            `json:"status"`
+	BalanceMinor int64             `json:"balance_minor"`
+	HeldMinor    int64             `json:"held_minor"`
+}
+
+// The tenant's accounts and balances (RLS scopes both to the tenant).
+func (q *Queries) ListClientBalances(ctx context.Context, tenantID pgtype.UUID) ([]ListClientBalancesRow, error) {
+	rows, err := q.db.Query(ctx, listClientBalances, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClientBalancesRow
+	for rows.Next() {
+		var i ListClientBalancesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.ServiceCode,
+			&i.Rail,
+			&i.Currency,
+			&i.Status,
+			&i.BalanceMinor,
+			&i.HeldMinor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockBalances = `-- name: LockBalances :many
+SELECT b.account_id, b.balance_minor, b.held_minor, a.type, a.status
+FROM ledger.balances b
+JOIN ledger.accounts a ON a.id = b.account_id
+WHERE b.account_id = ANY($1::uuid[])
+ORDER BY b.account_id
+FOR UPDATE OF b
+`
+
+type LockBalancesRow struct {
+	AccountID    uuid.UUID         `json:"account_id"`
+	BalanceMinor int64             `json:"balance_minor"`
+	HeldMinor    int64             `json:"held_minor"`
+	Type         LedgerAccountType `json:"type"`
+	Status       string            `json:"status"`
+}
+
+// Locks the given client accounts' balance rows in account_id order, so
+// two postings never lock the same rows in opposite orders (ADR 0010).
+func (q *Queries) LockBalances(ctx context.Context, accountIds []uuid.UUID) ([]LockBalancesRow, error) {
+	rows, err := q.db.Query(ctx, lockBalances, accountIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockBalancesRow
+	for rows.Next() {
+		var i LockBalancesRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.BalanceMinor,
+			&i.HeldMinor,
+			&i.Type,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

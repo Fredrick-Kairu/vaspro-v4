@@ -87,3 +87,54 @@ func (q *Queries) ListEntriesByTransaction(ctx context.Context, transactionID uu
 	}
 	return items, nil
 }
+
+const listPostedLines = `-- name: ListPostedLines :many
+SELECT e.id, e.account_id, e.direction, e.amount_minor, e.currency,
+       a.type, a.service_code, a.rail
+FROM ledger.entries e
+JOIN ledger.accounts a ON a.id = e.account_id
+WHERE e.transaction_id = $1
+ORDER BY e.id
+`
+
+type ListPostedLinesRow struct {
+	ID          int64             `json:"id"`
+	AccountID   uuid.UUID         `json:"account_id"`
+	Direction   string            `json:"direction"`
+	AmountMinor int64             `json:"amount_minor"`
+	Currency    string            `json:"currency"`
+	Type        LedgerAccountType `json:"type"`
+	ServiceCode pgtype.Text       `json:"service_code"`
+	Rail        pgtype.Text       `json:"rail"`
+}
+
+// A transaction's lines with their accounts' keys, for answering a
+// replay.
+func (q *Queries) ListPostedLines(ctx context.Context, transactionID uuid.UUID) ([]ListPostedLinesRow, error) {
+	rows, err := q.db.Query(ctx, listPostedLines, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPostedLinesRow
+	for rows.Next() {
+		var i ListPostedLinesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Direction,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.Type,
+			&i.ServiceCode,
+			&i.Rail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

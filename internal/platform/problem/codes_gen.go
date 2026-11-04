@@ -33,6 +33,9 @@ const (
 	AUTH4024 Code = "AUTH-4024"
 	AUTH4025 Code = "AUTH-4025"
 	BAL4001  Code = "BAL-4001"
+	BAL4002  Code = "BAL-4002"
+	BAL4003  Code = "BAL-4003"
+	BAL4004  Code = "BAL-4004"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
@@ -183,6 +186,30 @@ var registry = map[Code]entry{
 		Title:     "Insufficient balance",
 		Cause:     "The service token wallet doesn't hold enough tokens for this send.",
 		Fix:       "Buy more tokens, turn on auto-buy, or reduce the request size.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4002: {
+		Status:    403,
+		Title:     "Account not open",
+		Cause:     "The ledger account is frozen or closed, so it takes no new postings or holds.",
+		Fix:       "Ask VASPRO support why the account was frozen or closed.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4003: {
+		Status:    409,
+		Title:     "Hold can't change this way",
+		Cause:     "The hold was already captured, released or expired, or the capture is larger than the hold.",
+		Fix:       "Read the hold's status; capture at most its amount, and only while it's active.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4004: {
+		Status:    422,
+		Title:     "Tokens can't move back to the main wallet",
+		Cause:     "Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal.",
+		Fix:       "Use the reversal flow, which needs a staff member's approval.",
 		Retryable: false,
 		Billable:  false,
 	},

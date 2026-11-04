@@ -815,7 +815,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 - [x] 3.1 `ledger` migrations: currencies, accounts, balances, token prices, rate cards, tax rates, transactions, entries, token lots, lot consumptions, holds, usage batches, auto-buy rules, reversals. *Done 2026-11-04 (OQ-13): `migrations/ledger/20261106090000_init.sql`, RLS for shared VASPRO rows through `ledger_system`, the `ledger_service` grant role; `TestRowLevelSecurity_*`, `TestTokenPrices_Constraints`, `TestAccountTypes_MatchDomain`.*
 - [x] 3.2 Database guards: a deferred trigger that rejects unbalanced transactions; a trigger and grants that block updates and deletes on transactions and entries; a trigger that stops client wallets going below zero. *Done 2026-11-04 (OQ-13, ADR 0010): `migrations/ledger/20261106100000_guards.sql`; `TestBalanceGuard_CheckedAtCommit`, `TestJournal_AppendOnly`, `TestBalanceSync`, `TestWalletGuard`.*
-- [ ] 3.3 Posting API over gRPC: post a transaction, place a hold, capture, release, query balances. Every call is idempotent.
+- [x] 3.3 Posting API over gRPC: post a transaction, place a hold, capture, release, query balances. Every call is idempotent. *Done 2026-11-04 (OQ-14): `proto/ledger/v1`, `internal/ledger/{app,grpc}`, `cmd/ledger`; `TestHolds_200ConcurrentHoldsNeverOverspend`, `TestLedger_RandomOperationsKeepInvariants`, `TestHolds_WorkedExample`, `TestService_RunsAndRelaysWalletCredited`; benchmark baseline in STATUS.*
 - [ ] 3.4 Token purchase from the main wallet into a service wallet, creating a lot at the client's price (negotiated deal if one is in force, otherwise the list price and its volume tier); FIFO use of lots. Staff console screen for entering and approving deals (maker-checker).
 - [ ] 3.5 Usage settlement: usage batches per wallet per settlement window, splitting revenue and VAT from the lots actually used.
 - [ ] 3.6 Hold expiry job; auto-buy rules.
@@ -839,7 +839,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 **Exit gate**
 
 - [ ] All ledger invariants above are green.
-- [ ] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline.
+- [ ] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *First figure 2026-11-04 (3.3, dev machine, not the reference machine): 1,504/s on separate wallets, 765/s on one wallet; see STATUS.*
 - [ ] Finance has reviewed the worked examples and the reversal rules.
 - [ ] The v3 balance import dry run reproduces v3 totals per client to the cent.
 

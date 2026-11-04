@@ -17,7 +17,7 @@ const createHold = `-- name: CreateHold :one
 INSERT INTO ledger.holds
   (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at
+RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor
 `
 
 type CreateHoldParams struct {
@@ -57,12 +57,13 @@ func (q *Queries) CreateHold(ctx context.Context, arg CreateHoldParams) (LedgerH
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.SettledAt,
+		&i.CapturedMinor,
 	)
 	return i, err
 }
 
 const getHoldByReference = `-- name: GetHoldByReference :one
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
 `
 
 type GetHoldByReferenceParams struct {
@@ -85,6 +86,96 @@ func (q *Queries) GetHoldByReference(ctx context.Context, arg GetHoldByReference
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.SettledAt,
+		&i.CapturedMinor,
 	)
 	return i, err
+}
+
+const listHoldsByAccount = `-- name: ListHoldsByAccount :many
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
+`
+
+func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) ([]LedgerHold, error) {
+	rows, err := q.db.Query(ctx, listHoldsByAccount, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerHold
+	for rows.Next() {
+		var i LedgerHold
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.AccountID,
+			&i.ReferenceType,
+			&i.ReferenceID,
+			&i.AmountMinor,
+			&i.Tokens,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.SettledAt,
+			&i.CapturedMinor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockHoldByReference = `-- name: LockHoldByReference :one
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2 FOR UPDATE
+`
+
+type LockHoldByReferenceParams struct {
+	ReferenceType string    `json:"reference_type"`
+	ReferenceID   uuid.UUID `json:"reference_id"`
+}
+
+func (q *Queries) LockHoldByReference(ctx context.Context, arg LockHoldByReferenceParams) (LedgerHold, error) {
+	row := q.db.QueryRow(ctx, lockHoldByReference, arg.ReferenceType, arg.ReferenceID)
+	var i LedgerHold
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.AccountID,
+		&i.ReferenceType,
+		&i.ReferenceID,
+		&i.AmountMinor,
+		&i.Tokens,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.SettledAt,
+		&i.CapturedMinor,
+	)
+	return i, err
+}
+
+const updateHoldState = `-- name: UpdateHoldState :exec
+UPDATE ledger.holds
+SET status = $2, captured_minor = $3, settled_at = $4
+WHERE id = $1
+`
+
+type UpdateHoldStateParams struct {
+	ID            uuid.UUID          `json:"id"`
+	Status        string             `json:"status"`
+	CapturedMinor pgtype.Int8        `json:"captured_minor"`
+	SettledAt     pgtype.Timestamptz `json:"settled_at"`
+}
+
+func (q *Queries) UpdateHoldState(ctx context.Context, arg UpdateHoldStateParams) error {
+	_, err := q.db.Exec(ctx, updateHoldState,
+		arg.ID,
+		arg.Status,
+		arg.CapturedMinor,
+		arg.SettledAt,
+	)
+	return err
 }

@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+package ledger.v1;
+
+option go_package = "github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1;ledgerv1";
+
+// LedgerService is the ledger's internal posting API for other VASPRO
+// services (task 3.3, OQ-14). It is never exposed to clients.
+//
+// Every call is idempotent: a transaction by (tenant_id,
+// idempotency_key), a hold by (reference_type, reference_id). Repeating
+// a request returns the original result with replayed = true; reusing
+// a key or reference with different content is ALREADY_EXISTS.
+//
+// Errors carry a google.rpc.ErrorInfo detail whose reason is the
+// VASPRO error code (docs/errors/catalogue.yaml), e.g. BAL-4001 with
+// FAILED_PRECONDITION when the wallet's available balance is too low.
+//
+// Amounts are int64 minor units in the account's currency (data model
+// §1). tenant_id is a UUID; empty means VASPRO's own side.
+service LedgerService {
+  // PostTransaction posts one balanced transaction. With a tenant, its
+  // lines may use that tenant's accounts and VASPRO's; with no tenant
+  // (a system posting) only VASPRO's. Accounts are opened on first use.
+  rpc PostTransaction(PostTransactionRequest) returns (PostTransactionResponse);
+  // PlaceHold reserves money in one of the tenant's accounts: it raises
+  // the account's held amount, and posts nothing.
+  rpc PlaceHold(PlaceHoldRequest) returns (PlaceHoldResponse);
+  // CaptureHold records how much of an active hold was used and
+  // releases the rest at once. Without a posting the captured amount
+  // stays held until settlement (task 3.5) posts it. With a posting the
+  // hold is settled and the posting made in the same transaction; the
+  // posting must take exactly captured_minor, net, from the held
+  // account.
+  rpc CaptureHold(CaptureHoldRequest) returns (CaptureHoldResponse);
+  // ReleaseHold gives an active hold's whole amount back.
+  rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+  // GetBalances lists a tenant's accounts with their balances, or, with
+  // no tenant, VASPRO's accounts with balances summed from the journal
+  // (ADR 0010).
+  rpc GetBalances(GetBalancesRequest) returns (GetBalancesResponse);
+}
+
+// AccountRef names a ledger account by its key (data model §5's unique
+// key). Client types belong to the request's tenant; VASPRO's types
+// (provider_clearing, suspense, reversal_clearing, revenue,
+// tax_payable) to VASPRO.
+message AccountRef {
+  string type = 1;          // ledger.account_type, e.g. main_wallet
+  string service_code = 2;  // service wallets, revenue, restricted bonus
+  string rail = 3;          // provider_clearing only, e.g. mpesa_ke
+  string currency = 4;      // ISO 4217, e.g. KES
+}
+
+message Line {
+  AccountRef account = 1;
+  string direction = 2;     // D or C
+  int64 amount_minor = 3;
+}
+
+message PostedLine {
+  string account_id = 1;
+  AccountRef account = 2;
+  string direction = 3;
+  int64 amount_minor = 4;
+}
+
+message Posting {
+  string idempotency_key = 1;
+  string type = 2;            // ledger.txn_type, e.g. topup
+  string description = 3;
+  string reference_type = 4;  // optional, e.g. payment_intent
+  string reference_id = 5;    // optional UUID
+  string created_by = 6;      // optional UUID; empty for system postings
+  repeated Line lines = 7;
+}
+
+message PostTransactionRequest {
+  string tenant_id = 1;
+  Posting posting = 2;
+}
+
+message PostTransactionResponse {
+  string transaction_id = 1;
+  repeated PostedLine lines = 2;
+  bool replayed = 3;
+}
+
+message PlaceHoldRequest {
+  string tenant_id = 1;
+  AccountRef account = 2;
+  string reference_type = 3;  // message_request, campaign, payout, ussd_session
+  string reference_id = 4;    // UUID
+  int64 amount_minor = 5;
+  int64 expires_at_unix = 6;  // seconds since the epoch, in the future
+}
+
+message CaptureHoldRequest {
+  string tenant_id = 1;
+  string reference_type = 2;
+  string reference_id = 3;
+  int64 captured_minor = 4;   // 1 to the hold's amount
+  Posting posting = 5;        // optional; see CaptureHold
+}
+
+message ReleaseHoldRequest {
+  string tenant_id = 1;
+  string reference_type = 2;
+  string reference_id = 3;
+}
+
+message Hold {
+  string hold_id = 1;
+  string account_id = 2;
+  string reference_type = 3;
+  string reference_id = 4;
+  int64 amount_minor = 5;
+  int64 captured_minor = 6;   // 0 unless captured
+  string status = 7;          // active, captured, released, expired
+  bool settled = 8;
+  string transaction_id = 9;  // the capture's posting, if it carried one
+}
+
+message PlaceHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message CaptureHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message ReleaseHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message GetBalancesRequest {
+  string tenant_id = 1;
+}
+
+message AccountBalance {
+  string account_id = 1;
+  AccountRef account = 2;
+  string status = 3;
+  int64 balance_minor = 4;
+  int64 held_minor = 5;
+  int64 available_minor = 6;
+}
+
+message GetBalancesResponse {
+  repeated AccountBalance accounts = 1;
+}
