@@ -170,6 +170,57 @@ func (s *Server) ReleaseHold(ctx context.Context, req *ledgerv1.ReleaseHoldReque
 	return &ledgerv1.ReleaseHoldResponse{Hold: holdMessage(res.Hold), Replayed: res.Replayed}, nil
 }
 
+// SetAutoBuyRule implements ledgerv1.LedgerServiceServer.
+func (s *Server) SetAutoBuyRule(ctx context.Context, req *ledgerv1.SetAutoBuyRuleRequest) (*ledgerv1.SetAutoBuyRuleResponse, error) {
+	tenant, err := requiredTenant(req.GetTenantId())
+	if err != nil {
+		return nil, err
+	}
+	below, err := decimal.NewFromString(req.GetBelowTokens())
+	if err != nil {
+		return nil, invalid("below_tokens must be a decimal")
+	}
+	buy, err := decimal.NewFromString(req.GetBuyTokens())
+	if err != nil {
+		return nil, invalid("buy_tokens must be a decimal")
+	}
+	rule, err := s.svc.SetAutoBuyRule(ctx, tenant, app.AutoBuyRule{
+		ServiceCode: req.GetServiceCode(), Currency: req.GetCurrency(), BelowTokens: below, BuyTokens: buy, Enabled: req.GetEnabled(),
+	})
+	if err != nil {
+		return nil, s.toStatus(err)
+	}
+	return &ledgerv1.SetAutoBuyRuleResponse{Rule: autoBuyRuleMessage(rule)}, nil
+}
+
+// ListAutoBuyRules implements ledgerv1.LedgerServiceServer.
+func (s *Server) ListAutoBuyRules(ctx context.Context, req *ledgerv1.ListAutoBuyRulesRequest) (*ledgerv1.ListAutoBuyRulesResponse, error) {
+	tenant, err := requiredTenant(req.GetTenantId())
+	if err != nil {
+		return nil, err
+	}
+	rules, err := s.svc.ListAutoBuyRules(ctx, tenant)
+	if err != nil {
+		return nil, s.toStatus(err)
+	}
+	out := &ledgerv1.ListAutoBuyRulesResponse{}
+	for _, r := range rules {
+		out.Rules = append(out.Rules, autoBuyRuleMessage(r))
+	}
+	return out, nil
+}
+
+func autoBuyRuleMessage(r app.AutoBuyRule) *ledgerv1.AutoBuyRule {
+	m := &ledgerv1.AutoBuyRule{
+		RuleId: r.ID.String(), ServiceCode: r.ServiceCode, Currency: r.Currency,
+		BelowTokens: r.BelowTokens.String(), BuyTokens: r.BuyTokens.String(), Enabled: r.Enabled,
+	}
+	if r.LastTriggeredAt != nil {
+		m.LastTriggeredAtUnix = r.LastTriggeredAt.Unix()
+	}
+	return m
+}
+
 // GetBalances implements ledgerv1.LedgerServiceServer.
 func (s *Server) GetBalances(ctx context.Context, req *ledgerv1.GetBalancesRequest) (*ledgerv1.GetBalancesResponse, error) {
 	tenant, err := optionalTenant(req.GetTenantId())
@@ -207,8 +258,10 @@ func (s *Server) toStatus(err error) error {
 		return withCode(codes.AlreadyExists, problem.VAL4001, err.Error())
 	case errors.Is(err, app.ErrInsufficientBalance):
 		return withCode(codes.FailedPrecondition, problem.BAL4001, err.Error())
-	case errors.Is(err, app.ErrAccountNotOpen):
+	case errors.Is(err, app.ErrInsufficientTokens):
 		return withCode(codes.FailedPrecondition, problem.BAL4002, err.Error())
+	case errors.Is(err, app.ErrAccountNotOpen):
+		return withCode(codes.FailedPrecondition, problem.BAL4006, err.Error())
 	case errors.Is(err, domain.ErrHoldState):
 		return withCode(codes.FailedPrecondition, problem.BAL4003, err.Error())
 	case errors.Is(err, domain.ErrAllocationFinal):

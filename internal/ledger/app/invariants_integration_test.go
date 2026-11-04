@@ -41,7 +41,7 @@ func TestHolds_200ConcurrentHoldsNeverOverspend(t *testing.T) {
 			switch {
 			case err == nil:
 				placed.Add(1)
-			case errors.Is(err, app.ErrInsufficientBalance):
+			case errors.Is(err, app.ErrInsufficientTokens):
 				refused.Add(1)
 			default:
 				t.Errorf("unexpected error: %v", err)
@@ -84,6 +84,16 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 	h := newHarness(t)
 	tenants := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
 	seedPrice(t, h, &tenants[0], "sms", "KES", "0", "50.5", jan1, nil) // one tenant buys at a deal
+	// Auto-buy is on for every tenant in both currencies (task 3.6), so
+	// token holds often buy first; one rule is off, so some don't.
+	for i, tenant := range tenants {
+		for _, cur := range []string{"KES", "UGX"} {
+			if _, err := h.svc.SetAutoBuyRule(ctx, tenant, app.AutoBuyRule{ServiceCode: "sms", Currency: cur,
+				BelowTokens: tok("20"), BuyTokens: tok("25"), Enabled: i != 2 || cur != "KES"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	currencies := []struct {
 		code  string
 		clear domain.AccountKey
@@ -118,7 +128,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 
 		var op string
 		var err error
-		switch rng.IntN(10) {
+		switch rng.IntN(11) {
 		case 0, 1:
 			op = "top-up"
 			amount *= 10
@@ -155,6 +165,16 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			if err == nil {
 				active = append(active, openHold{tenant: tenant, ref: ref, amount: amount, wallet: main})
 			}
+		case 10:
+			// Jump past every open hold's expiry plus the grace (task 3.6).
+			op = "expiry"
+			h.clk.Set(h.clk.Now().Add(time.Hour + app.DefaultSettlementWindow + time.Second))
+			var sum app.ExpirySummary
+			sum, err = h.svc.ExpireHolds(ctx, h.clk.Now())
+			if err == nil && sum.Failed > 0 {
+				err = fmt.Errorf("%d holds failed to expire", sum.Failed)
+			}
+			active = nil // every hold still open has expired
 		case 9:
 			op = "settlement"
 			_, end := domain.WindowFor(h.clk.Now(), app.DefaultSettlementWindow)
@@ -195,7 +215,11 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		switch {
 		case err == nil:
 			succeeded[op]++
-		case errors.Is(err, app.ErrInsufficientBalance):
+		case errors.Is(err, app.ErrInsufficientBalance), errors.Is(err, app.ErrInsufficientTokens):
+			refused[op]++
+		case op == "token purchase" && errors.Is(err, app.ErrValidation):
+			// A tiny quantity can cost under one minor unit (0.02 UGX tokens
+			// at 12.5 is 0.25 shillings), which a purchase rightly refuses.
 			refused[op]++
 		default:
 			t.Fatalf("seed %d step %d %s: %v", seed, step, op, err)
@@ -205,7 +229,12 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		}
 	}
 	batches := count(t, h, `SELECT count(*) FROM usage_batches WHERE transaction_id IS NOT NULL`)
-	t.Logf("succeeded %v; refused for balance %v; %d usage batches posted", succeeded, refused, batches)
+	autoBuys := count(t, h, `SELECT count(*) FROM outbox_events WHERE event_type = 'autobuy.triggered'`)
+	expired := count(t, h, `SELECT count(*) FROM holds WHERE status = 'expired'`)
+	t.Logf("succeeded %v; refused for balance %v; %d usage batches, %d auto-buys, %d holds expired", succeeded, refused, batches, autoBuys, expired)
+	if autoBuys == 0 || expired == 0 {
+		t.Errorf("%d auto-buys and %d expiries: the sequence isn't exercising both", autoBuys, expired)
+	}
 	if batches == 0 {
 		t.Error("no settlement posted a usage batch: the sequence isn't exercising it")
 	}

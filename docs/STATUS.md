@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.5 done (2026-11-04). Next: 3.6, hold expiry and auto-buy.
+**Current task:** 3.1–3.6 done (2026-11-04). Next: 3.7, reversals with maker-checker.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -324,6 +324,65 @@
       - settlement seeing every hold (store).
   - **`make check`** (after staging): green first time. Lint 0 issues; 15 packages fresh (`accounts/app` 205s, because accounts loads the changed packs; `ledger/app` 138s; `ledger/store` 134s), 54 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.5:** rate-card VAT overrides per service and operator (Phase 7); hold expiry (3.6); per-message rows tagged with the batch (messaging, Phase 7).
+
+- 3.6 Hold expiry and auto-buy (OQ-17).
+  - **A correction to 3.3 first:** system design §8 defines **BAL-4002** as "no tokens left for this service; buy tokens or turn on auto-buy". 3.3 had given that number to "account not open" without checking §8.
+    - On this unmerged branch, BAL-4002 is now no tokens left (`app.ErrInsufficientTokens`, returned by token holds and draws, which used to return the generic BAL-4001);
+    - "account not open" is the new **BAL-4006**;
+    - BAL-4001's text now covers money only.
+    - 3.3's and 3.4's STATUS entries describe the codes as they were then.
+  - **Migration** `20261106150000_expiry_autobuy.sql`:
+    - CHECKs on `auto_buy_rules` (level ≥ 0, buy > 0);
+    - `ledger_settlement`, now the ledger's background-jobs role, also reads active holds.
+    - **Changed from the plan:** the policy no longer compares `expires_at` with the database's `now()`. That would have tied the job to wall-clock time rather than the app's clock (and the tests to the time of day they run); the job applies its own cutoff.
+  - **Rules** (`domain/autobuy.go`):
+    - `ExpireHold` (active → expired, releasing everything; anything else unchanged);
+    - **`AutoBuy`:** buy when the hold would leave fewer than the level or can't be covered, but never when the purchase still wouldn't cover it;
+    - `ValidateAutoBuyRule`.
+  - **App:**
+    - **`ExpireHolds(now)`:** finds active holds past `expires_at` plus one window as `ledger_settlement` (at most 1,000 a run), then expires each in its tenant's transaction (hold, then balance lock), releasing `held_tokens` or `held_minor`. `Run`'s window loop settles, then expires.
+    - **Auto-buy in `placeHoldInTx`:**
+      - with an enabled rule, the wallet and main wallet balances are locked together, in order;
+      - `domain.AutoBuy` decides; the purchase runs in the hold's transaction (key `autobuy:<type>:<id>`);
+      - refusals for money or price happen before anything is written, so the hold carries on without buying;
+      - a purchase sets `last_triggered_at` and writes `autobuy.triggered` (new schema) as well as `tokens.purchased`;
+      - a replayed hold returns before auto-buy, so it never buys twice.
+    - `SetAutoBuyRule` (an upsert per service and currency) and `ListAutoBuyRules`.
+  - **gRPC:** `SetAutoBuyRule` and `ListAutoBuyRules`; BAL-4002 and BAL-4006 mapped. An internal `TestToStatus` pins every app error's gRPC code and VASPRO code.
+  - **Tests:**
+    - **domain:** `ExpireHold` per state; the `AutoBuy` table (8 cases).
+    - **app expiry:**
+      - nothing within the grace;
+      - two clients' token holds and a money hold expired, with their tokens and money available again;
+      - the captured hold is left for settlement;
+      - capturing an expired hold is BAL-4003, and releasing one is a replay;
+      - a second run expires nothing;
+      - two concurrent runs expire 5 holds exactly once between them.
+    - **app auto-buy:**
+      - below the level, it buys 1,000 first (`autobuy.triggered` and `tokens.purchased` valid; a replay doesn't buy again);
+      - it covers a larger hold;
+      - a hold too large even then buys nothing;
+      - a main wallet that can't pay means no purchase, while the hold goes ahead if it fits;
+      - a disabled rule or no price buys nothing;
+      - **holds that auto-buy racing manual purchases never deadlock**;
+      - **50 concurrent holds**: exactly 2 purchases, 43 placed and 7 refused, nothing overspent.
+    - Rules: upsert, list, validation.
+    - **gRPC:** BAL-4002, the rules RPCs.
+    - **store:** the CHECKs; the role sees the active hold and no settled one. 3.5's role test now counts the active hold too.
+    - **Property test:** an expiry step and auto-buy rules on every tenant and currency (one off). About 5–9 auto-buys and 20–35 expiries a run, with every invariant after every step; it fails if either is never exercised.
+      - **While tuning it:** a single rule fired too rarely (0–1 a run), so a pass meant little. And a 0.02-token UGX purchase rightly refused as under one minor unit was treated as an error; it's now an accepted refusal.
+    - **Earlier tests changed for the code correction:** token shortfalls expect BAL-4002 / `ErrInsufficientTokens`, as system design §8 says.
+    - **Order of work:**
+      - domain, app and the `toStatus` table were seen failing against stubs;
+      - the deadlock test was added after the plan's mutation showed nothing else would catch a wrong lock order;
+      - the store tests came after the code.
+    - **Mutation-checked:**
+      - expiry without the grace;
+      - the main wallet not locked with the wallet (the deadlock test);
+      - expiry not releasing;
+      - auto-buy buying when it won't help, and a disabled rule buying (caught by the domain tests; in the app a useless purchase rolls back with the refused hold, and the domain re-checks `Enabled`, so both are defended twice).
+  - **`make check`** (after staging): green first time. Lint 0 issues; 26 packages fresh, 44 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.6:** the dashboard's rule routes (3.9); `tokens.low`/`tokens.depleted` alerts (monitoring, Phase 16).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -885,7 +944,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.6: hold expiry job and auto-buy rules.
+1. Task 3.7: reversals with maker-checker (system design §4.3).
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).

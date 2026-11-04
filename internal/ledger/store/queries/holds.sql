@@ -35,3 +35,11 @@ FOR UPDATE;
 
 -- name: SettleHolds :exec
 UPDATE ledger.holds SET settled_at = @settled_at, usage_batch_id = @usage_batch_id WHERE id = ANY(@ids::uuid[]);
+
+-- name: ListExpiredHolds :many
+-- The expiry job's work list across clients (task 3.6), run as
+-- ledger_settlement: active holds past their expiry, oldest first.
+SELECT id, tenant_id, reference_type, reference_id FROM ledger.holds
+WHERE status = 'active' AND expires_at < @cutoff
+ORDER BY expires_at, id
+LIMIT @max_rows;

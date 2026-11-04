@@ -1313,6 +1313,314 @@ func (x *GetBalancesResponse) GetAccounts() []*AccountBalance {
 	return nil
 }
 
+type AutoBuyRule struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RuleId              string                 `protobuf:"bytes,1,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	ServiceCode         string                 `protobuf:"bytes,2,opt,name=service_code,json=serviceCode,proto3" json:"service_code,omitempty"`
+	Currency            string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	BelowTokens         string                 `protobuf:"bytes,4,opt,name=below_tokens,json=belowTokens,proto3" json:"below_tokens,omitempty"` // decimal
+	BuyTokens           string                 `protobuf:"bytes,5,opt,name=buy_tokens,json=buyTokens,proto3" json:"buy_tokens,omitempty"`       // decimal
+	Enabled             bool                   `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	LastTriggeredAtUnix int64                  `protobuf:"varint,7,opt,name=last_triggered_at_unix,json=lastTriggeredAtUnix,proto3" json:"last_triggered_at_unix,omitempty"` // 0 if it never ran
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *AutoBuyRule) Reset() {
+	*x = AutoBuyRule{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoBuyRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoBuyRule) ProtoMessage() {}
+
+func (x *AutoBuyRule) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoBuyRule.ProtoReflect.Descriptor instead.
+func (*AutoBuyRule) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AutoBuyRule) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *AutoBuyRule) GetServiceCode() string {
+	if x != nil {
+		return x.ServiceCode
+	}
+	return ""
+}
+
+func (x *AutoBuyRule) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *AutoBuyRule) GetBelowTokens() string {
+	if x != nil {
+		return x.BelowTokens
+	}
+	return ""
+}
+
+func (x *AutoBuyRule) GetBuyTokens() string {
+	if x != nil {
+		return x.BuyTokens
+	}
+	return ""
+}
+
+func (x *AutoBuyRule) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *AutoBuyRule) GetLastTriggeredAtUnix() int64 {
+	if x != nil {
+		return x.LastTriggeredAtUnix
+	}
+	return 0
+}
+
+type SetAutoBuyRuleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ServiceCode   string                 `protobuf:"bytes,2,opt,name=service_code,json=serviceCode,proto3" json:"service_code,omitempty"`
+	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	BelowTokens   string                 `protobuf:"bytes,4,opt,name=below_tokens,json=belowTokens,proto3" json:"below_tokens,omitempty"`
+	BuyTokens     string                 `protobuf:"bytes,5,opt,name=buy_tokens,json=buyTokens,proto3" json:"buy_tokens,omitempty"`
+	Enabled       bool                   `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAutoBuyRuleRequest) Reset() {
+	*x = SetAutoBuyRuleRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAutoBuyRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAutoBuyRuleRequest) ProtoMessage() {}
+
+func (x *SetAutoBuyRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAutoBuyRuleRequest.ProtoReflect.Descriptor instead.
+func (*SetAutoBuyRuleRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetAutoBuyRuleRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *SetAutoBuyRuleRequest) GetServiceCode() string {
+	if x != nil {
+		return x.ServiceCode
+	}
+	return ""
+}
+
+func (x *SetAutoBuyRuleRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *SetAutoBuyRuleRequest) GetBelowTokens() string {
+	if x != nil {
+		return x.BelowTokens
+	}
+	return ""
+}
+
+func (x *SetAutoBuyRuleRequest) GetBuyTokens() string {
+	if x != nil {
+		return x.BuyTokens
+	}
+	return ""
+}
+
+func (x *SetAutoBuyRuleRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type SetAutoBuyRuleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rule          *AutoBuyRule           `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAutoBuyRuleResponse) Reset() {
+	*x = SetAutoBuyRuleResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAutoBuyRuleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAutoBuyRuleResponse) ProtoMessage() {}
+
+func (x *SetAutoBuyRuleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAutoBuyRuleResponse.ProtoReflect.Descriptor instead.
+func (*SetAutoBuyRuleResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SetAutoBuyRuleResponse) GetRule() *AutoBuyRule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+type ListAutoBuyRulesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAutoBuyRulesRequest) Reset() {
+	*x = ListAutoBuyRulesRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAutoBuyRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAutoBuyRulesRequest) ProtoMessage() {}
+
+func (x *ListAutoBuyRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAutoBuyRulesRequest.ProtoReflect.Descriptor instead.
+func (*ListAutoBuyRulesRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListAutoBuyRulesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type ListAutoBuyRulesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rules         []*AutoBuyRule         `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAutoBuyRulesResponse) Reset() {
+	*x = ListAutoBuyRulesResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAutoBuyRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAutoBuyRulesResponse) ProtoMessage() {}
+
+func (x *ListAutoBuyRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAutoBuyRulesResponse.ProtoReflect.Descriptor instead.
+func (*ListAutoBuyRulesResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListAutoBuyRulesResponse) GetRules() []*AutoBuyRule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
 var File_ledger_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_ledger_v1_ledger_proto_rawDesc = "" +
@@ -1426,13 +1734,38 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"heldTokens\x12)\n" +
 	"\x10tokens_available\x18\t \x01(\tR\x0ftokensAvailable\"L\n" +
 	"\x13GetBalancesResponse\x125\n" +
-	"\baccounts\x18\x01 \x03(\v2\x19.ledger.v1.AccountBalanceR\baccounts2\xf2\x03\n" +
+	"\baccounts\x18\x01 \x03(\v2\x19.ledger.v1.AccountBalanceR\baccounts\"\xf6\x01\n" +
+	"\vAutoBuyRule\x12\x17\n" +
+	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12!\n" +
+	"\fservice_code\x18\x02 \x01(\tR\vserviceCode\x12\x1a\n" +
+	"\bcurrency\x18\x03 \x01(\tR\bcurrency\x12!\n" +
+	"\fbelow_tokens\x18\x04 \x01(\tR\vbelowTokens\x12\x1d\n" +
+	"\n" +
+	"buy_tokens\x18\x05 \x01(\tR\tbuyTokens\x12\x18\n" +
+	"\aenabled\x18\x06 \x01(\bR\aenabled\x123\n" +
+	"\x16last_triggered_at_unix\x18\a \x01(\x03R\x13lastTriggeredAtUnix\"\xcf\x01\n" +
+	"\x15SetAutoBuyRuleRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12!\n" +
+	"\fservice_code\x18\x02 \x01(\tR\vserviceCode\x12\x1a\n" +
+	"\bcurrency\x18\x03 \x01(\tR\bcurrency\x12!\n" +
+	"\fbelow_tokens\x18\x04 \x01(\tR\vbelowTokens\x12\x1d\n" +
+	"\n" +
+	"buy_tokens\x18\x05 \x01(\tR\tbuyTokens\x12\x18\n" +
+	"\aenabled\x18\x06 \x01(\bR\aenabled\"D\n" +
+	"\x16SetAutoBuyRuleResponse\x12*\n" +
+	"\x04rule\x18\x01 \x01(\v2\x16.ledger.v1.AutoBuyRuleR\x04rule\"6\n" +
+	"\x17ListAutoBuyRulesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"H\n" +
+	"\x18ListAutoBuyRulesResponse\x12,\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.ledger.v1.AutoBuyRuleR\x05rules2\xa6\x05\n" +
 	"\rLedgerService\x12X\n" +
 	"\x0fPostTransaction\x12!.ledger.v1.PostTransactionRequest\x1a\".ledger.v1.PostTransactionResponse\x12U\n" +
 	"\x0ePurchaseTokens\x12 .ledger.v1.PurchaseTokensRequest\x1a!.ledger.v1.PurchaseTokensResponse\x12F\n" +
 	"\tPlaceHold\x12\x1b.ledger.v1.PlaceHoldRequest\x1a\x1c.ledger.v1.PlaceHoldResponse\x12L\n" +
 	"\vCaptureHold\x12\x1d.ledger.v1.CaptureHoldRequest\x1a\x1e.ledger.v1.CaptureHoldResponse\x12L\n" +
-	"\vReleaseHold\x12\x1d.ledger.v1.ReleaseHoldRequest\x1a\x1e.ledger.v1.ReleaseHoldResponse\x12L\n" +
+	"\vReleaseHold\x12\x1d.ledger.v1.ReleaseHoldRequest\x1a\x1e.ledger.v1.ReleaseHoldResponse\x12U\n" +
+	"\x0eSetAutoBuyRule\x12 .ledger.v1.SetAutoBuyRuleRequest\x1a!.ledger.v1.SetAutoBuyRuleResponse\x12[\n" +
+	"\x10ListAutoBuyRules\x12\".ledger.v1.ListAutoBuyRulesRequest\x1a#.ledger.v1.ListAutoBuyRulesResponse\x12L\n" +
 	"\vGetBalances\x12\x1d.ledger.v1.GetBalancesRequest\x1a\x1e.ledger.v1.GetBalancesResponseB>Z<github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1;ledgerv1b\x06proto3"
 
 var (
@@ -1447,26 +1780,31 @@ func file_ledger_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_ledger_v1_ledger_proto_rawDescData
 }
 
-var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_ledger_v1_ledger_proto_goTypes = []any{
-	(*AccountRef)(nil),              // 0: ledger.v1.AccountRef
-	(*Line)(nil),                    // 1: ledger.v1.Line
-	(*PostedLine)(nil),              // 2: ledger.v1.PostedLine
-	(*Posting)(nil),                 // 3: ledger.v1.Posting
-	(*PostTransactionRequest)(nil),  // 4: ledger.v1.PostTransactionRequest
-	(*PostTransactionResponse)(nil), // 5: ledger.v1.PostTransactionResponse
-	(*PurchaseTokensRequest)(nil),   // 6: ledger.v1.PurchaseTokensRequest
-	(*PurchaseTokensResponse)(nil),  // 7: ledger.v1.PurchaseTokensResponse
-	(*PlaceHoldRequest)(nil),        // 8: ledger.v1.PlaceHoldRequest
-	(*CaptureHoldRequest)(nil),      // 9: ledger.v1.CaptureHoldRequest
-	(*ReleaseHoldRequest)(nil),      // 10: ledger.v1.ReleaseHoldRequest
-	(*Hold)(nil),                    // 11: ledger.v1.Hold
-	(*PlaceHoldResponse)(nil),       // 12: ledger.v1.PlaceHoldResponse
-	(*CaptureHoldResponse)(nil),     // 13: ledger.v1.CaptureHoldResponse
-	(*ReleaseHoldResponse)(nil),     // 14: ledger.v1.ReleaseHoldResponse
-	(*GetBalancesRequest)(nil),      // 15: ledger.v1.GetBalancesRequest
-	(*AccountBalance)(nil),          // 16: ledger.v1.AccountBalance
-	(*GetBalancesResponse)(nil),     // 17: ledger.v1.GetBalancesResponse
+	(*AccountRef)(nil),               // 0: ledger.v1.AccountRef
+	(*Line)(nil),                     // 1: ledger.v1.Line
+	(*PostedLine)(nil),               // 2: ledger.v1.PostedLine
+	(*Posting)(nil),                  // 3: ledger.v1.Posting
+	(*PostTransactionRequest)(nil),   // 4: ledger.v1.PostTransactionRequest
+	(*PostTransactionResponse)(nil),  // 5: ledger.v1.PostTransactionResponse
+	(*PurchaseTokensRequest)(nil),    // 6: ledger.v1.PurchaseTokensRequest
+	(*PurchaseTokensResponse)(nil),   // 7: ledger.v1.PurchaseTokensResponse
+	(*PlaceHoldRequest)(nil),         // 8: ledger.v1.PlaceHoldRequest
+	(*CaptureHoldRequest)(nil),       // 9: ledger.v1.CaptureHoldRequest
+	(*ReleaseHoldRequest)(nil),       // 10: ledger.v1.ReleaseHoldRequest
+	(*Hold)(nil),                     // 11: ledger.v1.Hold
+	(*PlaceHoldResponse)(nil),        // 12: ledger.v1.PlaceHoldResponse
+	(*CaptureHoldResponse)(nil),      // 13: ledger.v1.CaptureHoldResponse
+	(*ReleaseHoldResponse)(nil),      // 14: ledger.v1.ReleaseHoldResponse
+	(*GetBalancesRequest)(nil),       // 15: ledger.v1.GetBalancesRequest
+	(*AccountBalance)(nil),           // 16: ledger.v1.AccountBalance
+	(*GetBalancesResponse)(nil),      // 17: ledger.v1.GetBalancesResponse
+	(*AutoBuyRule)(nil),              // 18: ledger.v1.AutoBuyRule
+	(*SetAutoBuyRuleRequest)(nil),    // 19: ledger.v1.SetAutoBuyRuleRequest
+	(*SetAutoBuyRuleResponse)(nil),   // 20: ledger.v1.SetAutoBuyRuleResponse
+	(*ListAutoBuyRulesRequest)(nil),  // 21: ledger.v1.ListAutoBuyRulesRequest
+	(*ListAutoBuyRulesResponse)(nil), // 22: ledger.v1.ListAutoBuyRulesResponse
 }
 var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	0,  // 0: ledger.v1.Line.account:type_name -> ledger.v1.AccountRef
@@ -1481,23 +1819,29 @@ var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	11, // 9: ledger.v1.ReleaseHoldResponse.hold:type_name -> ledger.v1.Hold
 	0,  // 10: ledger.v1.AccountBalance.account:type_name -> ledger.v1.AccountRef
 	16, // 11: ledger.v1.GetBalancesResponse.accounts:type_name -> ledger.v1.AccountBalance
-	4,  // 12: ledger.v1.LedgerService.PostTransaction:input_type -> ledger.v1.PostTransactionRequest
-	6,  // 13: ledger.v1.LedgerService.PurchaseTokens:input_type -> ledger.v1.PurchaseTokensRequest
-	8,  // 14: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
-	9,  // 15: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
-	10, // 16: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
-	15, // 17: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
-	5,  // 18: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
-	7,  // 19: ledger.v1.LedgerService.PurchaseTokens:output_type -> ledger.v1.PurchaseTokensResponse
-	12, // 20: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
-	13, // 21: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
-	14, // 22: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
-	17, // 23: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
-	18, // [18:24] is the sub-list for method output_type
-	12, // [12:18] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	18, // 12: ledger.v1.SetAutoBuyRuleResponse.rule:type_name -> ledger.v1.AutoBuyRule
+	18, // 13: ledger.v1.ListAutoBuyRulesResponse.rules:type_name -> ledger.v1.AutoBuyRule
+	4,  // 14: ledger.v1.LedgerService.PostTransaction:input_type -> ledger.v1.PostTransactionRequest
+	6,  // 15: ledger.v1.LedgerService.PurchaseTokens:input_type -> ledger.v1.PurchaseTokensRequest
+	8,  // 16: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
+	9,  // 17: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
+	10, // 18: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
+	19, // 19: ledger.v1.LedgerService.SetAutoBuyRule:input_type -> ledger.v1.SetAutoBuyRuleRequest
+	21, // 20: ledger.v1.LedgerService.ListAutoBuyRules:input_type -> ledger.v1.ListAutoBuyRulesRequest
+	15, // 21: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
+	5,  // 22: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
+	7,  // 23: ledger.v1.LedgerService.PurchaseTokens:output_type -> ledger.v1.PurchaseTokensResponse
+	12, // 24: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
+	13, // 25: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
+	14, // 26: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
+	20, // 27: ledger.v1.LedgerService.SetAutoBuyRule:output_type -> ledger.v1.SetAutoBuyRuleResponse
+	22, // 28: ledger.v1.LedgerService.ListAutoBuyRules:output_type -> ledger.v1.ListAutoBuyRulesResponse
+	17, // 29: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
+	22, // [22:30] is the sub-list for method output_type
+	14, // [14:22] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_ledger_v1_ledger_proto_init() }
@@ -1511,7 +1855,7 @@ func file_ledger_v1_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ledger_v1_ledger_proto_rawDesc), len(file_ledger_v1_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

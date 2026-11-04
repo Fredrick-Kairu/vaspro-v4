@@ -35,7 +35,7 @@ func (s *Service) PlaceHold(ctx context.Context, req HoldRequest) (HoldResult, e
 	var res HoldResult
 	run := func() error {
 		return s.pool.WithTenantTx(ctx, req.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-			r, err := s.placeHoldInTx(ctx, store.New(tx), req)
+			r, err := s.placeHoldInTx(ctx, tx, req)
 			res = r
 			return err
 		})
@@ -79,7 +79,8 @@ func (s *Service) validateHold(req HoldRequest) error {
 // isTokenWallet: service wallets are held in tokens (OQ-15).
 func isTokenWallet(k domain.AccountKey) bool { return k.Type == domain.ServiceWallet }
 
-func (s *Service) placeHoldInTx(ctx context.Context, q *store.Queries, req HoldRequest) (HoldResult, error) {
+func (s *Service) placeHoldInTx(ctx context.Context, tx pgx.Tx, req HoldRequest) (HoldResult, error) {
+	q := store.New(tx)
 	existing, err := q.GetHoldByReference(ctx, store.GetHoldByReferenceParams{ReferenceType: req.ReferenceType, ReferenceID: req.ReferenceID})
 	if err == nil {
 		acct, err := q.GetAccount(ctx, existing.AccountID)
@@ -109,7 +110,26 @@ func (s *Service) placeHoldInTx(ctx context.Context, q *store.Queries, req HoldR
 	if acct.Status != "open" {
 		return HoldResult{}, fmt.Errorf("%w: the %s is %s", ErrAccountNotOpen, acct.Type, acct.Status)
 	}
-	locked, err := lockBalances(ctx, q, []uuid.UUID{acct.ID})
+	// A token hold with an enabled auto-buy rule may buy from the main
+	// wallet first: both balances are locked together, in account_id
+	// order, so it can't deadlock with a manual purchase (ADR 0010).
+	var rule *store.LedgerAutoBuyRule
+	toLock := []uuid.UUID{acct.ID}
+	if isTokenWallet(req.Account) {
+		r, err := q.GetAutoBuyRule(ctx, store.GetAutoBuyRuleParams{TenantID: req.TenantID, ServiceCode: req.Account.ServiceCode, Currency: req.Account.Currency})
+		switch {
+		case err == nil && r.Enabled:
+			rule = &r
+			main, err := resolveClientAccount(ctx, q, req.TenantID, domain.AccountKey{Type: domain.MainWallet, Currency: req.Account.Currency})
+			if err != nil {
+				return HoldResult{}, err
+			}
+			toLock = append(toLock, main.ID)
+		case err != nil && !errors.Is(err, pgx.ErrNoRows):
+			return HoldResult{}, fmt.Errorf("app: reading the auto-buy rule: %w", err)
+		}
+	}
+	locked, err := lockBalances(ctx, q, toLock)
 	if err != nil {
 		return HoldResult{}, err
 	}
@@ -131,8 +151,20 @@ func (s *Service) placeHoldInTx(ctx context.Context, q *store.Queries, req HoldR
 		}
 		dl := domainLots(lots)
 		held := toDecimal(b.HeldTokens)
+		if rule != nil {
+			bought, err := s.autoBuy(ctx, tx, req, *rule, tokensLeft(dl).Sub(held))
+			if err != nil {
+				return HoldResult{}, err
+			}
+			if bought {
+				if lots, err = q.ListOpenLots(ctx, acct.ID); err != nil {
+					return HoldResult{}, err
+				}
+				dl = domainLots(lots)
+			}
+		}
 		if available := tokensLeft(dl).Sub(held); available.LessThan(req.Tokens) {
-			return HoldResult{}, fmt.Errorf("%w: %s tokens available, the hold needs %s", ErrInsufficientBalance, available, req.Tokens)
+			return HoldResult{}, fmt.Errorf("%w: %s tokens available, the hold needs %s", ErrInsufficientTokens, available, req.Tokens)
 		}
 		// Shown at the FIFO value of the tokens after those already held;
 		// display only, at least 1 for the amount_minor CHECK (OQ-15).

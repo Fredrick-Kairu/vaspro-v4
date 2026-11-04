@@ -37,6 +37,7 @@ const (
 	BAL4003  Code = "BAL-4003"
 	BAL4004  Code = "BAL-4004"
 	BAL4005  Code = "BAL-4005"
+	BAL4006  Code = "BAL-4006"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
@@ -188,16 +189,16 @@ var registry = map[Code]entry{
 	BAL4001: {
 		Status:    402,
 		Title:     "Insufficient balance",
-		Cause:     "The service token wallet doesn't hold enough tokens for this send.",
-		Fix:       "Buy more tokens, turn on auto-buy, or reduce the request size.",
+		Cause:     "The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold).",
+		Fix:       "Top up the wallet, or reduce the request.",
 		Retryable: false,
 		Billable:  false,
 	},
 	BAL4002: {
-		Status:    403,
-		Title:     "Account not open",
-		Cause:     "The ledger account is frozen or closed, so it takes no new postings or holds.",
-		Fix:       "Ask VASPRO support why the account was frozen or closed.",
+		Status:    402,
+		Title:     "No tokens left for this service",
+		Cause:     "The service's token wallet doesn't have enough tokens left (beyond those already held) for this request (system design §8).",
+		Fix:       "Buy tokens for the service, or turn on auto-buy.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -222,6 +223,14 @@ var registry = map[Code]entry{
 		Title:     "No token price for this service",
 		Cause:     "There is no approved list price or deal in force for this service and currency, so tokens can't be bought.",
 		Fix:       "Ask VASPRO to set a price for the service in this currency.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4006: {
+		Status:    403,
+		Title:     "Account not open",
+		Cause:     "The ledger account is frozen or closed, so it takes no new postings or holds.",
+		Fix:       "Ask VASPRO support why the account was frozen or closed.",
 		Retryable: false,
 		Billable:  false,
 	},

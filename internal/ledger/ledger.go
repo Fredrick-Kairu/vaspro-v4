@@ -187,9 +187,9 @@ func (s *Service) Run(ctx context.Context) error {
 	return err
 }
 
-// settleEachWindow wakes just after each window boundary and settles
-// the window that ended (task 3.5). A run that fails is logged; its
-// holds are picked up by the next window's run.
+// settleEachWindow wakes just after each window boundary, settles the
+// window that ended (task 3.5) and expires holds (task 3.6). A run that
+// fails is logged; the next window's run picks its work up.
 func (s *Service) settleEachWindow(ctx context.Context) {
 	window := s.cfg.SettlementWindow
 	if window <= 0 {
@@ -206,11 +206,16 @@ func (s *Service) settleEachWindow(ctx context.Context) {
 		sum, err := s.app.SettleUsage(ctx, clk.Now())
 		if err != nil {
 			slog.ErrorContext(ctx, "ledger: settlement run failed", "error", err)
-			continue
-		}
-		if len(sum.Batches) > 0 || sum.Failed > 0 {
+		} else if len(sum.Batches) > 0 || sum.Failed > 0 {
 			slog.InfoContext(ctx, "ledger: settled usage", "window_end", sum.WindowEnd,
 				"batches", len(sum.Batches), "skipped", sum.Skipped, "failed", sum.Failed)
+		}
+		// Then expire holds past their expiry plus a window (task 3.6).
+		expired, err := s.app.ExpireHolds(ctx, clk.Now())
+		if err != nil {
+			slog.ErrorContext(ctx, "ledger: expiry run failed", "error", err)
+		} else if expired.Expired > 0 || expired.Failed > 0 {
+			slog.InfoContext(ctx, "ledger: expired holds", "expired", expired.Expired, "failed", expired.Failed)
 		}
 	}
 }

@@ -249,7 +249,7 @@ func TestDrawLots_RandomPurchasesAndDraws(t *testing.T) {
 		} else {
 			draws, value, err := s.useForTest(ctx, tenant, tokens)
 			switch {
-			case errors.Is(err, ErrInsufficientBalance):
+			case errors.Is(err, ErrInsufficientTokens):
 			case err != nil && value == 0:
 				// A draw worth nothing can't be posted (lines must be positive);
 				// settlement (3.5) skips posting one.

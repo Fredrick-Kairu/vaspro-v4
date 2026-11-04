@@ -97,6 +97,52 @@ func (q *Queries) GetHoldByReference(ctx context.Context, arg GetHoldByReference
 	return i, err
 }
 
+const listExpiredHolds = `-- name: ListExpiredHolds :many
+SELECT id, tenant_id, reference_type, reference_id FROM ledger.holds
+WHERE status = 'active' AND expires_at < $1
+ORDER BY expires_at, id
+LIMIT $2
+`
+
+type ListExpiredHoldsParams struct {
+	Cutoff  time.Time `json:"cutoff"`
+	MaxRows int32     `json:"max_rows"`
+}
+
+type ListExpiredHoldsRow struct {
+	ID            uuid.UUID `json:"id"`
+	TenantID      uuid.UUID `json:"tenant_id"`
+	ReferenceType string    `json:"reference_type"`
+	ReferenceID   uuid.UUID `json:"reference_id"`
+}
+
+// The expiry job's work list across clients (task 3.6), run as
+// ledger_settlement: active holds past their expiry, oldest first.
+func (q *Queries) ListExpiredHolds(ctx context.Context, arg ListExpiredHoldsParams) ([]ListExpiredHoldsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiredHolds, arg.Cutoff, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExpiredHoldsRow
+	for rows.Next() {
+		var i ListExpiredHoldsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.ReferenceType,
+			&i.ReferenceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHoldsByAccount = `-- name: ListHoldsByAccount :many
 SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
 `

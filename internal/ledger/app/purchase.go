@@ -216,7 +216,7 @@ func (s *Service) drawLots(ctx context.Context, q *store.Queries, wallet store.L
 	lots := domainLots(rows)
 	available := tokensLeft(lots).Sub(toDecimal(locked[wallet.ID].HeldTokens)).Add(releaseHeld)
 	if tokens.GreaterThan(available) {
-		return nil, 0, fmt.Errorf("%w: %s tokens available, %s needed", ErrInsufficientBalance, available, tokens)
+		return nil, 0, fmt.Errorf("%w: %s tokens available, %s needed", ErrInsufficientTokens, available, tokens)
 	}
 	draws, value, err := domain.DrawFIFO(lots, tokens)
 	if err != nil {

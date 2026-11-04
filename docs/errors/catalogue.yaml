@@ -287,16 +287,16 @@ codes:
   - code: BAL-4001
     status: 402
     title: Insufficient balance
-    cause: The service token wallet doesn't hold enough tokens for this send.
-    fix: Buy more tokens, turn on auto-buy, or reduce the request size.
+    cause: The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold).
+    fix: Top up the wallet, or reduce the request.
     retryable: false
     billable: false
 
   - code: BAL-4002
-    status: 403
-    title: Account not open
-    cause: The ledger account is frozen or closed, so it takes no new postings or holds.
-    fix: Ask VASPRO support why the account was frozen or closed.
+    status: 402
+    title: No tokens left for this service
+    cause: The service's token wallet doesn't have enough tokens left (beyond those already held) for this request (system design §8).
+    fix: Buy tokens for the service, or turn on auto-buy.
     retryable: false
     billable: false
 
@@ -321,6 +321,14 @@ codes:
     title: No token price for this service
     cause: There is no approved list price or deal in force for this service and currency, so tokens can't be bought.
     fix: Ask VASPRO to set a price for the service in this currency.
+    retryable: false
+    billable: false
+
+  - code: BAL-4006
+    status: 403
+    title: Account not open
+    cause: The ledger account is frozen or closed, so it takes no new postings or holds.
+    fix: Ask VASPRO support why the account was frozen or closed.
     retryable: false
     billable: false
 

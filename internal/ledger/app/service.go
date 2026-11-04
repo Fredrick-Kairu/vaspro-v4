@@ -31,10 +31,14 @@ var (
 	// ErrIdempotencyConflict: an idempotency key or hold reference
 	// reused with different content (VAL-4001).
 	ErrIdempotencyConflict = errors.New("app: key reused with a different request")
-	// ErrInsufficientBalance: a wallet's available balance doesn't cover
+	// ErrInsufficientBalance: a wallet's available money doesn't cover
 	// the request (BAL-4001).
 	ErrInsufficientBalance = errors.New("app: insufficient balance")
-	// ErrAccountNotOpen: a frozen or closed account (BAL-4002).
+	// ErrInsufficientTokens: a service wallet doesn't have enough tokens
+	// left beyond those held (BAL-4002, system design §8: "no tokens left
+	// for this service; buy tokens or turn on auto-buy").
+	ErrInsufficientTokens = errors.New("app: no tokens left for this service")
+	// ErrAccountNotOpen: a frozen or closed account (BAL-4006).
 	ErrAccountNotOpen = errors.New("app: account not open")
 	// ErrNotStaff: a staff action by someone who isn't staff (AUTH-4025).
 	ErrNotStaff = errors.New("app: staff only")
@@ -267,4 +271,23 @@ type SettlementSummary struct {
 	// retried next window.
 	Skipped int
 	Failed  int
+}
+
+// ExpirySummary is what one expiry run did.
+type ExpirySummary struct {
+	Expired int
+	Failed  int
+}
+
+// AutoBuyRule is a tenant's auto-buy rule for one service and currency
+// (task 3.6): when a token hold would leave fewer than BelowTokens, or
+// couldn't be covered, BuyTokens are bought from the main wallet first.
+type AutoBuyRule struct {
+	ID              uuid.UUID
+	ServiceCode     string
+	Currency        string
+	BelowTokens     decimal.Decimal
+	BuyTokens       decimal.Decimal
+	Enabled         bool
+	LastTriggeredAt *time.Time
 }

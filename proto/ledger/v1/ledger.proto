@@ -41,6 +41,13 @@ service LedgerService {
   rpc CaptureHold(CaptureHoldRequest) returns (CaptureHoldResponse);
   // ReleaseHold gives an active hold's whole amount back.
   rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+  // SetAutoBuyRule sets the tenant's auto-buy rule for a service and
+  // currency (task 3.6): when a token hold would leave fewer tokens than
+  // below_tokens, or couldn't be covered, buy_tokens are bought from the
+  // main wallet first. enabled false turns it off.
+  rpc SetAutoBuyRule(SetAutoBuyRuleRequest) returns (SetAutoBuyRuleResponse);
+  // ListAutoBuyRules lists the tenant's auto-buy rules.
+  rpc ListAutoBuyRules(ListAutoBuyRulesRequest) returns (ListAutoBuyRulesResponse);
   // GetBalances lists a tenant's accounts with their balances, or, with
   // no tenant, VASPRO's accounts with balances summed from the journal
   // (ADR 0010).
@@ -183,4 +190,35 @@ message AccountBalance {
 
 message GetBalancesResponse {
   repeated AccountBalance accounts = 1;
+}
+
+message AutoBuyRule {
+  string rule_id = 1;
+  string service_code = 2;
+  string currency = 3;
+  string below_tokens = 4;   // decimal
+  string buy_tokens = 5;     // decimal
+  bool enabled = 6;
+  int64 last_triggered_at_unix = 7; // 0 if it never ran
+}
+
+message SetAutoBuyRuleRequest {
+  string tenant_id = 1;
+  string service_code = 2;
+  string currency = 3;
+  string below_tokens = 4;
+  string buy_tokens = 5;
+  bool enabled = 6;
+}
+
+message SetAutoBuyRuleResponse {
+  AutoBuyRule rule = 1;
+}
+
+message ListAutoBuyRulesRequest {
+  string tenant_id = 1;
+}
+
+message ListAutoBuyRulesResponse {
+  repeated AutoBuyRule rules = 1;
 }

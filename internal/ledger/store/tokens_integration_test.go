@@ -195,8 +195,8 @@ func TestPriceReviewRole(t *testing.T) {
 // TestSettlement_ConstraintsAndRole covers migration 20261106140000:
 // captured_events goes with a captured token hold; a usage batch's
 // window runs forward and holds tokens; ledger_settlement sees captured,
-// unsettled token holds across clients and nothing else, only inside
-// WithRoleTx.
+// unsettled token holds across clients (and, since 3.6, active holds
+// for the expiry job), never settled ones, only inside WithRoleTx.
 func TestSettlement_ConstraintsAndRole(t *testing.T) {
 	ctx := context.Background()
 	db := newLedgerDB(t)
@@ -273,8 +273,10 @@ func TestSettlement_ConstraintsAndRole(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if seen != 2 {
-		t.Fatalf("settlement sees %d holds, want the 2 captured and unsettled (one per client)", seen)
+	// The 2 captured and unsettled (one per client), and since 3.6 the
+	// active one too (the expiry job's policy); never the settled one.
+	if seen != 3 {
+		t.Fatalf("the jobs' role sees %d holds, want the 2 captured and unsettled plus the active one", seen)
 	}
 	outside, err := count(ctx, db.app, `SELECT count(*) FROM holds`)
 	if err != nil {
@@ -288,4 +290,55 @@ func TestSettlement_ConstraintsAndRole(t *testing.T) {
 		return err
 	})
 	wantCode(t, err, "42501")
+}
+
+// TestExpiryAndAutoBuy_Constraints covers migration 20261106150000: an
+// auto-buy rule's level is 0 or more and it buys a positive amount; the
+// jobs' role (ledger_settlement) also sees active holds, so the expiry
+// job can find them, and still no settled ones.
+func TestExpiryAndAutoBuy_Constraints(t *testing.T) {
+	ctx := context.Background()
+	db := newLedgerDB(t)
+	tenant, wallet, _ := tokenWallet(t, db, "1000")
+
+	rule := func(below, buy string) error {
+		return inSuperTx(ctx, db, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO auto_buy_rules (id, tenant_id, service_code, currency, below_tokens, buy_tokens)
+				VALUES ($1, $2, $3, 'KES', $4, $5)`, uuid.New(), tenant, "s"+strconv.Itoa(int(uuid.New().ID()%100000)), below, buy)
+			return err
+		})
+	}
+	if err := rule("0", "1"); err != nil {
+		t.Fatalf("a rule of level 0: %v", err)
+	}
+	wantCode(t, rule("-1", "1"), "23514")
+	wantCode(t, rule("1", "0"), "23514")
+
+	insert := func(status string, settled any) {
+		t.Helper()
+		if err := inSuperTx(ctx, db, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO holds (id, tenant_id, account_id, reference_type, reference_id, amount_minor, status, expires_at, settled_at)
+				VALUES ($1, $2, $3, 'payout', $4, 1, $5, '2026-11-04 09:00Z', $6)`, uuid.New(), tenant, wallet, uuid.New(), status, settled)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("active", nil)
+	insert("released", "2026-11-04 09:01Z")
+	insert("expired", "2026-11-04 09:02Z")
+
+	var seen int
+	if err := db.app.WithRoleTx(ctx, "ledger_settlement", func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		seen, err = count(ctx, tx, `SELECT count(*) FROM holds`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen != 1 {
+		t.Fatalf("the jobs' role sees %d holds, want only the active one", seen)
+	}
 }

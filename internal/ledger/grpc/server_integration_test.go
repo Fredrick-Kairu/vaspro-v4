@@ -253,6 +253,32 @@ func TestLedgerService_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) { wantStatus(t, tc.call(), tc.code, tc.reason) })
 	}
 
+	t.Run("a token hold beyond the tokens left is BAL-4002", func(t *testing.T) {
+		_, err := client.PlaceHold(ctx, &ledgerv1.PlaceHoldRequest{TenantId: tenant, Account: smsKES,
+			ReferenceType: "campaign", ReferenceId: uuid.NewString(), Tokens: "1", ExpiresAtUnix: future})
+		wantStatus(t, err, codes.FailedPrecondition, "BAL-4002")
+	})
+
+	t.Run("auto-buy rules", func(t *testing.T) {
+		set, err := client.SetAutoBuyRule(ctx, &ledgerv1.SetAutoBuyRuleRequest{TenantId: tenant, ServiceCode: "sms", Currency: "KES",
+			BelowTokens: "100", BuyTokens: "1000", Enabled: true})
+		if err != nil || set.GetRule().GetRuleId() == "" || set.GetRule().GetBuyTokens() != "1000" {
+			t.Fatalf("set: %+v, %v", set, err)
+		}
+		list, err := client.ListAutoBuyRules(ctx, &ledgerv1.ListAutoBuyRulesRequest{TenantId: tenant})
+		if err != nil || len(list.GetRules()) != 1 || !list.GetRules()[0].GetEnabled() {
+			t.Fatalf("list: %+v, %v", list, err)
+		}
+		_, err = client.SetAutoBuyRule(ctx, &ledgerv1.SetAutoBuyRuleRequest{TenantId: tenant, ServiceCode: "sms", Currency: "KES",
+			BelowTokens: "100", BuyTokens: "0", Enabled: true})
+		wantStatus(t, err, codes.InvalidArgument, "VAL-4000")
+		// Off again, so the cases below see no purchases.
+		if _, err := client.SetAutoBuyRule(ctx, &ledgerv1.SetAutoBuyRuleRequest{TenantId: tenant, ServiceCode: "sms", Currency: "KES",
+			BelowTokens: "100", BuyTokens: "1000", Enabled: false}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("hold state", func(t *testing.T) {
 		if _, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
 			ServiceCode: "sms", Currency: "KES", Tokens: "10"}); err != nil {

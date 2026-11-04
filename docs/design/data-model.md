@@ -726,6 +726,12 @@ CREATE TABLE ledger.reversals (
 > - **Money holds** are captured only with their posting.
 > - **Packs** carry `tax.vat_effective_from`.
 
+> **Built in task 3.6 (4 Nov 2026, OQ-17).**
+> - **Expiry:** the expiry job expires active holds past `expires_at` plus one settlement window, and releases what they held; a capture after expiry is refused.
+> - **Auto-buy** runs inside a token hold: the rule buys its amount first when the hold would leave fewer tokens than its level or can't be covered, and only if the purchase lets the hold through.
+> - **CHECKs:** `auto_buy_rules.below_tokens ≥ 0`, `buy_tokens > 0`.
+> - **`ledger_settlement`** also reads active holds, for the expiry job.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

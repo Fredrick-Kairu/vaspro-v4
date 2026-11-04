@@ -137,7 +137,7 @@ func TestHolds_ReleaseAndRefusals(t *testing.T) {
 
 	t.Run("a hold beyond the tokens left", func(t *testing.T) {
 		_, err := h.svc.PlaceHold(ctx, holdReq(tenant, "100.000001"))
-		wantErr(t, err, app.ErrInsufficientBalance)
+		wantErr(t, err, app.ErrInsufficientTokens)
 	})
 
 	t.Run("release gives it all back, once", func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestHolds_ReleaseAndRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := h.svc.PlaceHold(ctx, holdReq(tenant, "40.5"))
-		wantErr(t, err, app.ErrInsufficientBalance)
+		wantErr(t, err, app.ErrInsufficientTokens)
 		rel, err := h.svc.ReleaseHold(ctx, tenant, req.ReferenceType, req.ReferenceID)
 		if err != nil || rel.Hold.Status != domain.HoldReleased || !rel.Hold.Settled {
 			t.Fatalf("release: %+v, %v", rel, err)
