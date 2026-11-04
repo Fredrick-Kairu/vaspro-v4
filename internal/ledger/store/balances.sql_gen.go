@@ -30,8 +30,26 @@ func (q *Queries) AdjustHeld(ctx context.Context, arg AdjustHeldParams) error {
 	return err
 }
 
+const adjustHeldTokens = `-- name: AdjustHeldTokens :exec
+UPDATE ledger.balances
+SET held_tokens = held_tokens + $1, version = version + 1, updated_at = now()
+WHERE account_id = $2
+`
+
+type AdjustHeldTokensParams struct {
+	Delta     pgtype.Numeric `json:"delta"`
+	AccountID uuid.UUID      `json:"account_id"`
+}
+
+// A service wallet's token holds (OQ-15); the wallet guard checks it
+// against the open lots at commit.
+func (q *Queries) AdjustHeldTokens(ctx context.Context, arg AdjustHeldTokensParams) error {
+	_, err := q.db.Exec(ctx, adjustHeldTokens, arg.Delta, arg.AccountID)
+	return err
+}
+
 const getBalance = `-- name: GetBalance :one
-SELECT account_id, balance_minor, held_minor, version, updated_at FROM ledger.balances WHERE account_id = $1
+SELECT account_id, balance_minor, held_minor, version, updated_at, held_tokens FROM ledger.balances WHERE account_id = $1
 `
 
 // balance_minor is moved only by the entries trigger (3.2); the service
@@ -45,12 +63,14 @@ func (q *Queries) GetBalance(ctx context.Context, accountID uuid.UUID) (LedgerBa
 		&i.HeldMinor,
 		&i.Version,
 		&i.UpdatedAt,
+		&i.HeldTokens,
 	)
 	return i, err
 }
 
 const listClientBalances = `-- name: ListClientBalances :many
-SELECT a.id, a.type, a.service_code, a.rail, a.currency, a.status, b.balance_minor, b.held_minor
+SELECT a.id, a.type, a.service_code, a.rail, a.currency, a.status, b.balance_minor, b.held_minor, b.held_tokens,
+       (SELECT coalesce(sum(l.tokens_remaining), 0) FROM ledger.token_lots l WHERE l.account_id = a.id)::numeric AS tokens_remaining
 FROM ledger.accounts a
 JOIN ledger.balances b ON b.account_id = a.id
 WHERE a.tenant_id = $1
@@ -58,14 +78,16 @@ ORDER BY a.type, a.currency, a.service_code
 `
 
 type ListClientBalancesRow struct {
-	ID           uuid.UUID         `json:"id"`
-	Type         LedgerAccountType `json:"type"`
-	ServiceCode  pgtype.Text       `json:"service_code"`
-	Rail         pgtype.Text       `json:"rail"`
-	Currency     string            `json:"currency"`
-	Status       string            `json:"status"`
-	BalanceMinor int64             `json:"balance_minor"`
-	HeldMinor    int64             `json:"held_minor"`
+	ID              uuid.UUID         `json:"id"`
+	Type            LedgerAccountType `json:"type"`
+	ServiceCode     pgtype.Text       `json:"service_code"`
+	Rail            pgtype.Text       `json:"rail"`
+	Currency        string            `json:"currency"`
+	Status          string            `json:"status"`
+	BalanceMinor    int64             `json:"balance_minor"`
+	HeldMinor       int64             `json:"held_minor"`
+	HeldTokens      pgtype.Numeric    `json:"held_tokens"`
+	TokensRemaining pgtype.Numeric    `json:"tokens_remaining"`
 }
 
 // The tenant's accounts and balances (RLS scopes both to the tenant).
@@ -87,6 +109,8 @@ func (q *Queries) ListClientBalances(ctx context.Context, tenantID pgtype.UUID) 
 			&i.Status,
 			&i.BalanceMinor,
 			&i.HeldMinor,
+			&i.HeldTokens,
+			&i.TokensRemaining,
 		); err != nil {
 			return nil, err
 		}
@@ -99,7 +123,7 @@ func (q *Queries) ListClientBalances(ctx context.Context, tenantID pgtype.UUID) 
 }
 
 const lockBalances = `-- name: LockBalances :many
-SELECT b.account_id, b.balance_minor, b.held_minor, a.type, a.status
+SELECT b.account_id, b.balance_minor, b.held_minor, b.held_tokens, a.type, a.status
 FROM ledger.balances b
 JOIN ledger.accounts a ON a.id = b.account_id
 WHERE b.account_id = ANY($1::uuid[])
@@ -111,6 +135,7 @@ type LockBalancesRow struct {
 	AccountID    uuid.UUID         `json:"account_id"`
 	BalanceMinor int64             `json:"balance_minor"`
 	HeldMinor    int64             `json:"held_minor"`
+	HeldTokens   pgtype.Numeric    `json:"held_tokens"`
 	Type         LedgerAccountType `json:"type"`
 	Status       string            `json:"status"`
 }
@@ -130,6 +155,7 @@ func (q *Queries) LockBalances(ctx context.Context, accountIds []uuid.UUID) ([]L
 			&i.AccountID,
 			&i.BalanceMinor,
 			&i.HeldMinor,
+			&i.HeldTokens,
 			&i.Type,
 			&i.Status,
 		); err != nil {

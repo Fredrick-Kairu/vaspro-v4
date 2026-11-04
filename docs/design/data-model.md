@@ -706,6 +706,15 @@ CREATE TABLE ledger.reversals (
 > - **Settlement:** release and a capture carrying its own posting settle the hold at once; 3.5's settlement settles plain captures.
 > - **`ledger_system`** reads every line on VASPRO's own accounts, so their balances can be summed from the journal.
 
+> **Built in task 3.4 (4 Nov 2026, OQ-15).**
+> - **Rounding:** a purchase costs tokens × price, rounded half-up. A draw from a lot is valued by cumulative rounding, so a lot's draws always sum to its cost.
+> - **Token holds:**
+>   - service-wallet holds reserve tokens: `balances.held_tokens`, and `holds.captured_tokens` for a capture;
+>   - the wallet guard also refuses holding more tokens than the open lots have left, checked on `balances` and `token_lots`;
+>   - money holds (main and bonus wallets) keep using `held_minor`.
+> - **`token_lots` CHECKs:** bought > 0, remaining ≤ bought, price > 0.
+> - **Service wallets:** money moves only through lots, so the generic posting API can't touch them.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

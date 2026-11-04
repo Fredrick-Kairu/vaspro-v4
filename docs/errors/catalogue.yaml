@@ -260,6 +260,30 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4012
+    status: 409
+    title: Price would overlap an active one
+    cause: Approving this token price would leave two active prices for the same client, service, currency and volume tier at the same time.
+    fix: Withdraw the price in force, or end it before this one starts, then approve again.
+    retryable: false
+    billable: false
+
+  - code: VAL-4013
+    status: 403
+    title: A price's maker can't approve it
+    cause: Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price.
+    fix: Ask another staff member to approve it.
+    retryable: false
+    billable: false
+
+  - code: VAL-4014
+    status: 409
+    title: Price already decided
+    cause: The token price was already approved or withdrawn, so it can't be approved again.
+    fix: Read the price's status; to change an approved price, enter a new one and withdraw the old.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance
@@ -289,6 +313,14 @@ codes:
     title: Tokens can't move back to the main wallet
     cause: Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal.
     fix: Use the reversal flow, which needs a staff member's approval.
+    retryable: false
+    billable: false
+
+  - code: BAL-4005
+    status: 409
+    title: No token price for this service
+    cause: There is no approved list price or deal in force for this service and currency, so tokens can't be bought.
+    fix: Ask VASPRO to set a price for the service in this currency.
     retryable: false
     billable: false
 

@@ -22,25 +22,25 @@ var ErrHoldState = errors.New("ledger: hold can't change this way")
 // ErrInvalidHold covers a malformed hold request.
 var ErrInvalidHold = errors.New("ledger: invalid hold request")
 
-// Hold is the part of a hold its rules need. CapturedMinor is 0 unless
+// Hold is the part of a hold its rules need. Captured is 0 unless
 // captured; Settled means settled_at is set.
 type Hold struct {
-	Status        HoldStatus
-	AmountMinor   int64
-	CapturedMinor int64
-	Settled       bool
+	Status   HoldStatus
+	Amount   int64
+	Captured int64
+	Settled  bool
 }
 
 // HoldChange is what a request does to a hold. Replay means nothing
-// changes; otherwise the hold takes Status (and CapturedMinor),
-// ReleaseMinor leaves the account's held_minor now, and Settle sets
+// changes; otherwise the hold takes Status (and Captured),
+// Release leaves the account's held_minor now, and Settle sets
 // settled_at.
 type HoldChange struct {
-	Replay        bool
-	Status        HoldStatus
-	CapturedMinor int64
-	ReleaseMinor  int64
-	Settle        bool
+	Replay   bool
+	Status   HoldStatus
+	Captured int64
+	Release  int64
+	Settle   bool
 }
 
 // CaptureHold applies a capture of used (OQ-14). Without a posting the
@@ -58,18 +58,18 @@ func CaptureHold(h Hold, used int64, withPosting bool) (HoldChange, error) {
 	}
 	switch h.Status {
 	case HoldActive:
-		if used > h.AmountMinor {
-			return HoldChange{}, fmt.Errorf("%w: capture of %d exceeds the hold's %d", ErrHoldState, used, h.AmountMinor)
+		if used > h.Amount {
+			return HoldChange{}, fmt.Errorf("%w: capture of %d exceeds the hold's %d", ErrHoldState, used, h.Amount)
 		}
 		if withPosting {
-			return HoldChange{Status: HoldCaptured, CapturedMinor: used, ReleaseMinor: h.AmountMinor, Settle: true}, nil
+			return HoldChange{Status: HoldCaptured, Captured: used, Release: h.Amount, Settle: true}, nil
 		}
-		return HoldChange{Status: HoldCaptured, CapturedMinor: used, ReleaseMinor: h.AmountMinor - used}, nil
+		return HoldChange{Status: HoldCaptured, Captured: used, Release: h.Amount - used}, nil
 	case HoldCaptured:
-		if used == h.CapturedMinor && (!withPosting || h.Settled) {
+		if used == h.Captured && (!withPosting || h.Settled) {
 			return HoldChange{Replay: true}, nil
 		}
-		return HoldChange{}, fmt.Errorf("%w: already captured %d", ErrHoldState, h.CapturedMinor)
+		return HoldChange{}, fmt.Errorf("%w: already captured %d", ErrHoldState, h.Captured)
 	default:
 		return HoldChange{}, fmt.Errorf("%w: hold is %s", ErrHoldState, h.Status)
 	}
@@ -80,7 +80,7 @@ func CaptureHold(h Hold, used int64, withPosting bool) (HoldChange, error) {
 func ReleaseHold(h Hold) (HoldChange, error) {
 	switch h.Status {
 	case HoldActive:
-		return HoldChange{Status: HoldReleased, ReleaseMinor: h.AmountMinor, Settle: true}, nil
+		return HoldChange{Status: HoldReleased, Release: h.Amount, Settle: true}, nil
 	case HoldReleased, HoldExpired:
 		return HoldChange{Replay: true}, nil
 	default:
@@ -88,15 +88,15 @@ func ReleaseHold(h Hold) (HoldChange, error) {
 	}
 }
 
-// HoldContribution is what a hold adds to its account's held_minor:
+// HoldContribution is what a hold adds to its account's held amount:
 // the whole amount while active, the captured part until it's settled,
 // nothing after.
 func HoldContribution(h Hold) int64 {
 	switch {
 	case h.Status == HoldActive:
-		return h.AmountMinor
+		return h.Amount
 	case h.Status == HoldCaptured && !h.Settled:
-		return h.CapturedMinor
+		return h.Captured
 	default:
 		return 0
 	}

@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	LedgerService_PostTransaction_FullMethodName = "/ledger.v1.LedgerService/PostTransaction"
+	LedgerService_PurchaseTokens_FullMethodName  = "/ledger.v1.LedgerService/PurchaseTokens"
 	LedgerService_PlaceHold_FullMethodName       = "/ledger.v1.LedgerService/PlaceHold"
 	LedgerService_CaptureHold_FullMethodName     = "/ledger.v1.LedgerService/CaptureHold"
 	LedgerService_ReleaseHold_FullMethodName     = "/ledger.v1.LedgerService/ReleaseHold"
@@ -49,8 +50,14 @@ type LedgerServiceClient interface {
 	// lines may use that tenant's accounts and VASPRO's; with no tenant
 	// (a system posting) only VASPRO's. Accounts are opened on first use.
 	PostTransaction(ctx context.Context, in *PostTransactionRequest, opts ...grpc.CallOption) (*PostTransactionResponse, error)
-	// PlaceHold reserves money in one of the tenant's accounts: it raises
-	// the account's held amount, and posts nothing.
+	// PurchaseTokens buys tokens for a service from the tenant's main
+	// wallet (task 3.4): at the tenant's deal if one is in force, else the
+	// list price's tier for the quantity; the cost is rounded half-up and
+	// the price locked in a new lot. No price is FAILED_PRECONDITION
+	// BAL-4005.
+	PurchaseTokens(ctx context.Context, in *PurchaseTokensRequest, opts ...grpc.CallOption) (*PurchaseTokensResponse, error)
+	// PlaceHold reserves part of one of the tenant's wallets and posts
+	// nothing: tokens in a service wallet, money in a main or bonus wallet.
 	PlaceHold(ctx context.Context, in *PlaceHoldRequest, opts ...grpc.CallOption) (*PlaceHoldResponse, error)
 	// CaptureHold records how much of an active hold was used and
 	// releases the rest at once. Without a posting the captured amount
@@ -79,6 +86,16 @@ func (c *ledgerServiceClient) PostTransaction(ctx context.Context, in *PostTrans
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PostTransactionResponse)
 	err := c.cc.Invoke(ctx, LedgerService_PostTransaction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ledgerServiceClient) PurchaseTokens(ctx context.Context, in *PurchaseTokensRequest, opts ...grpc.CallOption) (*PurchaseTokensResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PurchaseTokensResponse)
+	err := c.cc.Invoke(ctx, LedgerService_PurchaseTokens_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,8 +165,14 @@ type LedgerServiceServer interface {
 	// lines may use that tenant's accounts and VASPRO's; with no tenant
 	// (a system posting) only VASPRO's. Accounts are opened on first use.
 	PostTransaction(context.Context, *PostTransactionRequest) (*PostTransactionResponse, error)
-	// PlaceHold reserves money in one of the tenant's accounts: it raises
-	// the account's held amount, and posts nothing.
+	// PurchaseTokens buys tokens for a service from the tenant's main
+	// wallet (task 3.4): at the tenant's deal if one is in force, else the
+	// list price's tier for the quantity; the cost is rounded half-up and
+	// the price locked in a new lot. No price is FAILED_PRECONDITION
+	// BAL-4005.
+	PurchaseTokens(context.Context, *PurchaseTokensRequest) (*PurchaseTokensResponse, error)
+	// PlaceHold reserves part of one of the tenant's wallets and posts
+	// nothing: tokens in a service wallet, money in a main or bonus wallet.
 	PlaceHold(context.Context, *PlaceHoldRequest) (*PlaceHoldResponse, error)
 	// CaptureHold records how much of an active hold was used and
 	// releases the rest at once. Without a posting the captured amount
@@ -176,6 +199,9 @@ type UnimplementedLedgerServiceServer struct{}
 
 func (UnimplementedLedgerServiceServer) PostTransaction(context.Context, *PostTransactionRequest) (*PostTransactionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PostTransaction not implemented")
+}
+func (UnimplementedLedgerServiceServer) PurchaseTokens(context.Context, *PurchaseTokensRequest) (*PurchaseTokensResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PurchaseTokens not implemented")
 }
 func (UnimplementedLedgerServiceServer) PlaceHold(context.Context, *PlaceHoldRequest) (*PlaceHoldResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlaceHold not implemented")
@@ -224,6 +250,24 @@ func _LedgerService_PostTransaction_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LedgerServiceServer).PostTransaction(ctx, req.(*PostTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LedgerService_PurchaseTokens_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PurchaseTokensRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).PurchaseTokens(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_PurchaseTokens_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).PurchaseTokens(ctx, req.(*PurchaseTokensRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -310,6 +354,10 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PostTransaction",
 			Handler:    _LedgerService_PostTransaction_Handler,
+		},
+		{
+			MethodName: "PurchaseTokens",
+			Handler:    _LedgerService_PurchaseTokens_Handler,
 		},
 		{
 			MethodName: "PlaceHold",

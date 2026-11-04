@@ -23,8 +23,14 @@ service LedgerService {
   // lines may use that tenant's accounts and VASPRO's; with no tenant
   // (a system posting) only VASPRO's. Accounts are opened on first use.
   rpc PostTransaction(PostTransactionRequest) returns (PostTransactionResponse);
-  // PlaceHold reserves money in one of the tenant's accounts: it raises
-  // the account's held amount, and posts nothing.
+  // PurchaseTokens buys tokens for a service from the tenant's main
+  // wallet (task 3.4): at the tenant's deal if one is in force, else the
+  // list price's tier for the quantity; the cost is rounded half-up and
+  // the price locked in a new lot. No price is FAILED_PRECONDITION
+  // BAL-4005.
+  rpc PurchaseTokens(PurchaseTokensRequest) returns (PurchaseTokensResponse);
+  // PlaceHold reserves part of one of the tenant's wallets and posts
+  // nothing: tokens in a service wallet, money in a main or bonus wallet.
   rpc PlaceHold(PlaceHoldRequest) returns (PlaceHoldResponse);
   // CaptureHold records how much of an active hold was used and
   // releases the rest at once. Without a posting the captured amount
@@ -86,21 +92,41 @@ message PostTransactionResponse {
   bool replayed = 3;
 }
 
+message PurchaseTokensRequest {
+  string tenant_id = 1;
+  string idempotency_key = 2;
+  string service_code = 3;    // e.g. sms
+  string currency = 4;        // the main wallet paying, and the service wallet's currency
+  string tokens = 5;          // decimal, up to 6 places, e.g. "10000" or "2.5"
+  string created_by = 6;      // optional UUID
+}
+
+message PurchaseTokensResponse {
+  string transaction_id = 1;
+  string lot_id = 2;
+  string token_price_id = 3;  // the list, tier or deal row used
+  string minor_per_token = 4; // decimal, the price locked in the lot
+  int64 cost_minor = 5;
+  bool replayed = 6;
+}
+
 message PlaceHoldRequest {
   string tenant_id = 1;
   AccountRef account = 2;
   string reference_type = 3;  // message_request, campaign, payout, ussd_session
   string reference_id = 4;    // UUID
-  int64 amount_minor = 5;
+  int64 amount_minor = 5;     // a main or bonus wallet hold
   int64 expires_at_unix = 6;  // seconds since the epoch, in the future
+  string tokens = 7;          // a service wallet hold, decimal
 }
 
 message CaptureHoldRequest {
   string tenant_id = 1;
   string reference_type = 2;
   string reference_id = 3;
-  int64 captured_minor = 4;   // 1 to the hold's amount
-  Posting posting = 5;        // optional; see CaptureHold
+  int64 captured_minor = 4;   // a money hold: 1 to the hold's amount
+  Posting posting = 5;        // optional, money holds only; see CaptureHold
+  string captured_tokens = 6; // a token hold: decimal, up to the hold's tokens
 }
 
 message ReleaseHoldRequest {
@@ -119,6 +145,8 @@ message Hold {
   string status = 7;          // active, captured, released, expired
   bool settled = 8;
   string transaction_id = 9;  // the capture's posting, if it carried one
+  string tokens = 10;         // a token hold's tokens; its amounts are estimates
+  string captured_tokens = 11;
 }
 
 message PlaceHoldResponse {
@@ -147,6 +175,9 @@ message AccountBalance {
   int64 balance_minor = 4;
   int64 held_minor = 5;
   int64 available_minor = 6;
+  string tokens_remaining = 7; // a service wallet's tokens left in its lots
+  string held_tokens = 8;
+  string tokens_available = 9;
 }
 
 message GetBalancesResponse {

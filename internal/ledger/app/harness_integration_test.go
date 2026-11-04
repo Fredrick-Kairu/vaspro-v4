@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/shopspring/decimal"
 
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
@@ -55,7 +56,42 @@ func newHarness(t testing.TB) harness {
 	}
 	t.Cleanup(appPool.Close)
 	clk := testkit.NewClock(testNow)
-	return harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk}), clk: clk}
+	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk}), clk: clk}
+	// List prices every test can buy at: SMS at KES 0.80 and UGX 12.5.
+	seedPrice(t, h, nil, "sms", "KES", "0", "80", jan1, nil)
+	seedPrice(t, h, nil, "sms", "UGX", "0", "12.5", jan1, nil)
+	return h
+}
+
+var jan1 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// seedPrice inserts an approved, active token price as the superuser
+// (staff entry and approval are 3.4b's API). tenant nil is a list
+// price.
+func seedPrice(t testing.TB, h harness, tenant *uuid.UUID, service, currency, minTokens, price string, from time.Time, to *time.Time) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	ref := ""
+	if tenant != nil {
+		ref = "deal-" + id.String()[:8]
+	}
+	if _, err := h.super.Exec(context.Background(), `
+		INSERT INTO token_prices (id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference,
+		                          status, effective_from, effective_to, created_by, approved_by)
+		VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), 'active', $8, $9, $10, $11)`,
+		id, tenant, service, currency, minTokens, price, ref, from, to, uuid.New(), uuid.New()); err != nil {
+		t.Fatalf("seed price: %v", err)
+	}
+	return id
+}
+
+func tok(s string) decimal.Decimal { return decimal.RequireFromString(s) }
+
+func purchase(tenant uuid.UUID, service, currency, tokens string) app.PurchaseRequest {
+	return app.PurchaseRequest{
+		TenantID: tenant, IdempotencyKey: uuid.NewString(), ServiceCode: service,
+		Currency: currency, Tokens: tok(tokens),
+	}
 }
 
 var (
@@ -92,11 +128,12 @@ func topUp(t testing.TB, h harness, tenant uuid.UUID, amount int64) app.PostResu
 	return res
 }
 
-// fundSMS tops up and buys SMS tokens worth amount.
-func fundSMS(t testing.TB, h harness, tenant uuid.UUID, amount int64) {
+// fundSMS tops up and buys tokens SMS units at the KES list price
+// (0.80), for a tenant with no deal.
+func fundSMS(t testing.TB, h harness, tenant uuid.UUID, tokens int64) {
 	t.Helper()
-	topUp(t, h, tenant, amount)
-	if _, err := h.svc.Post(context.Background(), post(tenant, domain.TxnTokenPurchase, d(mainKES, amount), c(smsKES, amount))); err != nil {
+	topUp(t, h, tenant, tokens*80)
+	if _, err := h.svc.PurchaseTokens(context.Background(), purchase(tenant, "sms", "KES", decimal.NewFromInt(tokens).String())); err != nil {
 		t.Fatalf("token purchase: %v", err)
 	}
 }

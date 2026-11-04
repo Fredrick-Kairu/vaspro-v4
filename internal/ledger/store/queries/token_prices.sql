@@ -6,3 +6,10 @@ RETURNING *;
 
 -- name: GetTokenPrice :one
 SELECT * FROM ledger.token_prices WHERE id = $1;
+
+-- name: ListActivePrices :many
+-- The active list rows and the tenant's own active rows for a service
+-- and currency; domain.SelectPrice picks the one in force.
+SELECT * FROM ledger.token_prices
+WHERE service_code = $1 AND currency = $2 AND status = 'active'
+  AND (tenant_id IS NULL OR tenant_id = $3);

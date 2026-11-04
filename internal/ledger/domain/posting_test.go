@@ -25,6 +25,11 @@ func c(k domain.AccountKey, amount int64) domain.Line {
 	return domain.Line{Account: k, Direction: domain.Credit, AmountMinor: amount}
 }
 
+func withTokens(l domain.Line, tokens string) domain.Line {
+	l.Tokens = tokens
+	return l
+}
+
 func TestValidateAccountKey(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,10 +70,10 @@ func TestValidatePosting(t *testing.T) {
 		want error
 	}{
 		{"a top-up", domain.Posting{Type: domain.TxnTopup, Lines: []domain.Line{d(mpesaKES, 1300000), c(mainKES, 1300000)}}, nil},
-		{"a token purchase", domain.Posting{Type: domain.TxnTokenPurchase, Lines: []domain.Line{d(mainKES, 800000), c(smsKES, 800000)}}, nil},
-		{"a usage settlement", domain.Posting{Type: domain.TxnUsage, Lines: []domain.Line{d(smsKES, 30400), c(revenueKES, 26207), c(vatKES, 4193)}}, nil},
+		{"a token purchase (internal)", domain.Posting{Type: domain.TxnTokenPurchase, Internal: true, Lines: []domain.Line{d(mainKES, 800000), c(smsKES, 800000)}}, nil},
+		{"a usage settlement (internal)", domain.Posting{Type: domain.TxnUsage, Internal: true, Lines: []domain.Line{d(smsKES, 30400), c(revenueKES, 26207), c(vatKES, 4193)}}, nil},
 		{"a system posting between VASPRO accounts", domain.Posting{Type: domain.TxnAdjustment, System: true, Lines: []domain.Line{d(mpesaKES, 5), c(suspenseKES, 5)}}, nil},
-		{"a reversal may move a service wallet back to the main wallet", domain.Posting{Type: domain.TxnReversal, Lines: []domain.Line{d(smsKES, 100), c(mainKES, 100)}}, nil},
+		{"a reversal may move a service wallet back to the main wallet", domain.Posting{Type: domain.TxnReversal, Internal: true, Lines: []domain.Line{d(smsKES, 100), c(mainKES, 100)}}, nil},
 
 		{"one line", domain.Posting{Type: domain.TxnTopup, Lines: []domain.Line{c(mainKES, 1)}}, domain.ErrInvalidPosting},
 		{"no lines", domain.Posting{Type: domain.TxnTopup}, domain.ErrInvalidPosting},
@@ -79,9 +84,13 @@ func TestValidatePosting(t *testing.T) {
 		{"a bad account key", domain.Posting{Type: domain.TxnTopup, Lines: []domain.Line{d(domain.AccountKey{Type: domain.ProviderClearing, Currency: "KES"}, 1), c(mainKES, 1)}}, domain.ErrInvalidPosting},
 		{"a system posting naming a client account", domain.Posting{Type: domain.TxnAdjustment, System: true, Lines: []domain.Line{d(mpesaKES, 1), c(mainKES, 1)}}, domain.ErrInvalidPosting},
 
-		{"allocation is final: service wallet back to main", domain.Posting{Type: domain.TxnRefund, Lines: []domain.Line{d(smsKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
+		{"a service wallet line in a generic posting", domain.Posting{Type: domain.TxnTokenPurchase, Lines: []domain.Line{d(mainKES, 800000), c(smsKES, 800000)}}, domain.ErrInvalidPosting},
+		{"tokens on a service wallet line", domain.Posting{Type: domain.TxnTokenPurchase, Internal: true, Lines: []domain.Line{d(mainKES, 800000), withTokens(c(smsKES, 800000), "10000")}}, nil},
+		{"tokens on a main wallet line", domain.Posting{Type: domain.TxnTopup, Lines: []domain.Line{d(mpesaKES, 1), withTokens(c(mainKES, 1), "1")}}, domain.ErrInvalidPosting},
+		{"malformed tokens", domain.Posting{Type: domain.TxnTokenPurchase, Internal: true, Lines: []domain.Line{d(mainKES, 1), withTokens(c(smsKES, 1), "1e3")}}, domain.ErrInvalidPosting},
+		{"allocation is final: service wallet back to main", domain.Posting{Type: domain.TxnRefund, Internal: true, Lines: []domain.Line{d(smsKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
 		{"allocation is final: bonus to main", domain.Posting{Type: domain.TxnAdjustment, Lines: []domain.Line{d(bonusKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
-		{"allocation is final even through a third account", domain.Posting{Type: domain.TxnAdjustment, Lines: []domain.Line{d(smsKES, 100), c(suspenseKES, 100), d(suspenseKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
+		{"allocation is final even through a third account", domain.Posting{Type: domain.TxnAdjustment, Internal: true, Lines: []domain.Line{d(smsKES, 100), c(suspenseKES, 100), d(suspenseKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

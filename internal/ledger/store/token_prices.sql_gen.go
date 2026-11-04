@@ -91,3 +91,50 @@ func (q *Queries) GetTokenPrice(ctx context.Context, id uuid.UUID) (LedgerTokenP
 	)
 	return i, err
 }
+
+const listActivePrices = `-- name: ListActivePrices :many
+SELECT id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by FROM ledger.token_prices
+WHERE service_code = $1 AND currency = $2 AND status = 'active'
+  AND (tenant_id IS NULL OR tenant_id = $3)
+`
+
+type ListActivePricesParams struct {
+	ServiceCode string      `json:"service_code"`
+	Currency    string      `json:"currency"`
+	TenantID    pgtype.UUID `json:"tenant_id"`
+}
+
+// The active list rows and the tenant's own active rows for a service
+// and currency; domain.SelectPrice picks the one in force.
+func (q *Queries) ListActivePrices(ctx context.Context, arg ListActivePricesParams) ([]LedgerTokenPrice, error) {
+	rows, err := q.db.Query(ctx, listActivePrices, arg.ServiceCode, arg.Currency, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerTokenPrice
+	for rows.Next() {
+		var i LedgerTokenPrice
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.ServiceCode,
+			&i.Currency,
+			&i.MinTokens,
+			&i.MinorPerToken,
+			&i.DealReference,
+			&i.Status,
+			&i.EffectiveFrom,
+			&i.EffectiveTo,
+			&i.CreatedBy,
+			&i.ApprovedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

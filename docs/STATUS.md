@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.3 done (2026-11-04). Next: 3.4, token purchase and lots.
+**Current task:** 3.4 in progress: 3.4a (purchase, lots, FIFO, token holds) done; next 3.4b, staff prices through the gateway.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -148,6 +148,61 @@
     - This is a development-machine figure: the exit gate wants the reference machine, which isn't defined yet.
   - **`make check`:** the first run stopped at `gen-check` because the regenerated files weren't staged yet (the known working-tree-against-index behaviour in Notes, not stale code). After staging it was green: lint 0 issues, 36 packages fresh (testkit changed, so every integration package reran; `identity/app` 379s, `ledger/store` 81s), 32 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.3:** token holds and FIFO valuation (3.4/3.5); settling plain captures (3.5); hold expiry (3.6); `entries.tax_code` on VAT lines (3.5, where the tax is known); a per-tenant account cache (only if the benchmark calls for it).
+
+- 3.4a Token purchase, lots, FIFO use, and token holds (OQ-15). Two commits, like 2.9; 3.4b is the staff price API.
+  - **Rules** (`domain/tokens.go`, `domain/lots.go`):
+    - `ParseTokens` (plain decimal, positive, at most 6 places, at most 10¹²);
+    - micro-token conversion for the hold state machine, whose fields are renamed `Amount`/`Captured`/`Release` (units: minor for money holds, micro-tokens for token holds);
+    - `CostMinor` (half-up);
+    - **`SelectPrice`**: a deal in force always applies, its lowest tier below all its tiers; otherwise the list tier for the quantity; else `ErrNoPrice`;
+    - **`DrawFIFO`** with cumulative rounding, and `ValueAfter` for a hold's estimate.
+    - `ValidatePosting` refuses service-wallet lines unless the posting is internal, and allows `Tokens` only on them.
+    - **New dependency** `shopspring/decimal`, which `.claude/rules/go.md` already names for tokens. It's at **v1.5.0**, not the plan's v1.4.0: goose v3.29.0 already required v1.5.0, and asking for v1.4.0 downgraded goose. I undid that at once. v1.6.0 is 17 days old.
+  - **Migration** `20261106120000_tokens.sql`:
+    - `balances.held_tokens`, with an UPDATE grant;
+    - `holds.captured_tokens`, with three CHECKs;
+    - three `token_lots` CHECKs;
+    - the wallet guard extended to held tokens and also fired by `token_lots`.
+  - **App:**
+    - **`PurchaseTokens`:** price as of the clock, cost, an internal `token_purchase` posting with `entries.tokens`, the lot, and `tokens.purchased` (new schema). A replay reads the lot, so a price change since doesn't alter it.
+    - **Token holds** on service wallets: availability = lots' remaining − `held_tokens`; partial capture keeps the captured tokens held; release; a capture with a posting is refused for token holds.
+    - **`drawLots`/`recordDraws`**, unexported until 3.5's settlement. They lock the balance row, then the lots oldest first; draw; write `lot_consumptions`; and never draw tokens another hold reserves.
+    - `GetBalances` shows tokens remaining, held and available.
+  - **gRPC:** `PurchaseTokens` (BAL-4005 for no price), token fields on holds and balances.
+  - **3.3 tests changed to the agreed model, not weakened:**
+    - funding goes through `PurchaseTokens`;
+    - SMS holds are in tokens;
+    - the airtime capture-with-posting case is now a main-wallet fee hold;
+    - generic posts into a service wallet are now refusal cases;
+    - the worked-example balances test buys at a seeded deal.
+  - **Tests:**
+    - **domain:**
+      - `SelectPrice` (13 cases);
+      - `CostMinor` (KES, UGX, fractions, overflow);
+      - **draws sum to the lot's cost** across prices, sizes and draw steps (the plain per-draw rounding the plan rejected fails it);
+      - FIFO across lots, insufficient tokens, `ValueAfter`.
+    - **app:**
+      - **purchase worked example:** lot A 10,000 at 0.80 (8,000.00) before 1 Nov and lot B at 0.50 (5,000.00) after; SMS wallet 13,000.00 with 20,000 tokens;
+      - pricing: list tiers, deal precedence, ended, pending and withdrawn ignored, lots keep their price, half-up on fractions, UGX;
+      - refusals: no price, insufficient, cost under one minor unit, key conflict;
+      - token holds: the worked example's 400 held and 380 captured, values after earlier holds (8,000 then 5,000 across lots), refusals, fractional captures.
+    - **internal:**
+      - `TestDrawLots_WorkedExample`: 380 then 9,620 from lot A (304.00 and 7,696.00), then lot B at 0.50;
+      - held tokens aren't drawn;
+      - **a seeded property test of random purchases at changing deals and fractional draws**: about 95 purchases and 180 lot draws a run; after every step the wallet's money equals its lots' remaining value and an emptied lot's draws equal its cost.
+    - **concurrency:** 200 goroutines hold 1 token of 100: exactly 100.
+    - **property test** extended with token holds, money holds, purchases at two prices, and two new invariants (held tokens match their holds and fit in the lots; service-wallet money equals the lots' value).
+    - **store:** each new CHECK; the guard by `held_tokens` and by a lot drawn under it.
+    - **Order of work:** domain and app tests were seen failing against stubs; the store CHECK tests and the internal property test came after the code, covered by the mutations below.
+    - **Two test fixes while writing them:**
+      - a FIFO expectation was wrong (15 tokens from 4 + 10 + 10 spans three lots; the code was right);
+      - the internal helper skipped opening VASPRO's revenue account. A variable named `seed` also shadowed the `seed` helper.
+    - **Mutation-checked:**
+      - per-draw rounding;
+      - no deal precedence;
+      - newest lot first;
+      - no `held_tokens` guard;
+      - skipping a token hold's availability check.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.

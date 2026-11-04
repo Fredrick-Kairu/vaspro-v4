@@ -47,19 +47,26 @@ type AccountKey struct {
 	Currency    string
 }
 
-// Line is one line of a posting.
+// Line is one line of a posting. Tokens, a canonical decimal string or
+// empty, is set only on a service wallet line, by the token use cases
+// (data model §5's entries.tokens).
 type Line struct {
 	Account     AccountKey
 	Direction   Side
 	AmountMinor int64
+	Tokens      string
 }
 
 // Posting is a transaction as a caller asks for it. System postings
-// (no tenant) may use VASPRO's accounts only.
+// (no tenant) may use VASPRO's accounts only. Internal postings come
+// from the ledger's own token use cases (purchase, usage, reversal):
+// only they may touch a service wallet, so its money always moves with
+// its lots (OQ-15).
 type Posting struct {
-	Type   TxnType
-	System bool
-	Lines  []Line
+	Type     TxnType
+	System   bool
+	Internal bool
+	Lines    []Line
 }
 
 var (
@@ -111,6 +118,17 @@ func ValidatePosting(p Posting) error {
 		}
 		if l.AmountMinor <= 0 {
 			return fmt.Errorf("%w: line %d: amount must be positive", ErrInvalidPosting, i)
+		}
+		if l.Account.Type == ServiceWallet && !p.Internal {
+			return fmt.Errorf("%w: line %d: a service wallet moves only through token purchase and use", ErrInvalidPosting, i)
+		}
+		if l.Tokens != "" {
+			if l.Account.Type != ServiceWallet {
+				return fmt.Errorf("%w: line %d: only a service wallet line carries tokens", ErrInvalidPosting, i)
+			}
+			if _, err := ParseTokens(l.Tokens); err != nil {
+				return fmt.Errorf("%w: line %d: %v", ErrInvalidPosting, i, err)
+			}
 		}
 		if p.System && IsClientOwned(l.Account.Type) {
 			return fmt.Errorf("%w: line %d: a system posting can't use a client's %s", ErrInvalidPosting, i, l.Account.Type)

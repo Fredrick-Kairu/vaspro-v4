@@ -62,6 +62,42 @@ func (q *Queries) CreateTokenLot(ctx context.Context, arg CreateTokenLotParams) 
 	return i, err
 }
 
+const drawFromLot = `-- name: DrawFromLot :exec
+UPDATE ledger.token_lots SET tokens_remaining = tokens_remaining - $1 WHERE id = $2
+`
+
+type DrawFromLotParams struct {
+	Tokens pgtype.Numeric `json:"tokens"`
+	ID     uuid.UUID      `json:"id"`
+}
+
+func (q *Queries) DrawFromLot(ctx context.Context, arg DrawFromLotParams) error {
+	_, err := q.db.Exec(ctx, drawFromLot, arg.Tokens, arg.ID)
+	return err
+}
+
+const getLotByTransaction = `-- name: GetLotByTransaction :one
+SELECT id, tenant_id, account_id, transaction_id, tokens_bought, tokens_remaining, minor_per_token, token_price_id, purchased_at, expires_at FROM ledger.token_lots WHERE transaction_id = $1
+`
+
+func (q *Queries) GetLotByTransaction(ctx context.Context, transactionID uuid.UUID) (LedgerTokenLot, error) {
+	row := q.db.QueryRow(ctx, getLotByTransaction, transactionID)
+	var i LedgerTokenLot
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.AccountID,
+		&i.TransactionID,
+		&i.TokensBought,
+		&i.TokensRemaining,
+		&i.MinorPerToken,
+		&i.TokenPriceID,
+		&i.PurchasedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getTokenLot = `-- name: GetTokenLot :one
 SELECT id, tenant_id, account_id, transaction_id, tokens_bought, tokens_remaining, minor_per_token, token_price_id, purchased_at, expires_at FROM ledger.token_lots WHERE id = $1
 `
@@ -82,4 +118,82 @@ func (q *Queries) GetTokenLot(ctx context.Context, id uuid.UUID) (LedgerTokenLot
 		&i.ExpiresAt,
 	)
 	return i, err
+}
+
+const listOpenLots = `-- name: ListOpenLots :many
+SELECT id, tenant_id, account_id, transaction_id, tokens_bought, tokens_remaining, minor_per_token, token_price_id, purchased_at, expires_at FROM ledger.token_lots
+WHERE account_id = $1 AND tokens_remaining > 0
+ORDER BY purchased_at, id
+`
+
+// A service wallet's open lots, oldest first: the order FIFO use draws
+// them in. Callers hold the wallet's balance row lock, under which
+// every change to its lots happens.
+func (q *Queries) ListOpenLots(ctx context.Context, accountID uuid.UUID) ([]LedgerTokenLot, error) {
+	rows, err := q.db.Query(ctx, listOpenLots, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerTokenLot
+	for rows.Next() {
+		var i LedgerTokenLot
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.AccountID,
+			&i.TransactionID,
+			&i.TokensBought,
+			&i.TokensRemaining,
+			&i.MinorPerToken,
+			&i.TokenPriceID,
+			&i.PurchasedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockOpenLots = `-- name: LockOpenLots :many
+SELECT id, tenant_id, account_id, transaction_id, tokens_bought, tokens_remaining, minor_per_token, token_price_id, purchased_at, expires_at FROM ledger.token_lots
+WHERE account_id = $1 AND tokens_remaining > 0
+ORDER BY purchased_at, id
+FOR UPDATE
+`
+
+func (q *Queries) LockOpenLots(ctx context.Context, accountID uuid.UUID) ([]LedgerTokenLot, error) {
+	rows, err := q.db.Query(ctx, lockOpenLots, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerTokenLot
+	for rows.Next() {
+		var i LedgerTokenLot
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.AccountID,
+			&i.TransactionID,
+			&i.TokensBought,
+			&i.TokensRemaining,
+			&i.MinorPerToken,
+			&i.TokenPriceID,
+			&i.PurchasedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -138,11 +138,12 @@ type LedgerAutoBuyRule struct {
 }
 
 type LedgerBalance struct {
-	AccountID    uuid.UUID `json:"account_id"`
-	BalanceMinor int64     `json:"balance_minor"`
-	HeldMinor    int64     `json:"held_minor"`
-	Version      int64     `json:"version"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	AccountID    uuid.UUID      `json:"account_id"`
+	BalanceMinor int64          `json:"balance_minor"`
+	HeldMinor    int64          `json:"held_minor"`
+	Version      int64          `json:"version"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	HeldTokens   pgtype.Numeric `json:"held_tokens"`
 }
 
 type LedgerCurrency struct {
@@ -162,18 +163,19 @@ type LedgerEntry struct {
 }
 
 type LedgerHold struct {
-	ID            uuid.UUID          `json:"id"`
-	TenantID      uuid.UUID          `json:"tenant_id"`
-	AccountID     uuid.UUID          `json:"account_id"`
-	ReferenceType string             `json:"reference_type"`
-	ReferenceID   uuid.UUID          `json:"reference_id"`
-	AmountMinor   int64              `json:"amount_minor"`
-	Tokens        pgtype.Numeric     `json:"tokens"`
-	Status        string             `json:"status"`
-	CreatedAt     time.Time          `json:"created_at"`
-	ExpiresAt     time.Time          `json:"expires_at"`
-	SettledAt     pgtype.Timestamptz `json:"settled_at"`
-	CapturedMinor pgtype.Int8        `json:"captured_minor"`
+	ID             uuid.UUID          `json:"id"`
+	TenantID       uuid.UUID          `json:"tenant_id"`
+	AccountID      uuid.UUID          `json:"account_id"`
+	ReferenceType  string             `json:"reference_type"`
+	ReferenceID    uuid.UUID          `json:"reference_id"`
+	AmountMinor    int64              `json:"amount_minor"`
+	Tokens         pgtype.Numeric     `json:"tokens"`
+	Status         string             `json:"status"`
+	CreatedAt      time.Time          `json:"created_at"`
+	ExpiresAt      time.Time          `json:"expires_at"`
+	SettledAt      pgtype.Timestamptz `json:"settled_at"`
+	CapturedMinor  pgtype.Int8        `json:"captured_minor"`
+	CapturedTokens pgtype.Numeric     `json:"captured_tokens"`
 }
 
 type LedgerIdempotencyKey struct {

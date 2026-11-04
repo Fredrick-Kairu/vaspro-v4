@@ -15,21 +15,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 )
 
 // TestHolds_200ConcurrentHoldsNeverOverspend is Phase 3's concurrency
-// test: 200 goroutines hold against one wallet that covers only half
-// of them. Exactly the affordable number succeed, the rest are refused
-// for balance, and held_minor is exactly the sum of the holds placed.
-// Run with -race.
+// test: 200 goroutines each hold one SMS unit against a wallet with
+// 100. Exactly 100 succeed, the rest are refused for balance, and
+// held_tokens is exactly what was placed. Run with -race.
 func TestHolds_200ConcurrentHoldsNeverOverspend(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	tenant := uuid.New()
-	fundSMS(t, h, tenant, 10000)
+	fundSMS(t, h, tenant, 100)
 
 	var placed, refused atomic.Int64
 	var wg sync.WaitGroup
@@ -37,7 +37,7 @@ func TestHolds_200ConcurrentHoldsNeverOverspend(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := h.svc.PlaceHold(ctx, holdReq(tenant, 100))
+			_, err := h.svc.PlaceHold(ctx, holdReq(tenant, "1"))
 			switch {
 			case err == nil:
 				placed.Add(1)
@@ -54,8 +54,8 @@ func TestHolds_200ConcurrentHoldsNeverOverspend(t *testing.T) {
 		t.Fatalf("placed %d, refused %d; want 100 and 100", placed.Load(), refused.Load())
 	}
 	b := balanceOf(t, h, tenant, smsKES)
-	if b.HeldMinor != 10000 || b.AvailableMinor != 0 {
-		t.Fatalf("wallet %+v, want all 100.00 held", b)
+	if !b.HeldTokens.Equal(tok("100")) || !b.TokensAvailable.IsZero() {
+		t.Fatalf("wallet %+v, want all 100 units held", b)
 	}
 	if n := count(t, h, `SELECT count(*) FROM holds WHERE status = 'active'`); n != 100 {
 		t.Fatalf("%d active holds, want 100", n)
@@ -63,12 +63,11 @@ func TestHolds_200ConcurrentHoldsNeverOverspend(t *testing.T) {
 }
 
 // TestLedger_RandomOperationsKeepInvariants is Phase 3's property test:
-// a seeded random sequence of top-ups, token purchases, usage, holds,
-// captures (with and without a posting) and releases across tenants
-// and two currencies. After every step: debits equal credits per
-// currency, every balance equals the replay of its entries, held_minor
-// equals the sum of its holds' contributions, and no wallet's available
-// balance is below zero. LEDGER_PROPERTY_SEED reruns a failing seed.
+// a seeded random sequence of top-ups, token purchases (at a list price
+// and, for one tenant, a deal), main-wallet charges, token holds, money
+// holds, captures (money holds with and without a posting) and releases
+// across tenants and two currencies. After every step the invariants in
+// checkInvariants hold. LEDGER_PROPERTY_SEED reruns a failing seed.
 func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 	seed := uint64(time.Now().UnixNano())
 	if s := os.Getenv("LEDGER_PROPERTY_SEED"); s != "" {
@@ -84,6 +83,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	tenants := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	seedPrice(t, h, &tenants[0], "sms", "KES", "0", "50.5", jan1, nil) // one tenant buys at a deal
 	currencies := []struct {
 		code  string
 		clear domain.AccountKey
@@ -94,6 +94,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 	type openHold struct {
 		tenant uuid.UUID
 		ref    uuid.UUID
+		tokens decimal.Decimal // zero for a money hold
 		amount int64
 		wallet domain.AccountKey
 	}
@@ -111,56 +112,78 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		revenue := domain.AccountKey{Type: domain.Revenue, ServiceCode: "sms", Currency: cur.code}
 		vat := domain.AccountKey{Type: domain.TaxPayable, Currency: cur.code}
 		amount := int64(rng.IntN(2000) + 1)
+		// Up to 25 tokens with up to 2 decimals: fractional purchases
+		// and holds at fractional prices.
+		tokens := decimal.New(int64(rng.IntN(2500)+1), -2)
 
 		var op string
 		var err error
-		switch rng.IntN(7) {
+		switch rng.IntN(9) {
 		case 0, 1:
 			op = "top-up"
 			amount *= 10
 			_, err = h.svc.Post(ctx, post(tenant, domain.TxnTopup, d(cur.clear, amount), c(main, amount)))
 		case 2:
 			op = "token purchase"
-			_, err = h.svc.Post(ctx, post(tenant, domain.TxnTokenPurchase, d(main, amount), c(sms, amount)))
+			_, err = h.svc.PurchaseTokens(ctx, purchase(tenant, "sms", cur.code, tokens.String()))
 		case 3:
-			op = "usage"
-			lines := []domain.Line{d(sms, amount)}
-			if tax := amount * 16 / 116; tax > 0 { // a tiny usage has no VAT line, not a zero one
+			op = "main-wallet charge"
+			lines := []domain.Line{d(main, amount)}
+			if tax := amount * 16 / 116; tax > 0 { // a tiny charge has no VAT line, not a zero one
 				lines = append(lines, c(revenue, amount-tax), c(vat, tax))
 			} else {
 				lines = append(lines, c(revenue, amount))
 			}
-			_, err = h.svc.Post(ctx, post(tenant, domain.TxnUsage, lines...))
+			_, err = h.svc.Post(ctx, post(tenant, domain.TxnAdjustment, lines...))
 		case 4:
-			op = "hold"
+			op = "token hold"
 			ref := uuid.New()
 			_, err = h.svc.PlaceHold(ctx, app.HoldRequest{
 				TenantID: tenant, Account: sms, ReferenceType: "campaign", ReferenceID: ref,
+				Tokens: tokens, ExpiresAt: testNow.Add(time.Hour),
+			})
+			if err == nil {
+				active = append(active, openHold{tenant: tenant, ref: ref, tokens: tokens, wallet: sms})
+			}
+		case 5:
+			op = "money hold"
+			ref := uuid.New()
+			_, err = h.svc.PlaceHold(ctx, app.HoldRequest{
+				TenantID: tenant, Account: main, ReferenceType: "payout", ReferenceID: ref,
 				AmountMinor: amount, ExpiresAt: testNow.Add(time.Hour),
 			})
 			if err == nil {
-				active = append(active, openHold{tenant, ref, amount, sms})
+				active = append(active, openHold{tenant: tenant, ref: ref, amount: amount, wallet: main})
 			}
-		case 5, 6:
+		default:
 			if len(active) == 0 {
 				continue
 			}
 			i := rng.IntN(len(active))
 			hd := active[i]
 			active = append(active[:i], active[i+1:]...)
-			used := int64(rng.IntN(int(hd.amount)) + 1)
-			switch rng.IntN(3) {
-			case 0:
+			refType := "payout"
+			if hd.wallet.Type == domain.ServiceWallet {
+				refType = "campaign"
+			}
+			switch choice := rng.IntN(3); {
+			case choice == 0:
 				op = "release"
-				_, err = h.svc.ReleaseHold(ctx, hd.tenant, "campaign", hd.ref)
-			case 1:
-				op = "capture"
-				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: "campaign", ReferenceID: hd.ref, CapturedMinor: used})
+				_, err = h.svc.ReleaseHold(ctx, hd.tenant, refType, hd.ref)
+			case hd.wallet.Type == domain.ServiceWallet:
+				op = "token capture"
+				used := decimal.New(rng.Int64N(hd.tokens.Shift(2).IntPart())+1, -2)
+				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: refType, ReferenceID: hd.ref, CapturedTokens: used})
+			case choice == 1:
+				op = "money capture"
+				used := rng.Int64N(hd.amount) + 1
+				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: refType, ReferenceID: hd.ref, CapturedMinor: used})
 			default:
-				op = "capture with posting"
-				rev := domain.AccountKey{Type: domain.Revenue, ServiceCode: "sms", Currency: hd.wallet.Currency}
+				op = "money capture with posting"
+				used := rng.Int64N(hd.amount) + 1
+				rev := domain.AccountKey{Type: domain.Revenue, ServiceCode: "payments", Currency: hd.wallet.Currency}
 				p := post(hd.tenant, domain.TxnUsage, d(hd.wallet, used), c(rev, used))
-				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: "campaign", ReferenceID: hd.ref, CapturedMinor: used, Posting: &p})
+				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: refType, ReferenceID: hd.ref, CapturedMinor: used, Posting: &p})
 			}
 		}
 		switch {
@@ -176,7 +199,8 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		}
 	}
 	t.Logf("succeeded %v; refused for balance %v", succeeded, refused)
-	for _, op := range []string{"top-up", "token purchase", "usage", "hold", "release", "capture", "capture with posting"} {
+	for _, op := range []string{"top-up", "token purchase", "main-wallet charge", "token hold", "money hold",
+		"release", "token capture", "money capture", "money capture with posting"} {
 		if succeeded[op] == 0 {
 			t.Errorf("no %s succeeded in %d steps: the sequence isn't exercising it", op, steps)
 		}
@@ -199,14 +223,31 @@ func checkInvariants(ctx context.Context, h harness) string {
 			WHERE b.balance_minor <> (
 			  SELECT coalesce(sum(CASE WHEN e.direction = ledger.normal_side(a.type) THEN e.amount_minor ELSE -e.amount_minor END), 0)
 			  FROM entries e WHERE e.account_id = b.account_id)`},
-		{"held_minor that differs from its holds", `
+		{"held_minor that differs from its money holds", `
 			SELECT count(*) FROM balances b
 			WHERE b.held_minor <> (
 			  SELECT coalesce(sum(CASE
 			    WHEN h.status = 'active' THEN h.amount_minor
 			    WHEN h.status = 'captured' AND h.settled_at IS NULL THEN h.captured_minor
 			    ELSE 0 END), 0)
-			  FROM holds h WHERE h.account_id = b.account_id)`},
+			  FROM holds h WHERE h.account_id = b.account_id AND h.tokens IS NULL)`},
+		{"held_tokens that differ from its token holds", `
+			SELECT count(*) FROM balances b
+			WHERE b.held_tokens <> (
+			  SELECT coalesce(sum(CASE
+			    WHEN h.status = 'active' THEN h.tokens
+			    WHEN h.status = 'captured' AND h.settled_at IS NULL THEN h.captured_tokens
+			    ELSE 0 END), 0)
+			  FROM holds h WHERE h.account_id = b.account_id AND h.tokens IS NOT NULL)`},
+		{"a service wallet holding more tokens than its lots have left", `
+			SELECT count(*) FROM balances b
+			WHERE b.held_tokens > (SELECT coalesce(sum(l.tokens_remaining), 0) FROM token_lots l WHERE l.account_id = b.account_id)`},
+		{"a service wallet whose money differs from its lots' remaining value", `
+			SELECT count(*) FROM balances b JOIN accounts a ON a.id = b.account_id
+			WHERE a.type = 'service_wallet' AND b.balance_minor <> (
+			  SELECT coalesce(sum(round(l.tokens_bought * l.minor_per_token)
+			    - (SELECT coalesce(sum(lc.value_minor), 0) FROM lot_consumptions lc WHERE lc.lot_id = l.id)), 0)
+			  FROM token_lots l WHERE l.account_id = b.account_id)`},
 		{"a wallet below zero available", `
 			SELECT count(*) FROM balances b JOIN accounts a ON a.id = b.account_id
 			WHERE ledger.is_client_wallet(a.type) AND b.balance_minor - b.held_minor < 0`},
@@ -222,7 +263,7 @@ func checkInvariants(ctx context.Context, h harness) string {
 	return ""
 }
 
-// BenchmarkHoldCapture measures a hold followed by a capture, the
+// BenchmarkHoldCapture measures a token hold followed by a capture, the
 // exit gate's "holds and captures per second": on separate wallets
 // (one tenant per goroutine) and contended on one wallet.
 func BenchmarkHoldCapture(b *testing.B) {
@@ -234,12 +275,12 @@ func BenchmarkHoldCapture(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			tenant := tenantFor()
 			for pb.Next() {
-				req := holdReq(tenant, 100)
+				req := holdReq(tenant, "1")
 				if _, err := h.svc.PlaceHold(ctx, req); err != nil {
 					b.Error(err)
 					return
 				}
-				if _, err := h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: tenant, ReferenceType: req.ReferenceType, ReferenceID: req.ReferenceID, CapturedMinor: 100}); err != nil {
+				if _, err := h.svc.CaptureHold(ctx, capture(tenant, req, "1")); err != nil {
 					b.Error(err)
 					return
 				}
@@ -251,13 +292,13 @@ func BenchmarkHoldCapture(b *testing.B) {
 	b.Run("separate wallets", func(b *testing.B) {
 		run(b, func() uuid.UUID {
 			tenant := uuid.New()
-			fundSMS(b, h, tenant, 1<<40)
+			fundSMS(b, h, tenant, 1<<30)
 			return tenant
 		})
 	})
 	b.Run("one wallet", func(b *testing.B) {
 		tenant := uuid.New()
-		fundSMS(b, h, tenant, 1<<40)
+		fundSMS(b, h, tenant, 1<<30)
 		run(b, func() uuid.UUID { return tenant })
 	})
 }

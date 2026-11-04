@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
@@ -74,6 +75,9 @@ type PostRequest struct {
 	ReferenceID    *uuid.UUID
 	CreatedBy      *uuid.UUID
 	Lines          []domain.Line
+	// internal marks a posting from the ledger's own token use cases,
+	// the only ones that may touch a service wallet (OQ-15).
+	internal bool
 }
 
 // PostedLine is a line as posted, with its account's ID.
@@ -90,13 +94,15 @@ type PostResult struct {
 	Replayed      bool
 }
 
-// HoldRequest reserves AmountMinor in one of the tenant's wallets.
+// HoldRequest reserves part of one of the tenant's wallets: Tokens in a
+// service wallet (OQ-15), AmountMinor in a main or bonus wallet.
 type HoldRequest struct {
 	TenantID      uuid.UUID
 	Account       domain.AccountKey
 	ReferenceType string
 	ReferenceID   uuid.UUID
 	AmountMinor   int64
+	Tokens        decimal.Decimal
 	ExpiresAt     time.Time
 }
 
@@ -104,24 +110,32 @@ type HoldRequest struct {
 // is posted in the same transaction and must take exactly
 // CapturedMinor, net, from the held account; its TenantID is ignored
 // (the hold's tenant is used).
+//
+// A token hold is captured in CapturedTokens and can't carry a posting
+// yet: its usage posting, with VAT, comes with settlement (3.5).
 type CaptureRequest struct {
-	TenantID      uuid.UUID
-	ReferenceType string
-	ReferenceID   uuid.UUID
-	CapturedMinor int64
-	Posting       *PostRequest
+	TenantID       uuid.UUID
+	ReferenceType  string
+	ReferenceID    uuid.UUID
+	CapturedMinor  int64
+	CapturedTokens decimal.Decimal
+	Posting        *PostRequest
 }
 
-// HoldView is a hold as the API shows it.
+// HoldView is a hold as the API shows it. For a token hold, Tokens and
+// CapturedTokens are what's reserved and used; AmountMinor and
+// CapturedMinor are only their estimated value (OQ-15).
 type HoldView struct {
-	ID            uuid.UUID
-	AccountID     uuid.UUID
-	ReferenceType string
-	ReferenceID   uuid.UUID
-	AmountMinor   int64
-	CapturedMinor int64
-	Status        domain.HoldStatus
-	Settled       bool
+	ID             uuid.UUID
+	AccountID      uuid.UUID
+	ReferenceType  string
+	ReferenceID    uuid.UUID
+	AmountMinor    int64
+	CapturedMinor  int64
+	Tokens         decimal.Decimal
+	CapturedTokens decimal.Decimal
+	Status         domain.HoldStatus
+	Settled        bool
 	// TransactionID is the capture's posting, when it carried one.
 	TransactionID *uuid.UUID
 }
@@ -133,12 +147,38 @@ type HoldResult struct {
 }
 
 // Balance is one account's balance. For VASPRO's accounts HeldMinor is
-// 0 and BalanceMinor is summed from the journal (ADR 0010).
+// 0 and BalanceMinor is summed from the journal (ADR 0010). A service
+// wallet also has tokens: those left in its lots, those held, and those
+// available for new holds and use.
 type Balance struct {
-	AccountID      uuid.UUID
-	Account        domain.AccountKey
-	Status         string
-	BalanceMinor   int64
-	HeldMinor      int64
-	AvailableMinor int64
+	AccountID       uuid.UUID
+	Account         domain.AccountKey
+	Status          string
+	BalanceMinor    int64
+	HeldMinor       int64
+	AvailableMinor  int64
+	TokensRemaining decimal.Decimal
+	HeldTokens      decimal.Decimal
+	TokensAvailable decimal.Decimal
+}
+
+// PurchaseRequest buys Tokens for a service from the tenant's main
+// wallet in the same currency, at the tenant's price (OQ-15).
+type PurchaseRequest struct {
+	TenantID       uuid.UUID
+	IdempotencyKey string
+	ServiceCode    string
+	Currency       string
+	Tokens         decimal.Decimal
+	CreatedBy      *uuid.UUID
+}
+
+// PurchaseResult is a purchase's lot and what it cost.
+type PurchaseResult struct {
+	TransactionID uuid.UUID
+	LotID         uuid.UUID
+	TokenPriceID  uuid.UUID
+	MinorPerToken decimal.Decimal
+	CostMinor     int64
+	Replayed      bool
 }

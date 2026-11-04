@@ -36,6 +36,7 @@ const (
 	BAL4002  Code = "BAL-4002"
 	BAL4003  Code = "BAL-4003"
 	BAL4004  Code = "BAL-4004"
+	BAL4005  Code = "BAL-4005"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
@@ -58,6 +59,9 @@ const (
 	VAL4009  Code = "VAL-4009"
 	VAL4010  Code = "VAL-4010"
 	VAL4011  Code = "VAL-4011"
+	VAL4012  Code = "VAL-4012"
+	VAL4013  Code = "VAL-4013"
+	VAL4014  Code = "VAL-4014"
 )
 
 var registry = map[Code]entry{
@@ -210,6 +214,14 @@ var registry = map[Code]entry{
 		Title:     "Tokens can't move back to the main wallet",
 		Cause:     "Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal.",
 		Fix:       "Use the reversal flow, which needs a staff member's approval.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4005: {
+		Status:    409,
+		Title:     "No token price for this service",
+		Cause:     "There is no approved list price or deal in force for this service and currency, so tokens can't be bought.",
+		Fix:       "Ask VASPRO to set a price for the service in this currency.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -386,6 +398,30 @@ var registry = map[Code]entry{
 		Title:     "Tier change not allowed",
 		Cause:     "The account's tier can't move this way, for example more than one step on a check alone, a promotion of a suspended account, or no change at all.",
 		Fix:       "Check the account's current tier and status, then ask for an allowed change.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4012: {
+		Status:    409,
+		Title:     "Price would overlap an active one",
+		Cause:     "Approving this token price would leave two active prices for the same client, service, currency and volume tier at the same time.",
+		Fix:       "Withdraw the price in force, or end it before this one starts, then approve again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4013: {
+		Status:    403,
+		Title:     "A price's maker can't approve it",
+		Cause:     "Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price.",
+		Fix:       "Ask another staff member to approve it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4014: {
+		Status:    409,
+		Title:     "Price already decided",
+		Cause:     "The token price was already approved or withdrawn, so it can't be approved again.",
+		Fix:       "Read the price's status; to change an approved price, enter a new one and withdraw the old.",
 		Retryable: false,
 		Billable:  false,
 	},

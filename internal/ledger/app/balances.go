@@ -35,9 +35,11 @@ func (s *Service) GetBalances(ctx context.Context, tenant *uuid.UUID) ([]Balance
 			return err
 		}
 		for _, r := range rows {
+			remaining, held := toDecimal(r.TokensRemaining), toDecimal(r.HeldTokens)
 			out = append(out, Balance{
 				AccountID: r.ID, Account: keyOf(r.Type, r.ServiceCode, r.Rail, r.Currency), Status: r.Status,
 				BalanceMinor: r.BalanceMinor, HeldMinor: r.HeldMinor, AvailableMinor: r.BalanceMinor - r.HeldMinor,
+				TokensRemaining: remaining, HeldTokens: held, TokensAvailable: remaining.Sub(held),
 			})
 		}
 		return nil

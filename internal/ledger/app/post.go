@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shopspring/decimal"
 
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/ids"
@@ -57,7 +58,7 @@ func validatePostRequest(req PostRequest) error {
 	if (req.ReferenceType == "") != (req.ReferenceID == nil) {
 		return fmt.Errorf("%w: a reference needs both its type and its ID", ErrValidation)
 	}
-	err := domain.ValidatePosting(domain.Posting{Type: req.Type, System: req.TenantID == nil, Lines: req.Lines})
+	err := domain.ValidatePosting(domain.Posting{Type: req.Type, System: req.TenantID == nil, Internal: req.internal, Lines: req.Lines})
 	if errors.Is(err, domain.ErrInvalidPosting) {
 		return fmt.Errorf("%w: %v", ErrValidation, err)
 	}
@@ -130,10 +131,14 @@ func (s *Service) postInTx(ctx context.Context, tx pgx.Tx, req PostRequest) (Pos
 	}
 	slices.SortStableFunc(posted, func(a, b PostedLine) int { return compareUUID(a.AccountID, b.AccountID) })
 	for _, p := range posted {
-		if _, err := q.CreateEntry(ctx, store.CreateEntryParams{
+		params := store.CreateEntryParams{
 			TransactionID: txnID, AccountID: p.AccountID, Direction: string(rune(p.Line.Direction)),
 			AmountMinor: p.Line.AmountMinor, Currency: p.Line.Account.Currency,
-		}); err != nil {
+		}
+		if p.Line.Tokens != "" {
+			params.Tokens = toNumeric(decimal.RequireFromString(p.Line.Tokens)) // validated by ValidatePosting
+		}
+		if _, err := q.CreateEntry(ctx, params); err != nil {
 			return PostResult{}, fmt.Errorf("app: writing a line: %w", err)
 		}
 	}
@@ -159,10 +164,16 @@ func replayPosting(ctx context.Context, q *store.Queries, existing store.LedgerT
 			Direction:   domain.Side(r.Direction[0]),
 			AmountMinor: r.AmountMinor,
 		}
+		if r.Tokens.Valid {
+			l.Tokens = toDecimal(r.Tokens).String()
+		}
 		posted[i] = PostedLine{AccountID: r.AccountID, Line: l}
 		stored[l]++
 	}
 	for _, l := range req.Lines {
+		if l.Tokens != "" {
+			l.Tokens = decimal.RequireFromString(l.Tokens).String() // the stored lines' canonical form
+		}
 		stored[l]--
 	}
 	same := domain.TxnType(existing.Type) == req.Type && len(rows) == len(req.Lines)

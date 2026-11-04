@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	gogrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -68,6 +69,33 @@ func (s *Server) PostTransaction(ctx context.Context, req *ledgerv1.PostTransact
 	return out, nil
 }
 
+// PurchaseTokens implements ledgerv1.LedgerServiceServer.
+func (s *Server) PurchaseTokens(ctx context.Context, req *ledgerv1.PurchaseTokensRequest) (*ledgerv1.PurchaseTokensResponse, error) {
+	tenant, err := requiredTenant(req.GetTenantId())
+	if err != nil {
+		return nil, err
+	}
+	tokens, err := parseTokens("tokens", req.GetTokens())
+	if err != nil {
+		return nil, err
+	}
+	createdBy, err := optionalUUID("created_by", req.GetCreatedBy())
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.svc.PurchaseTokens(ctx, app.PurchaseRequest{
+		TenantID: tenant, IdempotencyKey: req.GetIdempotencyKey(), ServiceCode: req.GetServiceCode(),
+		Currency: req.GetCurrency(), Tokens: tokens, CreatedBy: createdBy,
+	})
+	if err != nil {
+		return nil, s.toStatus(err)
+	}
+	return &ledgerv1.PurchaseTokensResponse{
+		TransactionId: res.TransactionID.String(), LotId: res.LotID.String(), TokenPriceId: res.TokenPriceID.String(),
+		MinorPerToken: res.MinorPerToken.String(), CostMinor: res.CostMinor, Replayed: res.Replayed,
+	}, nil
+}
+
 // PlaceHold implements ledgerv1.LedgerServiceServer.
 func (s *Server) PlaceHold(ctx context.Context, req *ledgerv1.PlaceHoldRequest) (*ledgerv1.PlaceHoldResponse, error) {
 	tenant, err := requiredTenant(req.GetTenantId())
@@ -78,9 +106,14 @@ func (s *Server) PlaceHold(ctx context.Context, req *ledgerv1.PlaceHoldRequest) 
 	if err != nil {
 		return nil, err
 	}
+	tokens, err := optionalTokens("tokens", req.GetTokens())
+	if err != nil {
+		return nil, err
+	}
 	res, err := s.svc.PlaceHold(ctx, app.HoldRequest{
 		TenantID: tenant, Account: accountKey(req.GetAccount()), ReferenceType: req.GetReferenceType(),
-		ReferenceID: ref, AmountMinor: req.GetAmountMinor(), ExpiresAt: time.Unix(req.GetExpiresAtUnix(), 0).UTC(),
+		ReferenceID: ref, AmountMinor: req.GetAmountMinor(), Tokens: tokens,
+		ExpiresAt: time.Unix(req.GetExpiresAtUnix(), 0).UTC(),
 	})
 	if err != nil {
 		return nil, s.toStatus(err)
@@ -98,7 +131,14 @@ func (s *Server) CaptureHold(ctx context.Context, req *ledgerv1.CaptureHoldReque
 	if err != nil {
 		return nil, err
 	}
-	capture := app.CaptureRequest{TenantID: tenant, ReferenceType: req.GetReferenceType(), ReferenceID: ref, CapturedMinor: req.GetCapturedMinor()}
+	capturedTokens, err := optionalTokens("captured_tokens", req.GetCapturedTokens())
+	if err != nil {
+		return nil, err
+	}
+	capture := app.CaptureRequest{
+		TenantID: tenant, ReferenceType: req.GetReferenceType(), ReferenceID: ref,
+		CapturedMinor: req.GetCapturedMinor(), CapturedTokens: capturedTokens,
+	}
 	if req.GetPosting() != nil {
 		p, err := postRequest(&tenant, req.GetPosting())
 		if err != nil {
@@ -142,10 +182,14 @@ func (s *Server) GetBalances(ctx context.Context, req *ledgerv1.GetBalancesReque
 	}
 	out := &ledgerv1.GetBalancesResponse{}
 	for _, b := range bals {
-		out.Accounts = append(out.Accounts, &ledgerv1.AccountBalance{
+		ab := &ledgerv1.AccountBalance{
 			AccountId: b.AccountID.String(), Account: accountRef(b.Account), Status: b.Status,
 			BalanceMinor: b.BalanceMinor, HeldMinor: b.HeldMinor, AvailableMinor: b.AvailableMinor,
-		})
+		}
+		if b.Account.Type == domain.ServiceWallet {
+			ab.TokensRemaining, ab.HeldTokens, ab.TokensAvailable = b.TokensRemaining.String(), b.HeldTokens.String(), b.TokensAvailable.String()
+		}
+		out.Accounts = append(out.Accounts, ab)
 	}
 	return out, nil
 }
@@ -169,6 +213,8 @@ func (s *Server) toStatus(err error) error {
 		return withCode(codes.FailedPrecondition, problem.BAL4003, err.Error())
 	case errors.Is(err, domain.ErrAllocationFinal):
 		return withCode(codes.InvalidArgument, problem.BAL4004, err.Error())
+	case errors.Is(err, app.ErrNoPrice):
+		return withCode(codes.FailedPrecondition, problem.BAL4005, err.Error())
 	}
 	s.log.Error("ledger: request failed", "error", err)
 	return withCode(codes.Internal, problem.SYS9000, "internal error")
@@ -217,6 +263,23 @@ func optionalUUID(field, s string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+// parseTokens reads a required decimal token quantity.
+func parseTokens(field, s string) (decimal.Decimal, error) {
+	d, err := domain.ParseTokens(s)
+	if err != nil {
+		return decimal.Zero, invalid(field + " must be a positive decimal with at most 6 places")
+	}
+	return d, nil
+}
+
+// optionalTokens: empty means none.
+func optionalTokens(field, s string) (decimal.Decimal, error) {
+	if s == "" {
+		return decimal.Zero, nil
+	}
+	return parseTokens(field, s)
+}
+
 func postRequest(tenant *uuid.UUID, p *ledgerv1.Posting) (app.PostRequest, error) {
 	refID, err := optionalUUID("reference_id", p.GetReferenceId())
 	if err != nil {
@@ -257,6 +320,12 @@ func holdMessage(h app.HoldView) *ledgerv1.Hold {
 	}
 	if h.TransactionID != nil {
 		m.TransactionId = h.TransactionID.String()
+	}
+	if !h.Tokens.IsZero() {
+		m.Tokens = h.Tokens.String()
+		if !h.CapturedTokens.IsZero() {
+			m.CapturedTokens = h.CapturedTokens.String()
+		}
 	}
 	return m
 }

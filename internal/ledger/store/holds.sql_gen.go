@@ -17,7 +17,7 @@ const createHold = `-- name: CreateHold :one
 INSERT INTO ledger.holds
   (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor
+RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens
 `
 
 type CreateHoldParams struct {
@@ -58,12 +58,13 @@ func (q *Queries) CreateHold(ctx context.Context, arg CreateHoldParams) (LedgerH
 		&i.ExpiresAt,
 		&i.SettledAt,
 		&i.CapturedMinor,
+		&i.CapturedTokens,
 	)
 	return i, err
 }
 
 const getHoldByReference = `-- name: GetHoldByReference :one
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
 `
 
 type GetHoldByReferenceParams struct {
@@ -87,12 +88,13 @@ func (q *Queries) GetHoldByReference(ctx context.Context, arg GetHoldByReference
 		&i.ExpiresAt,
 		&i.SettledAt,
 		&i.CapturedMinor,
+		&i.CapturedTokens,
 	)
 	return i, err
 }
 
 const listHoldsByAccount = `-- name: ListHoldsByAccount :many
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) ([]LedgerHold, error) {
@@ -117,6 +119,7 @@ func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) (
 			&i.ExpiresAt,
 			&i.SettledAt,
 			&i.CapturedMinor,
+			&i.CapturedTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -129,7 +132,7 @@ func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) (
 }
 
 const lockHoldByReference = `-- name: LockHoldByReference :one
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2 FOR UPDATE
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2 FOR UPDATE
 `
 
 type LockHoldByReferenceParams struct {
@@ -153,21 +156,23 @@ func (q *Queries) LockHoldByReference(ctx context.Context, arg LockHoldByReferen
 		&i.ExpiresAt,
 		&i.SettledAt,
 		&i.CapturedMinor,
+		&i.CapturedTokens,
 	)
 	return i, err
 }
 
 const updateHoldState = `-- name: UpdateHoldState :exec
 UPDATE ledger.holds
-SET status = $2, captured_minor = $3, settled_at = $4
+SET status = $2, captured_minor = $3, captured_tokens = $4, settled_at = $5
 WHERE id = $1
 `
 
 type UpdateHoldStateParams struct {
-	ID            uuid.UUID          `json:"id"`
-	Status        string             `json:"status"`
-	CapturedMinor pgtype.Int8        `json:"captured_minor"`
-	SettledAt     pgtype.Timestamptz `json:"settled_at"`
+	ID             uuid.UUID          `json:"id"`
+	Status         string             `json:"status"`
+	CapturedMinor  pgtype.Int8        `json:"captured_minor"`
+	CapturedTokens pgtype.Numeric     `json:"captured_tokens"`
+	SettledAt      pgtype.Timestamptz `json:"settled_at"`
 }
 
 func (q *Queries) UpdateHoldState(ctx context.Context, arg UpdateHoldStateParams) error {
@@ -175,6 +180,7 @@ func (q *Queries) UpdateHoldState(ctx context.Context, arg UpdateHoldStateParams
 		arg.ID,
 		arg.Status,
 		arg.CapturedMinor,
+		arg.CapturedTokens,
 		arg.SettledAt,
 	)
 	return err

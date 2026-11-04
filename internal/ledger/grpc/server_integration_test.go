@@ -40,6 +40,12 @@ func newClient(t *testing.T) ledgerv1.LedgerServiceClient {
 	}
 	t.Cleanup(pool.Close)
 	svc := app.New(app.Deps{Pool: pool, Clock: testkit.NewClock(now)})
+	// The SMS list price, KES 0.80 (staff entry is 3.4b's API).
+	if _, err := pg.Pool.Exec(ctx, `
+		INSERT INTO ledger.token_prices (id, service_code, currency, minor_per_token, status, effective_from, created_by, approved_by)
+		VALUES ($1, 'sms', 'KES', 80, 'active', '2026-01-01', $2, $3)`, uuid.New(), uuid.New(), uuid.New()); err != nil {
+		t.Fatal(err)
+	}
 
 	lis := bufconn.Listen(1 << 20)
 	srv := gogrpc.NewServer()
@@ -110,19 +116,20 @@ func TestLedgerService_PostHoldCaptureRelease(t *testing.T) {
 	if err != nil || !again.GetReplayed() || again.GetTransactionId() != res.GetTransactionId() {
 		t.Fatalf("replay: %+v, %v", again, err)
 	}
-	if _, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
-		Posting: posting("token_purchase", line(mainKES, "D", 800000), line(smsKES, "C", 800000))}); err != nil {
-		t.Fatal(err)
+	bought, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
+		ServiceCode: "sms", Currency: "KES", Tokens: "10000"})
+	if err != nil || bought.GetCostMinor() != 800000 || bought.GetMinorPerToken() != "80" || bought.GetLotId() == "" {
+		t.Fatalf("purchase: %+v, %v", bought, err)
 	}
 
 	ref := uuid.NewString()
 	hold, err := client.PlaceHold(ctx, &ledgerv1.PlaceHoldRequest{TenantId: tenant, Account: smsKES,
-		ReferenceType: "campaign", ReferenceId: ref, AmountMinor: 32000, ExpiresAtUnix: now.Add(time.Hour).Unix()})
-	if err != nil || hold.GetHold().GetStatus() != "active" {
+		ReferenceType: "campaign", ReferenceId: ref, Tokens: "400", ExpiresAtUnix: now.Add(time.Hour).Unix()})
+	if err != nil || hold.GetHold().GetStatus() != "active" || hold.GetHold().GetTokens() != "400" || hold.GetHold().GetAmountMinor() != 32000 {
 		t.Fatalf("hold: %+v, %v", hold, err)
 	}
-	captured, err := client.CaptureHold(ctx, &ledgerv1.CaptureHoldRequest{TenantId: tenant, ReferenceType: "campaign", ReferenceId: ref, CapturedMinor: 30400})
-	if err != nil || captured.GetHold().GetStatus() != "captured" || captured.GetHold().GetCapturedMinor() != 30400 || captured.GetHold().GetSettled() {
+	captured, err := client.CaptureHold(ctx, &ledgerv1.CaptureHoldRequest{TenantId: tenant, ReferenceType: "campaign", ReferenceId: ref, CapturedTokens: "380"})
+	if err != nil || captured.GetHold().GetStatus() != "captured" || captured.GetHold().GetCapturedTokens() != "380" || captured.GetHold().GetSettled() {
 		t.Fatalf("capture: %+v, %v", captured, err)
 	}
 
@@ -136,13 +143,13 @@ func TestLedgerService_PostHoldCaptureRelease(t *testing.T) {
 			sms = b
 		}
 	}
-	if sms == nil || sms.GetBalanceMinor() != 800000 || sms.GetHeldMinor() != 30400 || sms.GetAvailableMinor() != 769600 {
+	if sms == nil || sms.GetBalanceMinor() != 800000 || sms.GetHeldTokens() != "380" || sms.GetTokensAvailable() != "9620" || sms.GetTokensRemaining() != "10000" {
 		t.Fatalf("SMS wallet %+v", sms)
 	}
 
 	other := uuid.NewString()
 	if _, err := client.PlaceHold(ctx, &ledgerv1.PlaceHoldRequest{TenantId: tenant, Account: smsKES,
-		ReferenceType: "campaign", ReferenceId: other, AmountMinor: 100, ExpiresAtUnix: now.Add(time.Hour).Unix()}); err != nil {
+		ReferenceType: "campaign", ReferenceId: other, Tokens: "1.5", ExpiresAtUnix: now.Add(time.Hour).Unix()}); err != nil {
 		t.Fatal(err)
 	}
 	released, err := client.ReleaseHold(ctx, &ledgerv1.ReleaseHoldRequest{TenantId: tenant, ReferenceType: "campaign", ReferenceId: other})
@@ -174,13 +181,29 @@ func TestLedgerService_Errors(t *testing.T) {
 		reason string
 	}{
 		{"insufficient balance", func() error {
-			_, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
-				Posting: posting("token_purchase", line(mainKES, "D", 1001), line(smsKES, "C", 1001))})
+			_, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
+				ServiceCode: "sms", Currency: "KES", Tokens: "13"}) // 10.40 against 10.00
 			return err
 		}, codes.FailedPrecondition, "BAL-4001"},
-		{"allocation is final", func() error {
+		{"no price for the service", func() error {
+			_, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
+				ServiceCode: "whatsapp", Currency: "KES", Tokens: "1"})
+			return err
+		}, codes.FailedPrecondition, "BAL-4005"},
+		{"tokens that aren't a decimal", func() error {
+			_, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
+				ServiceCode: "sms", Currency: "KES", Tokens: "1e3"})
+			return err
+		}, codes.InvalidArgument, "VAL-4000"},
+		{"a service wallet moves only through tokens", func() error {
 			_, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
-				Posting: posting("refund", line(smsKES, "D", 1), line(mainKES, "C", 1))})
+				Posting: posting("token_purchase", line(mainKES, "D", 1), line(smsKES, "C", 1))})
+			return err
+		}, codes.InvalidArgument, "VAL-4000"},
+		{"allocation is final", func() error {
+			bonus := &ledgerv1.AccountRef{Type: "bonus", Currency: "KES"}
+			_, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
+				Posting: posting("refund", line(bonus, "D", 1), line(mainKES, "C", 1))})
 			return err
 		}, codes.InvalidArgument, "BAL-4004"},
 		{"key reused for another posting", func() error {

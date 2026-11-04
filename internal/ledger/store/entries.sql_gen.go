@@ -89,7 +89,7 @@ func (q *Queries) ListEntriesByTransaction(ctx context.Context, transactionID uu
 }
 
 const listPostedLines = `-- name: ListPostedLines :many
-SELECT e.id, e.account_id, e.direction, e.amount_minor, e.currency,
+SELECT e.id, e.account_id, e.direction, e.amount_minor, e.currency, e.tokens,
        a.type, a.service_code, a.rail
 FROM ledger.entries e
 JOIN ledger.accounts a ON a.id = e.account_id
@@ -103,6 +103,7 @@ type ListPostedLinesRow struct {
 	Direction   string            `json:"direction"`
 	AmountMinor int64             `json:"amount_minor"`
 	Currency    string            `json:"currency"`
+	Tokens      pgtype.Numeric    `json:"tokens"`
 	Type        LedgerAccountType `json:"type"`
 	ServiceCode pgtype.Text       `json:"service_code"`
 	Rail        pgtype.Text       `json:"rail"`
@@ -125,6 +126,7 @@ func (q *Queries) ListPostedLines(ctx context.Context, transactionID uuid.UUID) 
 			&i.Direction,
 			&i.AmountMinor,
 			&i.Currency,
+			&i.Tokens,
 			&i.Type,
 			&i.ServiceCode,
 			&i.Rail,

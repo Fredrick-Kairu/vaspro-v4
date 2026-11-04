@@ -99,38 +99,42 @@ func TestPost_Refusals(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	tenant := uuid.New()
-	fundSMS(t, h, tenant, 100000)
 	topUp(t, h, tenant, 50000)
 
 	t.Run("spending more than the wallet holds", func(t *testing.T) {
-		_, err := h.svc.Post(ctx, post(tenant, domain.TxnTokenPurchase, d(mainKES, 50001), c(smsKES, 50001)))
+		_, err := h.svc.Post(ctx, post(tenant, domain.TxnAdjustment, d(mainKES, 50001), c(revenueKES, 50001)))
 		wantErr(t, err, app.ErrInsufficientBalance)
 	})
 
 	t.Run("spending held money", func(t *testing.T) {
 		if _, err := h.svc.PlaceHold(ctx, app.HoldRequest{
-			TenantID: tenant, Account: smsKES, ReferenceType: "campaign", ReferenceID: uuid.New(),
-			AmountMinor: 60000, ExpiresAt: testNow.Add(time.Hour),
+			TenantID: tenant, Account: mainKES, ReferenceType: "payout", ReferenceID: uuid.New(),
+			AmountMinor: 30000, ExpiresAt: testNow.Add(time.Hour),
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, err := h.svc.Post(ctx, post(tenant, domain.TxnUsage, d(smsKES, 40001), c(revenueKES, 40001)))
+		_, err := h.svc.Post(ctx, post(tenant, domain.TxnAdjustment, d(mainKES, 20001), c(revenueKES, 20001)))
 		wantErr(t, err, app.ErrInsufficientBalance)
-		if _, err := h.svc.Post(ctx, post(tenant, domain.TxnUsage, d(smsKES, 40000), c(revenueKES, 40000))); err != nil {
+		if _, err := h.svc.Post(ctx, post(tenant, domain.TxnAdjustment, d(mainKES, 20000), c(revenueKES, 20000))); err != nil {
 			t.Fatalf("spending exactly the unheld part: %v", err)
 		}
 	})
 
-	t.Run("allocation is final", func(t *testing.T) {
-		_, err := h.svc.Post(ctx, post(tenant, domain.TxnRefund, d(smsKES, 1), c(mainKES, 1)))
-		wantErr(t, err, domain.ErrAllocationFinal)
+	t.Run("a service wallet moves only through tokens", func(t *testing.T) {
+		_, err := h.svc.Post(ctx, post(tenant, domain.TxnTokenPurchase, d(mainKES, 1), c(smsKES, 1)))
+		wantErr(t, err, app.ErrValidation)
 	})
 
-	t.Run("a reversal may move a service wallet back", func(t *testing.T) {
+	bonusKES := domain.AccountKey{Type: domain.Bonus, Currency: "KES"}
+	t.Run("allocation is final", func(t *testing.T) {
 		tenant := uuid.New()
-		fundSMS(t, h, tenant, 1000)
-		if _, err := h.svc.Post(ctx, post(tenant, domain.TxnReversal, d(smsKES, 1000), c(mainKES, 1000))); err != nil {
+		if _, err := h.svc.Post(ctx, post(tenant, domain.TxnBonusGrant, d(mpesaKES, 100), c(bonusKES, 100))); err != nil {
 			t.Fatal(err)
+		}
+		_, err := h.svc.Post(ctx, post(tenant, domain.TxnRefund, d(bonusKES, 1), c(mainKES, 1)))
+		wantErr(t, err, domain.ErrAllocationFinal)
+		if _, err := h.svc.Post(ctx, post(tenant, domain.TxnReversal, d(bonusKES, 100), c(mainKES, 100))); err != nil {
+			t.Fatalf("a reversal may move it back: %v", err)
 		}
 	})
 
@@ -181,9 +185,9 @@ func TestPost_Refusals(t *testing.T) {
 	})
 
 	t.Run("refusals write nothing", func(t *testing.T) {
-		// Top-up, purchase, top-up, and the one spend of unheld money.
-		if n := count(t, h, `SELECT count(*) FROM transactions WHERE tenant_id = $1`, tenant); n != 4 {
-			t.Fatalf("%d transactions for the tenant, want 4", n)
+		// The top-up and the one spend of unheld money.
+		if n := count(t, h, `SELECT count(*) FROM transactions WHERE tenant_id = $1`, tenant); n != 2 {
+			t.Fatalf("%d transactions for the tenant, want 2", n)
 		}
 	})
 }
@@ -287,12 +291,10 @@ func TestGetBalances_WorkedExample(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	tenant := uuid.New()
+	seedPrice(t, h, &tenant, "sms", "KES", "0", "80", jan1, nil)
 
 	topUp(t, h, tenant, 1300000)
-	if _, err := h.svc.Post(ctx, post(tenant, domain.TxnTokenPurchase, d(mainKES, 800000), c(smsKES, 800000))); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.svc.Post(ctx, post(tenant, domain.TxnUsage, d(smsKES, 30400), c(revenueKES, 26207), c(vatKES, 4193))); err != nil {
+	if _, err := h.svc.PurchaseTokens(ctx, purchase(tenant, "sms", "KES", "10000")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,7 +302,7 @@ func TestGetBalances_WorkedExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[domain.AccountKey]int64{mainKES: 500000, smsKES: 769600}
+	want := map[domain.AccountKey]int64{mainKES: 500000, smsKES: 800000}
 	if len(bals) != len(want) {
 		t.Fatalf("tenant has %d accounts, want %d", len(bals), len(want))
 	}
@@ -308,11 +310,12 @@ func TestGetBalances_WorkedExample(t *testing.T) {
 		if b.BalanceMinor != want[b.Account] || b.AvailableMinor != want[b.Account] || b.Status != "open" {
 			t.Errorf("%+v, want balance %d", b, want[b.Account])
 		}
-	}
-	for key, w := range map[domain.AccountKey]int64{mpesaKES: 1300000, revenueKES: 26207, vatKES: 4193} {
-		if got := systemBalance(t, h, key); got != w {
-			t.Errorf("VASPRO %+v = %d, want %d", key, got, w)
+		if b.Account == smsKES && (!b.TokensRemaining.Equal(tok("10000")) || !b.TokensAvailable.Equal(tok("10000")) || !b.HeldTokens.IsZero()) {
+			t.Errorf("SMS tokens: %s left, %s held, %s available; want 10000, 0, 10000", b.TokensRemaining, b.HeldTokens, b.TokensAvailable)
 		}
+	}
+	if got := systemBalance(t, h, mpesaKES); got != 1300000 {
+		t.Errorf("M-Pesa clearing = %d, want 1300000", got)
 	}
 
 	t.Run("another tenant sees none of it", func(t *testing.T) {

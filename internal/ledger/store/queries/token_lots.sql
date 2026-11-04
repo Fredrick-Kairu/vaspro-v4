@@ -6,3 +6,23 @@ RETURNING *;
 
 -- name: GetTokenLot :one
 SELECT * FROM ledger.token_lots WHERE id = $1;
+
+-- name: ListOpenLots :many
+-- A service wallet's open lots, oldest first: the order FIFO use draws
+-- them in. Callers hold the wallet's balance row lock, under which
+-- every change to its lots happens.
+SELECT * FROM ledger.token_lots
+WHERE account_id = $1 AND tokens_remaining > 0
+ORDER BY purchased_at, id;
+
+-- name: LockOpenLots :many
+SELECT * FROM ledger.token_lots
+WHERE account_id = $1 AND tokens_remaining > 0
+ORDER BY purchased_at, id
+FOR UPDATE;
+
+-- name: DrawFromLot :exec
+UPDATE ledger.token_lots SET tokens_remaining = tokens_remaining - @tokens WHERE id = @id;
+
+-- name: GetLotByTransaction :one
+SELECT * FROM ledger.token_lots WHERE transaction_id = $1;

@@ -425,21 +425,190 @@ func (x *PostTransactionResponse) GetReplayed() bool {
 	return false
 }
 
+type PurchaseTokensRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	ServiceCode    string                 `protobuf:"bytes,3,opt,name=service_code,json=serviceCode,proto3" json:"service_code,omitempty"` // e.g. sms
+	Currency       string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                          // the main wallet paying, and the service wallet's currency
+	Tokens         string                 `protobuf:"bytes,5,opt,name=tokens,proto3" json:"tokens,omitempty"`                              // decimal, up to 6 places, e.g. "10000" or "2.5"
+	CreatedBy      string                 `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`       // optional UUID
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PurchaseTokensRequest) Reset() {
+	*x = PurchaseTokensRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PurchaseTokensRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PurchaseTokensRequest) ProtoMessage() {}
+
+func (x *PurchaseTokensRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PurchaseTokensRequest.ProtoReflect.Descriptor instead.
+func (*PurchaseTokensRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PurchaseTokensRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *PurchaseTokensRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *PurchaseTokensRequest) GetServiceCode() string {
+	if x != nil {
+		return x.ServiceCode
+	}
+	return ""
+}
+
+func (x *PurchaseTokensRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *PurchaseTokensRequest) GetTokens() string {
+	if x != nil {
+		return x.Tokens
+	}
+	return ""
+}
+
+func (x *PurchaseTokensRequest) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+type PurchaseTokensResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	LotId         string                 `protobuf:"bytes,2,opt,name=lot_id,json=lotId,proto3" json:"lot_id,omitempty"`
+	TokenPriceId  string                 `protobuf:"bytes,3,opt,name=token_price_id,json=tokenPriceId,proto3" json:"token_price_id,omitempty"`    // the list, tier or deal row used
+	MinorPerToken string                 `protobuf:"bytes,4,opt,name=minor_per_token,json=minorPerToken,proto3" json:"minor_per_token,omitempty"` // decimal, the price locked in the lot
+	CostMinor     int64                  `protobuf:"varint,5,opt,name=cost_minor,json=costMinor,proto3" json:"cost_minor,omitempty"`
+	Replayed      bool                   `protobuf:"varint,6,opt,name=replayed,proto3" json:"replayed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PurchaseTokensResponse) Reset() {
+	*x = PurchaseTokensResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PurchaseTokensResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PurchaseTokensResponse) ProtoMessage() {}
+
+func (x *PurchaseTokensResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PurchaseTokensResponse.ProtoReflect.Descriptor instead.
+func (*PurchaseTokensResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PurchaseTokensResponse) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *PurchaseTokensResponse) GetLotId() string {
+	if x != nil {
+		return x.LotId
+	}
+	return ""
+}
+
+func (x *PurchaseTokensResponse) GetTokenPriceId() string {
+	if x != nil {
+		return x.TokenPriceId
+	}
+	return ""
+}
+
+func (x *PurchaseTokensResponse) GetMinorPerToken() string {
+	if x != nil {
+		return x.MinorPerToken
+	}
+	return ""
+}
+
+func (x *PurchaseTokensResponse) GetCostMinor() int64 {
+	if x != nil {
+		return x.CostMinor
+	}
+	return 0
+}
+
+func (x *PurchaseTokensResponse) GetReplayed() bool {
+	if x != nil {
+		return x.Replayed
+	}
+	return false
+}
+
 type PlaceHoldRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	Account       *AccountRef            `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
-	ReferenceType string                 `protobuf:"bytes,3,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"` // message_request, campaign, payout, ussd_session
-	ReferenceId   string                 `protobuf:"bytes,4,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`       // UUID
-	AmountMinor   int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	ReferenceType string                 `protobuf:"bytes,3,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`    // message_request, campaign, payout, ussd_session
+	ReferenceId   string                 `protobuf:"bytes,4,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`          // UUID
+	AmountMinor   int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`         // a main or bonus wallet hold
 	ExpiresAtUnix int64                  `protobuf:"varint,6,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"` // seconds since the epoch, in the future
+	Tokens        string                 `protobuf:"bytes,7,opt,name=tokens,proto3" json:"tokens,omitempty"`                                       // a service wallet hold, decimal
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PlaceHoldRequest) Reset() {
 	*x = PlaceHoldRequest{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -451,7 +620,7 @@ func (x *PlaceHoldRequest) String() string {
 func (*PlaceHoldRequest) ProtoMessage() {}
 
 func (x *PlaceHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -464,7 +633,7 @@ func (x *PlaceHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceHoldRequest.ProtoReflect.Descriptor instead.
 func (*PlaceHoldRequest) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{6}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PlaceHoldRequest) GetTenantId() string {
@@ -509,20 +678,28 @@ func (x *PlaceHoldRequest) GetExpiresAtUnix() int64 {
 	return 0
 }
 
+func (x *PlaceHoldRequest) GetTokens() string {
+	if x != nil {
+		return x.Tokens
+	}
+	return ""
+}
+
 type CaptureHoldRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	ReferenceType string                 `protobuf:"bytes,2,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`
-	ReferenceId   string                 `protobuf:"bytes,3,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
-	CapturedMinor int64                  `protobuf:"varint,4,opt,name=captured_minor,json=capturedMinor,proto3" json:"captured_minor,omitempty"` // 1 to the hold's amount
-	Posting       *Posting               `protobuf:"bytes,5,opt,name=posting,proto3" json:"posting,omitempty"`                                   // optional; see CaptureHold
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ReferenceType  string                 `protobuf:"bytes,2,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`
+	ReferenceId    string                 `protobuf:"bytes,3,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
+	CapturedMinor  int64                  `protobuf:"varint,4,opt,name=captured_minor,json=capturedMinor,proto3" json:"captured_minor,omitempty"`   // a money hold: 1 to the hold's amount
+	Posting        *Posting               `protobuf:"bytes,5,opt,name=posting,proto3" json:"posting,omitempty"`                                     // optional, money holds only; see CaptureHold
+	CapturedTokens string                 `protobuf:"bytes,6,opt,name=captured_tokens,json=capturedTokens,proto3" json:"captured_tokens,omitempty"` // a token hold: decimal, up to the hold's tokens
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CaptureHoldRequest) Reset() {
 	*x = CaptureHoldRequest{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -534,7 +711,7 @@ func (x *CaptureHoldRequest) String() string {
 func (*CaptureHoldRequest) ProtoMessage() {}
 
 func (x *CaptureHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -547,7 +724,7 @@ func (x *CaptureHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureHoldRequest.ProtoReflect.Descriptor instead.
 func (*CaptureHoldRequest) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{7}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CaptureHoldRequest) GetTenantId() string {
@@ -585,6 +762,13 @@ func (x *CaptureHoldRequest) GetPosting() *Posting {
 	return nil
 }
 
+func (x *CaptureHoldRequest) GetCapturedTokens() string {
+	if x != nil {
+		return x.CapturedTokens
+	}
+	return ""
+}
+
 type ReleaseHoldRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -596,7 +780,7 @@ type ReleaseHoldRequest struct {
 
 func (x *ReleaseHoldRequest) Reset() {
 	*x = ReleaseHoldRequest{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -608,7 +792,7 @@ func (x *ReleaseHoldRequest) String() string {
 func (*ReleaseHoldRequest) ProtoMessage() {}
 
 func (x *ReleaseHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -621,7 +805,7 @@ func (x *ReleaseHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseHoldRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseHoldRequest) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{8}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReleaseHoldRequest) GetTenantId() string {
@@ -646,23 +830,25 @@ func (x *ReleaseHoldRequest) GetReferenceId() string {
 }
 
 type Hold struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	HoldId        string                 `protobuf:"bytes,1,opt,name=hold_id,json=holdId,proto3" json:"hold_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	ReferenceType string                 `protobuf:"bytes,3,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`
-	ReferenceId   string                 `protobuf:"bytes,4,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
-	AmountMinor   int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
-	CapturedMinor int64                  `protobuf:"varint,6,opt,name=captured_minor,json=capturedMinor,proto3" json:"captured_minor,omitempty"` // 0 unless captured
-	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`                                     // active, captured, released, expired
-	Settled       bool                   `protobuf:"varint,8,opt,name=settled,proto3" json:"settled,omitempty"`
-	TransactionId string                 `protobuf:"bytes,9,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // the capture's posting, if it carried one
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	HoldId         string                 `protobuf:"bytes,1,opt,name=hold_id,json=holdId,proto3" json:"hold_id,omitempty"`
+	AccountId      string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	ReferenceType  string                 `protobuf:"bytes,3,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`
+	ReferenceId    string                 `protobuf:"bytes,4,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
+	AmountMinor    int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	CapturedMinor  int64                  `protobuf:"varint,6,opt,name=captured_minor,json=capturedMinor,proto3" json:"captured_minor,omitempty"` // 0 unless captured
+	Status         string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`                                     // active, captured, released, expired
+	Settled        bool                   `protobuf:"varint,8,opt,name=settled,proto3" json:"settled,omitempty"`
+	TransactionId  string                 `protobuf:"bytes,9,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // the capture's posting, if it carried one
+	Tokens         string                 `protobuf:"bytes,10,opt,name=tokens,proto3" json:"tokens,omitempty"`                                   // a token hold's tokens; its amounts are estimates
+	CapturedTokens string                 `protobuf:"bytes,11,opt,name=captured_tokens,json=capturedTokens,proto3" json:"captured_tokens,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Hold) Reset() {
 	*x = Hold{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[9]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -674,7 +860,7 @@ func (x *Hold) String() string {
 func (*Hold) ProtoMessage() {}
 
 func (x *Hold) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[9]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -687,7 +873,7 @@ func (x *Hold) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hold.ProtoReflect.Descriptor instead.
 func (*Hold) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{9}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Hold) GetHoldId() string {
@@ -753,6 +939,20 @@ func (x *Hold) GetTransactionId() string {
 	return ""
 }
 
+func (x *Hold) GetTokens() string {
+	if x != nil {
+		return x.Tokens
+	}
+	return ""
+}
+
+func (x *Hold) GetCapturedTokens() string {
+	if x != nil {
+		return x.CapturedTokens
+	}
+	return ""
+}
+
 type PlaceHoldResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Hold          *Hold                  `protobuf:"bytes,1,opt,name=hold,proto3" json:"hold,omitempty"`
@@ -763,7 +963,7 @@ type PlaceHoldResponse struct {
 
 func (x *PlaceHoldResponse) Reset() {
 	*x = PlaceHoldResponse{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[10]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -775,7 +975,7 @@ func (x *PlaceHoldResponse) String() string {
 func (*PlaceHoldResponse) ProtoMessage() {}
 
 func (x *PlaceHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[10]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -788,7 +988,7 @@ func (x *PlaceHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceHoldResponse.ProtoReflect.Descriptor instead.
 func (*PlaceHoldResponse) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{10}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PlaceHoldResponse) GetHold() *Hold {
@@ -815,7 +1015,7 @@ type CaptureHoldResponse struct {
 
 func (x *CaptureHoldResponse) Reset() {
 	*x = CaptureHoldResponse{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[11]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -827,7 +1027,7 @@ func (x *CaptureHoldResponse) String() string {
 func (*CaptureHoldResponse) ProtoMessage() {}
 
 func (x *CaptureHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[11]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -840,7 +1040,7 @@ func (x *CaptureHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureHoldResponse.ProtoReflect.Descriptor instead.
 func (*CaptureHoldResponse) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{11}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CaptureHoldResponse) GetHold() *Hold {
@@ -867,7 +1067,7 @@ type ReleaseHoldResponse struct {
 
 func (x *ReleaseHoldResponse) Reset() {
 	*x = ReleaseHoldResponse{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[12]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -879,7 +1079,7 @@ func (x *ReleaseHoldResponse) String() string {
 func (*ReleaseHoldResponse) ProtoMessage() {}
 
 func (x *ReleaseHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[12]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -892,7 +1092,7 @@ func (x *ReleaseHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseHoldResponse.ProtoReflect.Descriptor instead.
 func (*ReleaseHoldResponse) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{12}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ReleaseHoldResponse) GetHold() *Hold {
@@ -918,7 +1118,7 @@ type GetBalancesRequest struct {
 
 func (x *GetBalancesRequest) Reset() {
 	*x = GetBalancesRequest{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[13]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -930,7 +1130,7 @@ func (x *GetBalancesRequest) String() string {
 func (*GetBalancesRequest) ProtoMessage() {}
 
 func (x *GetBalancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[13]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -943,7 +1143,7 @@ func (x *GetBalancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBalancesRequest.ProtoReflect.Descriptor instead.
 func (*GetBalancesRequest) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{13}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetBalancesRequest) GetTenantId() string {
@@ -954,20 +1154,23 @@ func (x *GetBalancesRequest) GetTenantId() string {
 }
 
 type AccountBalance struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	AccountId      string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Account        *AccountRef            `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
-	Status         string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	BalanceMinor   int64                  `protobuf:"varint,4,opt,name=balance_minor,json=balanceMinor,proto3" json:"balance_minor,omitempty"`
-	HeldMinor      int64                  `protobuf:"varint,5,opt,name=held_minor,json=heldMinor,proto3" json:"held_minor,omitempty"`
-	AvailableMinor int64                  `protobuf:"varint,6,opt,name=available_minor,json=availableMinor,proto3" json:"available_minor,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AccountId       string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Account         *AccountRef            `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	Status          string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	BalanceMinor    int64                  `protobuf:"varint,4,opt,name=balance_minor,json=balanceMinor,proto3" json:"balance_minor,omitempty"`
+	HeldMinor       int64                  `protobuf:"varint,5,opt,name=held_minor,json=heldMinor,proto3" json:"held_minor,omitempty"`
+	AvailableMinor  int64                  `protobuf:"varint,6,opt,name=available_minor,json=availableMinor,proto3" json:"available_minor,omitempty"`
+	TokensRemaining string                 `protobuf:"bytes,7,opt,name=tokens_remaining,json=tokensRemaining,proto3" json:"tokens_remaining,omitempty"` // a service wallet's tokens left in its lots
+	HeldTokens      string                 `protobuf:"bytes,8,opt,name=held_tokens,json=heldTokens,proto3" json:"held_tokens,omitempty"`
+	TokensAvailable string                 `protobuf:"bytes,9,opt,name=tokens_available,json=tokensAvailable,proto3" json:"tokens_available,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AccountBalance) Reset() {
 	*x = AccountBalance{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[14]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1182,7 @@ func (x *AccountBalance) String() string {
 func (*AccountBalance) ProtoMessage() {}
 
 func (x *AccountBalance) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[14]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +1195,7 @@ func (x *AccountBalance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountBalance.ProtoReflect.Descriptor instead.
 func (*AccountBalance) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{14}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AccountBalance) GetAccountId() string {
@@ -1037,6 +1240,27 @@ func (x *AccountBalance) GetAvailableMinor() int64 {
 	return 0
 }
 
+func (x *AccountBalance) GetTokensRemaining() string {
+	if x != nil {
+		return x.TokensRemaining
+	}
+	return ""
+}
+
+func (x *AccountBalance) GetHeldTokens() string {
+	if x != nil {
+		return x.HeldTokens
+	}
+	return ""
+}
+
+func (x *AccountBalance) GetTokensAvailable() string {
+	if x != nil {
+		return x.TokensAvailable
+	}
+	return ""
+}
+
 type GetBalancesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Accounts      []*AccountBalance      `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
@@ -1046,7 +1270,7 @@ type GetBalancesResponse struct {
 
 func (x *GetBalancesResponse) Reset() {
 	*x = GetBalancesResponse{}
-	mi := &file_ledger_v1_ledger_proto_msgTypes[15]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1282,7 @@ func (x *GetBalancesResponse) String() string {
 func (*GetBalancesResponse) ProtoMessage() {}
 
 func (x *GetBalancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ledger_v1_ledger_proto_msgTypes[15]
+	mi := &file_ledger_v1_ledger_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1295,7 @@ func (x *GetBalancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBalancesResponse.ProtoReflect.Descriptor instead.
 func (*GetBalancesResponse) Descriptor() ([]byte, []int) {
-	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{15}
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetBalancesResponse) GetAccounts() []*AccountBalance {
@@ -1118,24 +1342,42 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\x17PostTransactionResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12+\n" +
 	"\x05lines\x18\x02 \x03(\v2\x15.ledger.v1.PostedLineR\x05lines\x12\x1a\n" +
-	"\breplayed\x18\x03 \x01(\bR\breplayed\"\xf5\x01\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\xd3\x01\n" +
+	"\x15PurchaseTokensRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12!\n" +
+	"\fservice_code\x18\x03 \x01(\tR\vserviceCode\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12\x16\n" +
+	"\x06tokens\x18\x05 \x01(\tR\x06tokens\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\x06 \x01(\tR\tcreatedBy\"\xdf\x01\n" +
+	"\x16PurchaseTokensResponse\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x15\n" +
+	"\x06lot_id\x18\x02 \x01(\tR\x05lotId\x12$\n" +
+	"\x0etoken_price_id\x18\x03 \x01(\tR\ftokenPriceId\x12&\n" +
+	"\x0fminor_per_token\x18\x04 \x01(\tR\rminorPerToken\x12\x1d\n" +
+	"\n" +
+	"cost_minor\x18\x05 \x01(\x03R\tcostMinor\x12\x1a\n" +
+	"\breplayed\x18\x06 \x01(\bR\breplayed\"\x8d\x02\n" +
 	"\x10PlaceHoldRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12/\n" +
 	"\aaccount\x18\x02 \x01(\v2\x15.ledger.v1.AccountRefR\aaccount\x12%\n" +
 	"\x0ereference_type\x18\x03 \x01(\tR\rreferenceType\x12!\n" +
 	"\freference_id\x18\x04 \x01(\tR\vreferenceId\x12!\n" +
 	"\famount_minor\x18\x05 \x01(\x03R\vamountMinor\x12&\n" +
-	"\x0fexpires_at_unix\x18\x06 \x01(\x03R\rexpiresAtUnix\"\xd0\x01\n" +
+	"\x0fexpires_at_unix\x18\x06 \x01(\x03R\rexpiresAtUnix\x12\x16\n" +
+	"\x06tokens\x18\a \x01(\tR\x06tokens\"\xf9\x01\n" +
 	"\x12CaptureHoldRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12%\n" +
 	"\x0ereference_type\x18\x02 \x01(\tR\rreferenceType\x12!\n" +
 	"\freference_id\x18\x03 \x01(\tR\vreferenceId\x12%\n" +
 	"\x0ecaptured_minor\x18\x04 \x01(\x03R\rcapturedMinor\x12,\n" +
-	"\aposting\x18\x05 \x01(\v2\x12.ledger.v1.PostingR\aposting\"{\n" +
+	"\aposting\x18\x05 \x01(\v2\x12.ledger.v1.PostingR\aposting\x12'\n" +
+	"\x0fcaptured_tokens\x18\x06 \x01(\tR\x0ecapturedTokens\"{\n" +
 	"\x12ReleaseHoldRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12%\n" +
 	"\x0ereference_type\x18\x02 \x01(\tR\rreferenceType\x12!\n" +
-	"\freference_id\x18\x03 \x01(\tR\vreferenceId\"\xab\x02\n" +
+	"\freference_id\x18\x03 \x01(\tR\vreferenceId\"\xec\x02\n" +
 	"\x04Hold\x12\x17\n" +
 	"\ahold_id\x18\x01 \x01(\tR\x06holdId\x12\x1d\n" +
 	"\n" +
@@ -1146,7 +1388,10 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\x0ecaptured_minor\x18\x06 \x01(\x03R\rcapturedMinor\x12\x16\n" +
 	"\x06status\x18\a \x01(\tR\x06status\x12\x18\n" +
 	"\asettled\x18\b \x01(\bR\asettled\x12%\n" +
-	"\x0etransaction_id\x18\t \x01(\tR\rtransactionId\"T\n" +
+	"\x0etransaction_id\x18\t \x01(\tR\rtransactionId\x12\x16\n" +
+	"\x06tokens\x18\n" +
+	" \x01(\tR\x06tokens\x12'\n" +
+	"\x0fcaptured_tokens\x18\v \x01(\tR\x0ecapturedTokens\"T\n" +
 	"\x11PlaceHoldResponse\x12#\n" +
 	"\x04hold\x18\x01 \x01(\v2\x0f.ledger.v1.HoldR\x04hold\x12\x1a\n" +
 	"\breplayed\x18\x02 \x01(\bR\breplayed\"V\n" +
@@ -1157,7 +1402,7 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\x04hold\x18\x01 \x01(\v2\x0f.ledger.v1.HoldR\x04hold\x12\x1a\n" +
 	"\breplayed\x18\x02 \x01(\bR\breplayed\"1\n" +
 	"\x12GetBalancesRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"\xe5\x01\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"\xdc\x02\n" +
 	"\x0eAccountBalance\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12/\n" +
@@ -1166,11 +1411,16 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\rbalance_minor\x18\x04 \x01(\x03R\fbalanceMinor\x12\x1d\n" +
 	"\n" +
 	"held_minor\x18\x05 \x01(\x03R\theldMinor\x12'\n" +
-	"\x0favailable_minor\x18\x06 \x01(\x03R\x0eavailableMinor\"L\n" +
+	"\x0favailable_minor\x18\x06 \x01(\x03R\x0eavailableMinor\x12)\n" +
+	"\x10tokens_remaining\x18\a \x01(\tR\x0ftokensRemaining\x12\x1f\n" +
+	"\vheld_tokens\x18\b \x01(\tR\n" +
+	"heldTokens\x12)\n" +
+	"\x10tokens_available\x18\t \x01(\tR\x0ftokensAvailable\"L\n" +
 	"\x13GetBalancesResponse\x125\n" +
-	"\baccounts\x18\x01 \x03(\v2\x19.ledger.v1.AccountBalanceR\baccounts2\x9b\x03\n" +
+	"\baccounts\x18\x01 \x03(\v2\x19.ledger.v1.AccountBalanceR\baccounts2\xf2\x03\n" +
 	"\rLedgerService\x12X\n" +
-	"\x0fPostTransaction\x12!.ledger.v1.PostTransactionRequest\x1a\".ledger.v1.PostTransactionResponse\x12F\n" +
+	"\x0fPostTransaction\x12!.ledger.v1.PostTransactionRequest\x1a\".ledger.v1.PostTransactionResponse\x12U\n" +
+	"\x0ePurchaseTokens\x12 .ledger.v1.PurchaseTokensRequest\x1a!.ledger.v1.PurchaseTokensResponse\x12F\n" +
 	"\tPlaceHold\x12\x1b.ledger.v1.PlaceHoldRequest\x1a\x1c.ledger.v1.PlaceHoldResponse\x12L\n" +
 	"\vCaptureHold\x12\x1d.ledger.v1.CaptureHoldRequest\x1a\x1e.ledger.v1.CaptureHoldResponse\x12L\n" +
 	"\vReleaseHold\x12\x1d.ledger.v1.ReleaseHoldRequest\x1a\x1e.ledger.v1.ReleaseHoldResponse\x12L\n" +
@@ -1188,7 +1438,7 @@ func file_ledger_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_ledger_v1_ledger_proto_rawDescData
 }
 
-var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_ledger_v1_ledger_proto_goTypes = []any{
 	(*AccountRef)(nil),              // 0: ledger.v1.AccountRef
 	(*Line)(nil),                    // 1: ledger.v1.Line
@@ -1196,16 +1446,18 @@ var file_ledger_v1_ledger_proto_goTypes = []any{
 	(*Posting)(nil),                 // 3: ledger.v1.Posting
 	(*PostTransactionRequest)(nil),  // 4: ledger.v1.PostTransactionRequest
 	(*PostTransactionResponse)(nil), // 5: ledger.v1.PostTransactionResponse
-	(*PlaceHoldRequest)(nil),        // 6: ledger.v1.PlaceHoldRequest
-	(*CaptureHoldRequest)(nil),      // 7: ledger.v1.CaptureHoldRequest
-	(*ReleaseHoldRequest)(nil),      // 8: ledger.v1.ReleaseHoldRequest
-	(*Hold)(nil),                    // 9: ledger.v1.Hold
-	(*PlaceHoldResponse)(nil),       // 10: ledger.v1.PlaceHoldResponse
-	(*CaptureHoldResponse)(nil),     // 11: ledger.v1.CaptureHoldResponse
-	(*ReleaseHoldResponse)(nil),     // 12: ledger.v1.ReleaseHoldResponse
-	(*GetBalancesRequest)(nil),      // 13: ledger.v1.GetBalancesRequest
-	(*AccountBalance)(nil),          // 14: ledger.v1.AccountBalance
-	(*GetBalancesResponse)(nil),     // 15: ledger.v1.GetBalancesResponse
+	(*PurchaseTokensRequest)(nil),   // 6: ledger.v1.PurchaseTokensRequest
+	(*PurchaseTokensResponse)(nil),  // 7: ledger.v1.PurchaseTokensResponse
+	(*PlaceHoldRequest)(nil),        // 8: ledger.v1.PlaceHoldRequest
+	(*CaptureHoldRequest)(nil),      // 9: ledger.v1.CaptureHoldRequest
+	(*ReleaseHoldRequest)(nil),      // 10: ledger.v1.ReleaseHoldRequest
+	(*Hold)(nil),                    // 11: ledger.v1.Hold
+	(*PlaceHoldResponse)(nil),       // 12: ledger.v1.PlaceHoldResponse
+	(*CaptureHoldResponse)(nil),     // 13: ledger.v1.CaptureHoldResponse
+	(*ReleaseHoldResponse)(nil),     // 14: ledger.v1.ReleaseHoldResponse
+	(*GetBalancesRequest)(nil),      // 15: ledger.v1.GetBalancesRequest
+	(*AccountBalance)(nil),          // 16: ledger.v1.AccountBalance
+	(*GetBalancesResponse)(nil),     // 17: ledger.v1.GetBalancesResponse
 }
 var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	0,  // 0: ledger.v1.Line.account:type_name -> ledger.v1.AccountRef
@@ -1215,23 +1467,25 @@ var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	2,  // 4: ledger.v1.PostTransactionResponse.lines:type_name -> ledger.v1.PostedLine
 	0,  // 5: ledger.v1.PlaceHoldRequest.account:type_name -> ledger.v1.AccountRef
 	3,  // 6: ledger.v1.CaptureHoldRequest.posting:type_name -> ledger.v1.Posting
-	9,  // 7: ledger.v1.PlaceHoldResponse.hold:type_name -> ledger.v1.Hold
-	9,  // 8: ledger.v1.CaptureHoldResponse.hold:type_name -> ledger.v1.Hold
-	9,  // 9: ledger.v1.ReleaseHoldResponse.hold:type_name -> ledger.v1.Hold
+	11, // 7: ledger.v1.PlaceHoldResponse.hold:type_name -> ledger.v1.Hold
+	11, // 8: ledger.v1.CaptureHoldResponse.hold:type_name -> ledger.v1.Hold
+	11, // 9: ledger.v1.ReleaseHoldResponse.hold:type_name -> ledger.v1.Hold
 	0,  // 10: ledger.v1.AccountBalance.account:type_name -> ledger.v1.AccountRef
-	14, // 11: ledger.v1.GetBalancesResponse.accounts:type_name -> ledger.v1.AccountBalance
+	16, // 11: ledger.v1.GetBalancesResponse.accounts:type_name -> ledger.v1.AccountBalance
 	4,  // 12: ledger.v1.LedgerService.PostTransaction:input_type -> ledger.v1.PostTransactionRequest
-	6,  // 13: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
-	7,  // 14: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
-	8,  // 15: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
-	13, // 16: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
-	5,  // 17: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
-	10, // 18: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
-	11, // 19: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
-	12, // 20: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
-	15, // 21: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
-	17, // [17:22] is the sub-list for method output_type
-	12, // [12:17] is the sub-list for method input_type
+	6,  // 13: ledger.v1.LedgerService.PurchaseTokens:input_type -> ledger.v1.PurchaseTokensRequest
+	8,  // 14: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
+	9,  // 15: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
+	10, // 16: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
+	15, // 17: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
+	5,  // 18: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
+	7,  // 19: ledger.v1.LedgerService.PurchaseTokens:output_type -> ledger.v1.PurchaseTokensResponse
+	12, // 20: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
+	13, // 21: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
+	14, // 22: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
+	17, // 23: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -1248,7 +1502,7 @@ func file_ledger_v1_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ledger_v1_ledger_proto_rawDesc), len(file_ledger_v1_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
