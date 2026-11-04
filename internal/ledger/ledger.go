@@ -19,9 +19,12 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/httpx"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/server"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
 	ledgergrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/grpc"
 )
@@ -32,7 +35,10 @@ import (
 // trusts the tenant each request names: it must be reachable only from
 // VASPRO's own services, a deployment rule (compose network, Phase
 // 17's network policy and mTLS), not something the ledger can check.
-// HTTPAddr serves /healthz and /readyz only.
+// HTTPAddr serves the HTTP API (docs/api/ledger.yaml: staff token
+// prices, task 3.4b) and the health checks. Like accounts', it trusts
+// the X-Vaspro-User-Id header the gateway sets after checking the
+// session, so it too must be reachable only from the gateway.
 //
 // DatabaseURL's role must be granted ledger_service and must not own
 // the ledger tables (migration 20261106090000); its search_path must
@@ -43,6 +49,11 @@ type Config struct {
 	NATSURL     string `env:"LEDGER_NATS_URL,required"`
 	HTTPAddr    string `env:"LEDGER_HTTP_ADDR" envDefault:":8083"`
 	GRPCAddr    string `env:"LEDGER_GRPC_ADDR" envDefault:":9092"`
+	// IdentityGRPCAddr is identity's internal gRPC API, asked whether a
+	// caller is staff and stepped up (task 3.4b). Dialled lazily, so the
+	// ledger starts while identity is down; staff actions then fail
+	// closed.
+	IdentityGRPCAddr string `env:"LEDGER_IDENTITY_GRPC_ADDR,required"`
 }
 
 // Service wires the ledger's dependencies together and runs them.
@@ -55,15 +66,12 @@ type Service struct {
 }
 
 // New builds a Service from already-connected dependencies.
-func New(cfg Config, pool *db.Pool, b *bus.Bus) *Service {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", httpx.Healthz)
-	mux.Handle("GET /readyz", httpx.Readyz(func(ctx context.Context) error { return pool.Ping(ctx) }))
-	return &Service{
-		cfg: cfg, pool: pool, bus: b,
-		app: app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Logger: slog.Default()}),
-		rtr: mux,
-	}
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) *Service {
+	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity})
+	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
+		func(ctx context.Context) error { return pool.Ping(ctx) },
+	}, idempotency.NewPostgresStore(pool))
+	return &Service{cfg: cfg, pool: pool, bus: b, app: a, rtr: rtr}
 }
 
 // Bootstrap loads Config from the environment and connects every
@@ -78,12 +86,16 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ledger: connecting to nats: %w", err)
 	}
-	return New(cfg, pool, b), nil
+	identity, err := adapters.DialIdentity(cfg.IdentityGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: %w", err)
+	}
+	return New(cfg, pool, b, identity), nil
 }
 
 func relaySubject(eventType string) string { return "ledger." + eventType }
 
-// Run starts the gRPC and health servers and the outbox relay, and
+// Run starts the gRPC and HTTP servers and the outbox relay, and
 // blocks until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
 	if err := s.bus.EnsureStream(ctx, "LEDGER_EVENTS", []string{"ledger.>"}); err != nil {

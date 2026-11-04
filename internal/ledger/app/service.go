@@ -15,6 +15,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 )
 
@@ -34,6 +35,18 @@ var (
 	ErrInsufficientBalance = errors.New("app: insufficient balance")
 	// ErrAccountNotOpen: a frozen or closed account (BAL-4002).
 	ErrAccountNotOpen = errors.New("app: account not open")
+	// ErrNotStaff: a staff action by someone who isn't staff (AUTH-4025).
+	ErrNotStaff = errors.New("app: staff only")
+	// ErrStepUpRequired: the session's step-up isn't fresh (AUTH-4012).
+	ErrStepUpRequired = errors.New("app: step-up required")
+	// ErrMakerCannotApprove: maker-checker, the price's maker approving
+	// it (VAL-4013).
+	ErrMakerCannotApprove = errors.New("app: a price's maker can't approve it")
+	// ErrPriceDecided: the price was already approved or withdrawn
+	// (VAL-4014).
+	ErrPriceDecided = errors.New("app: price already decided")
+	// ErrPriceOverlap: approving would overlap an active price (VAL-4012).
+	ErrPriceOverlap = errors.New("app: price would overlap an active one")
 )
 
 // domain.ErrHoldState (BAL-4003) and domain.ErrAllocationFinal
@@ -44,15 +57,19 @@ type Service struct {
 	pool *db.Pool
 	clk  clock.Clock
 	log  *slog.Logger
+	// identity answers staff and step-up checks (task 3.4b); nil makes
+	// every staff action fail closed.
+	identity adapters.Identity
 }
 
 // Deps is everything New needs. Pool must connect as a role granted
 // ledger_service (and through it ledger_system), never the tables'
 // owner (migration 20261106090000).
 type Deps struct {
-	Pool   *db.Pool
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Pool     *db.Pool
+	Clock    clock.Clock
+	Logger   *slog.Logger
+	Identity adapters.Identity
 }
 
 // New builds a Service.
@@ -61,7 +78,7 @@ func New(d Deps) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{pool: d.Pool, clk: d.Clock, log: log}
+	return &Service{pool: d.Pool, clk: d.Clock, log: log, identity: d.Identity}
 }
 
 // PostRequest asks for one balanced transaction. TenantID nil is a
@@ -181,4 +198,36 @@ type PurchaseResult struct {
 	MinorPerToken decimal.Decimal
 	CostMinor     int64
 	Replayed      bool
+}
+
+// TokenPrice is a token_prices row as staff see it (task 3.4b).
+type TokenPrice struct {
+	ID            uuid.UUID
+	TenantID      *uuid.UUID
+	ServiceCode   string
+	Currency      string
+	MinTokens     decimal.Decimal
+	MinorPerToken decimal.Decimal
+	DealReference string
+	Status        string
+	From          time.Time
+	To            *time.Time
+	CreatedBy     uuid.UUID
+	ApprovedBy    *uuid.UUID
+}
+
+// PriceFilter narrows staff's list of prices. Limit 0 is the default
+// page (50); at most 100.
+type PriceFilter struct {
+	TenantID    *uuid.UUID
+	ServiceCode string
+	Status      string
+	Cursor      string
+	Limit       int
+}
+
+// TokenPricePage is one page of prices, oldest first.
+type TokenPricePage struct {
+	Prices     []TokenPrice
+	NextCursor string
 }

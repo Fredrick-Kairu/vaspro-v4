@@ -144,3 +144,44 @@ func TestTokens_Constraints(t *testing.T) {
 		})
 	}
 }
+
+// TestPriceReviewRole: ledger_price_review (migration 20261106130000)
+// reads every client's token prices, only inside WithRoleTx, and can't
+// write them.
+func TestPriceReviewRole(t *testing.T) {
+	ctx := context.Background()
+	db := newLedgerDB(t)
+	for _, tenant := range []*uuid.UUID{ptr(uuid.New()), ptr(uuid.New()), nil} {
+		if _, err := db.super.Exec(ctx, `
+			INSERT INTO token_prices (id, tenant_id, service_code, currency, minor_per_token, status, effective_from, created_by)
+			VALUES ($1, $2, 'sms', 'KES', 80, 'pending_approval', now(), $3)`, uuid.New(), tenant, uuid.New()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var seen int
+	if err := db.app.WithRoleTx(ctx, "ledger_price_review", func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		seen, err = count(ctx, tx, `SELECT count(*) FROM token_prices`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen != 3 {
+		t.Fatalf("the review role sees %d prices, want all 3", seen)
+	}
+
+	outside, err := count(ctx, db.app, `SELECT count(*) FROM token_prices WHERE tenant_id IS NOT NULL`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outside != 0 {
+		t.Fatalf("outside WithRoleTx: %d client prices visible, want 0", outside)
+	}
+
+	err = db.app.WithRoleTx(ctx, "ledger_price_review", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE token_prices SET status = 'withdrawn'`)
+		return err
+	})
+	wantCode(t, err, "42501")
+}

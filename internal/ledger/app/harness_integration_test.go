@@ -22,6 +22,7 @@ import (
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffcheck"
 )
 
 // harness is one migrated Postgres, the service connected as
@@ -32,6 +33,7 @@ type harness struct {
 	app   *vasdb.Pool
 	svc   *app.Service
 	clk   *testkit.Clock
+	staff *staffcheck.Fake
 }
 
 var testNow = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
@@ -56,7 +58,8 @@ func newHarness(t testing.TB) harness {
 	}
 	t.Cleanup(appPool.Close)
 	clk := testkit.NewClock(testNow)
-	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk}), clk: clk}
+	staff := staffcheck.New()
+	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk, Identity: staff}), clk: clk, staff: staff}
 	// List prices every test can buy at: SMS at KES 0.80 and UGX 12.5.
 	seedPrice(t, h, nil, "sms", "KES", "0", "80", jan1, nil)
 	seedPrice(t, h, nil, "sms", "UGX", "0", "12.5", jan1, nil)

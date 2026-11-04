@@ -13,6 +13,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const approveTokenPrice = `-- name: ApproveTokenPrice :one
+UPDATE ledger.token_prices SET status = 'active', approved_by = $2 WHERE id = $1 RETURNING id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by
+`
+
+type ApproveTokenPriceParams struct {
+	ID         uuid.UUID   `json:"id"`
+	ApprovedBy pgtype.UUID `json:"approved_by"`
+}
+
+// The checker's approval; the CHECKs refuse a self-approval and the
+// EXCLUDE an overlap with an active price.
+func (q *Queries) ApproveTokenPrice(ctx context.Context, arg ApproveTokenPriceParams) (LedgerTokenPrice, error) {
+	row := q.db.QueryRow(ctx, approveTokenPrice, arg.ID, arg.ApprovedBy)
+	var i LedgerTokenPrice
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ServiceCode,
+		&i.Currency,
+		&i.MinTokens,
+		&i.MinorPerToken,
+		&i.DealReference,
+		&i.Status,
+		&i.EffectiveFrom,
+		&i.EffectiveTo,
+		&i.CreatedBy,
+		&i.ApprovedBy,
+	)
+	return i, err
+}
+
 const createTokenPrice = `-- name: CreateTokenPrice :one
 INSERT INTO ledger.token_prices
   (id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by)
@@ -137,4 +168,111 @@ func (q *Queries) ListActivePrices(ctx context.Context, arg ListActivePricesPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const listTokenPricesPage = `-- name: ListTokenPricesPage :many
+SELECT id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by FROM ledger.token_prices
+WHERE ($1::uuid IS NULL OR tenant_id = $1)
+  AND ($2::text IS NULL OR service_code = $2)
+  AND ($3::text IS NULL OR status = $3)
+  AND ($4::uuid IS NULL OR id > $4)
+ORDER BY id
+LIMIT $5
+`
+
+type ListTokenPricesPageParams struct {
+	TenantID    pgtype.UUID `json:"tenant_id"`
+	ServiceCode pgtype.Text `json:"service_code"`
+	Status      pgtype.Text `json:"status"`
+	After       pgtype.UUID `json:"after"`
+	MaxRows     int32       `json:"max_rows"`
+}
+
+// Staff's list across clients (task 3.4b), run as ledger_price_review:
+// oldest first (ids are UUIDv7), filtered, after a cursor.
+func (q *Queries) ListTokenPricesPage(ctx context.Context, arg ListTokenPricesPageParams) ([]LedgerTokenPrice, error) {
+	rows, err := q.db.Query(ctx, listTokenPricesPage,
+		arg.TenantID,
+		arg.ServiceCode,
+		arg.Status,
+		arg.After,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerTokenPrice
+	for rows.Next() {
+		var i LedgerTokenPrice
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.ServiceCode,
+			&i.Currency,
+			&i.MinTokens,
+			&i.MinorPerToken,
+			&i.DealReference,
+			&i.Status,
+			&i.EffectiveFrom,
+			&i.EffectiveTo,
+			&i.CreatedBy,
+			&i.ApprovedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockTokenPrice = `-- name: LockTokenPrice :one
+SELECT id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by FROM ledger.token_prices WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockTokenPrice(ctx context.Context, id uuid.UUID) (LedgerTokenPrice, error) {
+	row := q.db.QueryRow(ctx, lockTokenPrice, id)
+	var i LedgerTokenPrice
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ServiceCode,
+		&i.Currency,
+		&i.MinTokens,
+		&i.MinorPerToken,
+		&i.DealReference,
+		&i.Status,
+		&i.EffectiveFrom,
+		&i.EffectiveTo,
+		&i.CreatedBy,
+		&i.ApprovedBy,
+	)
+	return i, err
+}
+
+const withdrawTokenPrice = `-- name: WithdrawTokenPrice :one
+UPDATE ledger.token_prices SET status = 'withdrawn' WHERE id = $1 RETURNING id, tenant_id, service_code, currency, min_tokens, minor_per_token, deal_reference, status, effective_from, effective_to, created_by, approved_by
+`
+
+func (q *Queries) WithdrawTokenPrice(ctx context.Context, id uuid.UUID) (LedgerTokenPrice, error) {
+	row := q.db.QueryRow(ctx, withdrawTokenPrice, id)
+	var i LedgerTokenPrice
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ServiceCode,
+		&i.Currency,
+		&i.MinTokens,
+		&i.MinorPerToken,
+		&i.DealReference,
+		&i.Status,
+		&i.EffectiveFrom,
+		&i.EffectiveTo,
+		&i.CreatedBy,
+		&i.ApprovedBy,
+	)
+	return i, err
 }

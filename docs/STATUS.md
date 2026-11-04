@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.4 in progress: 3.4a (purchase, lots, FIFO, token holds) done; next 3.4b, staff prices through the gateway.
+**Current task:** 3.1–3.4 done (2026-11-04). Next: 3.5, usage settlement.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -203,6 +203,68 @@
       - newest lot first;
       - no `held_tokens` guard;
       - skipping a token hold's availability check.
+
+- 3.4b Staff token prices through the gateway (OQ-15). This finishes ROADMAP 3.4. The console screen itself is frontend track F4; this is its API.
+  - **Contract:**
+    - `docs/api/ledger.yaml`, the ledger's first HTTP API, under `/v1/ledger/staff/token-prices`:
+      - `createTokenPrice` (pending; Idempotency-Key);
+      - `listTokenPrices` (filters, an ID cursor; IDs are UUIDv7);
+      - `approveTokenPrice`;
+      - `withdrawTokenPrice`.
+    - New codes **VAL-4012** (overlaps an active price), **VAL-4013** (the maker can't approve), **VAL-4014** (already decided).
+    - Migration `20261106130000_price_review.sql`: NOLOGIN `ledger_price_review` reads every client's prices, only inside `WithRoleTx`, for the cross-client queue. That's the 2.9 pattern, and an addition to data model §5.
+  - **Rules:** `domain.ValidateNewPrice`:
+    - price > 0 and tier ≥ 0, each with at most 6 places;
+    - a deal needs its `deal_reference` and a list price has none;
+    - the end is after the start.
+  - **App:**
+    - `CreateTokenPrice` (staff);
+    - `ListTokenPrices` (staff, as `ledger_price_review`);
+    - `ApproveTokenPrice` (staff and a fresh step-up; pending only; never by its maker; overlap maps from the EXCLUDE's 23P01);
+    - `WithdrawTokenPrice` (staff and step-up).
+    - Deals are written in the client's own transaction and list prices as `ledger_system` (2.9: staff act through the target's transaction).
+    - Staff and step-up are asked of identity on every call; identity down fails closed.
+  - **Wiring:**
+    - `ledger/adapters.Identity` (`IsStaff`, `IsStepUpFresh`) over identity's gRPC, dialled lazily (`LEDGER_IDENTITY_GRPC_ADDR`, **new and required**);
+    - fake `tools/fakes/staffcheck`, a new small fake, because `identityusers` imports accounts' adapters;
+    - `LEDGER_HTTP_ADDR` now serves the API; like accounts, it trusts the gateway's `X-Vaspro-User-Id`, so it must be reachable only from the gateway.
+  - **Gateway:**
+    - `/v1/ledger/` goes to `GATEWAY_LEDGER_BASE_URL` (**new and required**), with a session required and validation against `docs/api/ledger.yaml`;
+    - its routes join the audit log's route templates.
+    - The gateway e2es point the ledger at an unused address, because they don't exercise it yet.
+  - **Tests:**
+    - **domain:** 15 price-entry cases.
+    - **app:** maker-checker end to end:
+      - a pending deal isn't used;
+      - the maker can't approve;
+      - a stale step-up and a non-staff user are refused;
+      - approval makes purchases use the deal;
+      - a second approval is VAL-4014;
+      - an overlapping deal is VAL-4012;
+      - withdrawal needs step-up and returns the client to the list price while lots keep 50;
+      - a list price written as `ledger_system` applies to a new client;
+      - the pending queue across clients, oldest first, paged;
+      - refusals (non-staff, revoked staff, missing reference, unknown currency, unknown price, bad cursor) write nothing;
+      - identity down fails closed.
+    - **API:** every code, the idempotent replay of a creation, the paged list, and **spec-driven:** every `/v1/ledger/staff/` operation is 401 AUTH-4010 with no user and 403 AUTH-4025 for a stepped-up non-staff user; the test fails if an operation has no case.
+    - **gateway:** `TestGatewayBackends_Ledger` (user forwarded, spoof replaced, token not forwarded, no session 401, spec validation, the Idempotency-Key gate, never falls through to identity).
+    - **store:** the review role reads all prices only inside `WithRoleTx` and can't write.
+    - **Order of work:**
+      - the domain, app and API tests were seen failing against stubs first;
+      - the gateway and store tests came after the code, covered by the mutations below.
+      - A shell write of the handlers failed on a transient tool-permission check and was redone through the file tool; nothing else was affected.
+    - **Mutation-checked:**
+      - self-approval allowed in the app (the database CHECK would still refuse it, but as SYS-9000);
+      - no step-up;
+      - listing without the staff check;
+      - no review policy;
+      - no gateway route.
+  - **`make check`** (after staging, for gen-check): green first time. Lint 0 issues; 24 packages fresh (`ledger/store` 91s, `gateway` 126s), 45 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the gateway needs `GATEWAY_LEDGER_BASE_URL`;
+    - the ledger needs `LEDGER_IDENTITY_GRPC_ADDR`;
+    - the ledger's login role reaches `ledger_price_review` through `ledger_service` (granted in the migration, `WITH INHERIT FALSE`).
+  - **Not in 3.4:** the dashboard's read of a client's own prices (3.9); auto-buy (3.6); settlement drawing the lots (3.5); who withdrew a price isn't recorded (no column; the gateway's audit log has the route and user).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -764,7 +826,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.4: token purchase into a service wallet at the client's price (deal, else list tier), lots, FIFO use; the staff deal screen with maker-checker.
+1. Task 3.5: usage settlement per wallet per window (OD-07's default, 5 minutes), splitting revenue and VAT from the lots drawn (`drawLots`), and settling captured token holds; `tax_rates` synced from the packs.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
