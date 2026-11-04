@@ -676,6 +676,27 @@ CREATE TABLE ledger.reversals (
 );
 ```
 
+> **Built in tasks 3.1–3.2 (4 Nov 2026, OQ-13, ADR 0010).** Additions to the schema above:
+> - **RLS:**
+>   - the five tables with `tenant_id NOT NULL` use the standard policy;
+>   - `accounts`, `token_prices` and `rate_cards`: a tenant reads its own rows and VASPRO's (tenant_id NULL), and writes only its own;
+>   - `transactions`: a tenant's own rows only;
+>   - `entries` follow their transaction; a client posting may use the tenant's accounts or VASPRO's;
+>   - `balances` follow their account, and `lot_consumptions` their lot;
+>   - VASPRO's rows are written only by the NOLOGIN role `ledger_system` (`WithRoleTx`).
+> - **Grants:** the service's role `ledger_service` has no UPDATE, DELETE or TRUNCATE on `transactions`, `entries` or `lot_consumptions`, and on `balances` may write only `held_minor`.
+> - **CHECKs on accounts:** client types have a tenant and VASPRO's don't; service wallets and revenue name a service; only provider clearing names a rail.
+> - **Signs and balance rows:**
+>   - balances are kept on each account's normal side (receivable and provider clearing debit-normal, all else credit-normal);
+>   - only client accounts have a balance row, kept by a trigger on `entries`;
+>   - VASPRO's accounts are summed from their entries (ADR 0010).
+> - **Guards:**
+>   - each transaction has a debit and a credit and balances per currency, checked at commit;
+>   - an entry's currency is its account's;
+>   - entries are inserted with their transaction (same database transaction and savepoint);
+>   - `transactions`, `entries` and `lot_consumptions` are append-only, TRUNCATE included;
+>   - main, service and bonus wallets keep `balance_minor >= 0` and `held_minor <= balance_minor` at commit.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

@@ -1,9 +1,78 @@
 # Build status
 
 **Updated:** 2026-11-04
-**Current phase:** Phase 2 merged to `main` 2026-11-04 (PR #4); Phase 3 (ledger) not started. Phase 2's last exit-gate box, the v3 importer dry run, waits for a v3 export (Blockers). (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** none in progress. Next: Phase 3 (ledger), when you start it. Phase 2 done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
-**Branch:** `p2/status-merged` (this STATUS update). Phase 2 ran on one branch, `p2/phase-2`, merged as PR #4 and deleted.
+**Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** 3.1–3.2 done (2026-11-04). Next: 3.3, the posting API over gRPC.
+**Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
+
+## Done in Phase 3
+- 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
+  - **3.1** (`migrations/ledger/20261106090000_init.sql`):
+    - **Tables:** data model §5's 14 tables, copied exactly, plus `outbox_events` and `idempotency_keys`. There's no `processed_events`: ledger consumes no events yet.
+    - **Currencies** are seeded: KES 2, TZS 2, UGX 0. `tax_rates` isn't seeded; 3.5 syncs it from the pack, as 2.4 did for service rules.
+    - **Account-type CHECKs** (additions):
+      - client types have a tenant, and VASPRO's don't;
+      - `service_wallet` and `revenue` name a service;
+      - `provider_clearing`, and only it, names a rail.
+    - **Sign convention:** `internal/ledger/domain/accounttype.go` (`NormalSide`, `IsClientOwned`, `IsClientWallet`, `BalanceDelta`) is the one source. The SQL copies (`ledger.normal_side`, `is_client_owned`, `is_client_wallet`) are tested equal for every enum value. `normal_side` is a plpgsql CASE with no ELSE, so a new enum value without a side errors rather than defaulting.
+    - **RLS:**
+      - the standard policy on `token_lots`, `holds`, `usage_batches`, `auto_buy_rules`, `reversals`;
+      - `accounts`, `token_prices`, `rate_cards`: a tenant reads its own and NULL-tenant rows, and writes only its own;
+      - `transactions`: own rows only;
+      - `entries`: inserts need the tenant's own transaction and an own or VASPRO account;
+      - `balances` follow their account, and `lot_consumptions` their lot (it has no tenant_id; the plan missed it).
+      - **One point built tighter than your answer:** a tenant reads only the lines of its *own postings*, not every line on a VASPRO account. Otherwise tenant A could read tenant B's revenue and VAT lines on the shared revenue account.
+    - **Roles:**
+      - `ledger_system` (NOLOGIN) writes NULL-tenant rows only. It's granted `WITH INHERIT FALSE` to `ledger_service` and to the migration role, so it applies only inside `WithRoleTx`.
+      - `ledger_service` is the service's grant role. It has no UPDATE, DELETE or TRUNCATE on the journal, and on `balances` only `held_minor`/`version`/`updated_at`.
+      - **Deployment note:** the service's login role is granted `ledger_service` (with inheritance) and must not own the tables. Unlike accounts' four narrow roles, this needs only one grant.
+    - **sqlc:** third `sqlc.yaml` entry; one create plus one lookup per table. `numeric` comes out as `pgtype.Numeric`. `.claude/rules/go.md` already names `shopspring/decimal` for tokens; the sqlc mapping to it is for 3.4, when token arithmetic starts. Nullable UUIDs are `pgtype.UUID`, as in identity and accounts.
+  - **3.2** (`migrations/ledger/20261106100000_guards.sql`). Every guard raises `check_violation` (23514) unless noted.
+    - **Balance:** each transaction balances per currency and has a debit and a credit. These are deferred constraint triggers on `entries` and `transactions`, so a transaction with no lines fails too, at commit.
+    - **Currency match:** an entry's currency is its account's. An account the caller can't see is left to RLS and the foreign key, so their errors aren't masked.
+    - **Entries only with their transaction:** an entry's `xmin` must equal its transaction row's.
+      - **Changed from the plan:** the plan's transaction-local setting per transaction ID would have left one setting per posting on every pooled connection for its lifetime, a memory leak. Rows written by one (sub)transaction share an `xmin`, so the check needs no state.
+      - The consequence: a transaction and its lines go in the same savepoint. Lines in a different savepoint are refused, which is tested.
+    - **Append-only:** BEFORE UPDATE/DELETE row triggers and BEFORE TRUNCATE statement triggers on `transactions`, `entries` and `lot_consumptions` raise `P0001` (`... is append-only`) for the owner too. The service's role gets `42501` from the grants first.
+    - **Balance sync:**
+      - an AFTER INSERT trigger on `entries` moves client accounts' `balance_minor` on the normal side and bumps `version`;
+      - VASPRO accounts are skipped and have no balance row;
+      - a trigger on `accounts` creates the balance row for client accounts;
+      - both are `SECURITY DEFINER` with a pinned `search_path` and EXECUTE revoked from PUBLIC, because the service may not write `balance_minor`.
+    - **Wallet floor:** a deferred constraint trigger on `balances` refuses `balance_minor < 0` or `held_minor > balance_minor` on main, service and bonus wallets at commit, so a posting may dip a wallet between its lines. A row the check can't see fails closed.
+  - **Tests** (`internal/ledger/store/*_integration_test.go`). They run as `ledger_app`, a login role whose only privileges come from `ledger_service`; the immutability and constraint cases also run as the superuser table owner.
+    - **schema:** a goose Down-to-0-then-Up round trip (schema and both roles gone); the currency seed; the enum and SQL rules against `domain`; the canonical RLS check on the 5 standard tables.
+    - **shared tables** (`accounts`, `token_prices`, `rate_cards`): own + VASPRO's visible; no write to VASPRO's or another tenant's rows; `ledger_system` writes VASPRO's only; nobody writes them outside `WithRoleTx`.
+    - **RLS on the rest:** system postings are invisible to tenants and only `ledger_system` makes them; entries on another tenant's account are refused; `balances` and `lot_consumptions` follow their account and lot.
+    - **Constraints:** every CHECK and key in §5, including:
+      - **two overlapping active prices for one client, service, currency and tier refused (23P01)**, with adjacent dates, another tier, pending, withdrawn and another client's all allowed;
+      - **a reversal approved by its own maker refused**.
+    - sqlc round trip under RLS, with `numeric` keeping `80.123456` exactly.
+    - **guards:**
+      - an unbalanced transaction inserts and fails at commit;
+      - KES against UGX fails;
+      - an empty transaction fails;
+      - a wrong-currency line fails;
+      - a balanced pair added later fails (also as the owner), as do lines in another savepoint;
+      - UPDATE/DELETE/TRUNCATE on the three journal tables fail as the owner (`P0001`) and as the service (`42501`), and the lines are untouched;
+      - balance sync on both normal sides, with balances equal to the replay of their entries;
+      - the service can't write `balance_minor` or insert balance rows;
+      - each wallet type can't go below zero, held can't exceed the balance, a mid-posting dip is fine, and receivables, payables and VASPRO's accounts may go negative.
+    - **worked example** as raw postings (steps 1, 2 and 4): main 5,000.00, SMS wallet 7,696.00, revenue 262.07, VAT 41.93, with `money.SplitVATInclusive` giving the same split; the tax-exclusive variant debits 352.64. The golden test proper is 3.4/3.5's, once lots and settlement exist.
+    - UGX postings.
+    - **Order of work:** the domain test failed against a stub. The 3.1 tests failed with no migration, and the 3.2 tests with only 3.1's migration (the `ledger_service` grant cases already passed, as intended).
+    - **Two test fixes while writing them:** a fixture created the same account twice (duplicate key, not an RLS refusal), now reusing the tenant's posting; and a gosec G115 finding in a test helper.
+    - **Mutation-checked**, each failing its intended test, then reverted:
+      - loosening `accounts`' tenant insert check;
+      - letting tenants read VASPRO-account lines;
+      - making the balance check immediate;
+      - dropping the currency check;
+      - dropping the same-transaction check;
+      - guarding main wallets only;
+      - making the wallet check immediate.
+  - **`make check`:** green first time: gen-check, lint 0 issues, `ledger/store` fresh in 48s, and the other packages from Go's test cache, since nothing they depend on changed (the cache caveat from the parallelism task applies). No container retries fired. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.1–3.2:** the posting API (3.3); EXPLAIN of the EXISTS policies under load (OQ-13's fallback is a tenant_id column, measured with 3.3's benchmark); post-paid credit limits (ADR 0010).
+  - **Still open (OQ-13):** `tax_payable` is "one per tax and country" but `accounts` has no tax or country column, so it's one per currency today.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -565,7 +634,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Phase 3 (ledger): read its ROADMAP section, system design §4 and data model §5, then plan.
+1. Task 3.3, the posting API over gRPC (post, hold, capture, release, balances; idempotent), with its benchmark.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
