@@ -139,6 +139,7 @@ func (s *Service) CreateSubAccount(ctx context.Context, userID, parentID uuid.UU
 			"parent_tenant_id": parentID,
 			"display_name":     row.DisplayName,
 			"country_code":     row.CountryCode,
+			"region":           row.Region,
 			"tier":             row.Tier,
 			"created_by":       userID,
 		})

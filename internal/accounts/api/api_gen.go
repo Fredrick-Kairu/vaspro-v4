@@ -833,7 +833,7 @@ type Tenant struct {
 	LegalName       *string   `json:"legal_name,omitempty"`
 	ParentTenantId  *string   `json:"parent_tenant_id,omitempty"`
 
-	// Region Data residency tag.
+	// Region Data residency tag, from the country's pack (a sub-account's is its reseller's). Fixed for the account's life.
 	Region   string       `json:"region"`
 	Status   TenantStatus `json:"status"`
 	Tier     TenantTier   `json:"tier"`

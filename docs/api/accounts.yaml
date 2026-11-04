@@ -1521,7 +1521,9 @@ components:
           type: string
         region:
           type: string
-          description: Data residency tag.
+          description: >-
+            Data residency tag, from the country's pack (a sub-account's
+            is its reseller's). Fixed for the account's life.
         tier:
           type: string
           enum: [sandbox, starter, business, financial]

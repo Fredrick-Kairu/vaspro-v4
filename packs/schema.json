@@ -23,8 +23,8 @@
     },
     "data_region": {
       "type": "string",
-      "pattern": "^[a-z0-9-]+$",
-      "description": "Data residency tag a new account in this country starts with (accounts.tenants.region). Hosting is still OD-02; task 2.10 builds the residency rules."
+      "enum": ["ke"],
+      "description": "Data residency tag a new account in this country starts with (accounts.tenants.region), fixed for the account's life (task 2.10). Only regions VASPRO hosts are listed: adding one is a hosting decision (OD-02), made here when it is hosted."
     },
     "kyb": {
       "type": "object",

@@ -181,7 +181,8 @@ func TestGateway_OnboardingThroughKYC_EndToEnd(t *testing.T) {
 		t.Fatalf("making a reseller: got %d %v", status, got)
 	}
 	if status, got := gwDoJSON(t, r, http.MethodPost, "/v1/accounts/tenants/"+id+"/sub-accounts", ada,
-		map[string]string{"display_name": "Acme Client One"}, "sub-account"); status != http.StatusCreated || got["type"] != "sub_account" {
+		map[string]string{"display_name": "Acme Client One"}, "sub-account"); status != http.StatusCreated || got["type"] != "sub_account" ||
+		got["region"] != "ke" {
 		t.Fatalf("the reseller's first sub-account: got %d %v", status, got)
 	}
 

@@ -1,8 +1,8 @@
 # Build status
 
-**Updated:** 2026-11-03
+**Updated:** 2026-11-04
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.9 done (2026-11-03). Next: 2.10 data residency tag. Also done: 2.1–2.8 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
+**Current task:** 2.10 done (2026-11-04). Next: 2.11 v3 importers. Also done: 2.1–2.9 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -492,6 +492,23 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **A fixture fix while writing it:** the individual-review detail test first used a subject the identity fake didn't know, so it had no email; it now registers the user first.
     - **Mutation-checked:** ignoring the unlock time in the lockout failed `TestUnlockByStaff`; skipping `requireStaff` failed the app and spec-driven API tests; dropping "must be in review" failed the second-decision, vendor-first and pending-check cases.
   - **Not in 2.9:** step-up and a self-review rule (your call; revisit with the console, Phase 10); a separate audit table for staff opening documents (the gateway's audit log records the route and user; Phase 17).
+
+- 2.10 Data residency tag (OQ-11). The design gives only `tenants.region` ("data residency tag"); hosting is OD-02 and moving an account's data is 21.4. Per your answers (4 Nov) the tag is hardened and no data moves.
+  - **Already there** (2.2a/b): the region comes from the pack's `data_region`, a sub-account copies its reseller's, and `Tenant.region` is in the API.
+  - **Migration** `20261105110000_region_fixed.sql` (an addition to data model §4; no data changes):
+    - a `BEFORE UPDATE OF region` trigger refuses any change, so the tag can't claim data lives somewhere it doesn't;
+    - a `BEFORE INSERT` trigger refuses a sub-account whose region differs from its reseller's, or whose reseller it can't see under RLS (fails closed). `CreateSubAccount` already inserts in the reseller's transaction, where the parent is visible.
+    - Both raise `check_violation`; nothing in the app expects them, so they'd surface as SYS-9000.
+  - **Packs:** `packs/schema.json`'s `data_region` is now an enum of hosted regions (`ke`). Adding one is a hosting decision (OD-02). A pack naming another fails to load, so accounts won't start with it.
+  - **Event:** `tenant.created` carries a required `region`, so later services learn it from events. The API's `region` description says it's fixed.
+  - **Tests:**
+    - packs: `mars`, `KE` and empty are refused;
+    - store (non-superuser, inside `WithTenantTx`): a change is refused and the value is kept; the same value and other columns still update; a sub-account in its reseller's region is accepted; another region, or a reseller it can't see, is refused;
+    - app: both `tenant.created` events carry `ke` and validate against the schema;
+    - gateway e2e: the reseller's sub-account is in `ke`.
+    - **Order of work:** the packs, store and app tests were seen failing first.
+    - **Mutation-checked:** disabling the update trigger, the parent check, and the pack enum each failed its intended test.
+  - **Not in 2.10:** changing an account's region and moving its data (21.4, OD-02); no service routes storage by region yet.
 
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 

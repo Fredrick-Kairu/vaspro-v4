@@ -112,6 +112,7 @@ func (s *Service) CreateTenant(ctx context.Context, userID uuid.UUID, in domain.
 			"type":         domain.TenantDirect,
 			"display_name": row.DisplayName,
 			"country_code": row.CountryCode,
+			"region":       row.Region,
 			"tier":         row.Tier,
 			"created_by":   userID,
 		})

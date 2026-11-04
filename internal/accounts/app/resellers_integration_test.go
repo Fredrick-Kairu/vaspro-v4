@@ -152,7 +152,8 @@ func TestCreateSubAccount_WritesSandboxSubAccountUnderTheReseller(t *testing.T) 
 		t.Fatalf("got %d memberships on the sub-account, want none (access is through the reseller)", n)
 	}
 	data := assertEventValid(t, h, "tenant.created", sub.ID)
-	if data["type"] != "sub_account" || data["parent_tenant_id"] != reseller.String() || data["created_by"] != member.String() {
+	if data["type"] != "sub_account" || data["parent_tenant_id"] != reseller.String() || data["created_by"] != member.String() ||
+		data["region"] != "ke" {
 		t.Fatalf("got event data %v", data)
 	}
 }

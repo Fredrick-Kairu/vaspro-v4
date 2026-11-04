@@ -7,8 +7,9 @@
 version: "0"
 country_code: KE
 
-# A new account's defaults (task 2.2a). data_region is a tag only until
-# hosting is decided (OD-02); task 2.10 builds the residency rules.
+# A new account's defaults (task 2.2a). data_region is the account's
+# residency tag, fixed at creation (task 2.10); packs/schema.json lists
+# the hosted regions (OD-02).
 timezone: Africa/Nairobi
 data_region: ke
 

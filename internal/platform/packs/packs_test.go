@@ -122,6 +122,22 @@ func TestParse_ServiceRule_EnabledDefaultsToTrueAndTierIsChecked(t *testing.T) {
 	}
 }
 
+// TestParse_DataRegion_OnlyAHostedRegion covers task 2.10: a pack can
+// only start accounts in a region the schema lists as hosted.
+func TestParse_DataRegion_OnlyAHostedRegion(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	ke := string(readFile(t, realKEPackPath))
+	for _, region := range []string{"mars", "KE", ""} {
+		pack := strings.Replace(ke, "\ndata_region: ke\n", "\ndata_region: \""+region+"\"\n", 1)
+		if pack == ke {
+			t.Fatal("the KE pack no longer has the line this test replaces")
+		}
+		if _, err := packs.Parse(schema, []byte(pack)); err == nil {
+			t.Errorf("data_region %q was accepted", region)
+		}
+	}
+}
+
 func TestParse_MissingRequiredField_RejectedWithClearError(t *testing.T) {
 	schema := readFile(t, realSchemaPath)
 	pack := readFile(t, "testdata/missing_currency.yaml")

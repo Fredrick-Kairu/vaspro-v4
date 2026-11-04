@@ -34,7 +34,7 @@ func TestCreateTenant_WritesSandboxAccountAdminMembershipAndEvent(t *testing.T) 
 		t.Fatalf("got %d Admin memberships for the creator, want 1", n)
 	}
 	data := assertEventValid(t, h, "tenant.created", tenant.ID)
-	if data["created_by"] != user.String() || data["tier"] != "sandbox" {
+	if data["created_by"] != user.String() || data["tier"] != "sandbox" || data["region"] != "ke" {
 		t.Fatalf("got event data %v", data)
 	}
 
