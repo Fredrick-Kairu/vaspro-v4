@@ -1,9 +1,9 @@
 # Build status
 
 **Updated:** 2026-11-04
-**Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** Phase 2's tasks are done except 2.11's build, which is designed (ADR 0009) and waits for a v3 export (2026-11-04). Next: Phase 2's PR to `main` (needs your go-ahead), then Phase 3. Done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
-**Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
+**Current phase:** Phase 2 merged to `main` 2026-11-04 (PR #4); Phase 3 (ledger) not started. Phase 2's last exit-gate box, the v3 importer dry run, waits for a v3 export (Blockers). (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** none in progress. Next: Phase 3 (ledger), when you start it. Phase 2 done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
+**Branch:** `p2/status-merged` (this STATUS update). Phase 2 ran on one branch, `p2/phase-2`, merged as PR #4 and deleted.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -524,6 +524,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - what's out of scope (client services → 3.10, billing mode, leads, v3 tokens).
   - No code or migration. Phase 2's dry-run exit-gate box stays open.
 
+- **Merged to `main`** (2026-11-04): PR #4 `p2/phase-2` (21 commits: 1.16, 2.1–2.11, the testkit work, and `p1/status-merged`'s STATUS commit), merge commit `c867a87`, after its CI was green. CI's "End to end" job still runs nothing (`test/e2e/` is empty); the real e2es are in `internal/gateway` and ran in the Integration job. `identity/app` took 556s there, close to Go's 10-minute default per package, so `make test-int` should get a `-timeout`. `p2/phase-2` is deleted.
+
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0
@@ -563,8 +565,10 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 2.1, then the Phase 2 plan above in order.
-2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
+1. Phase 3 (ledger): read its ROADMAP section, system design §4 and data model §5, then plan.
+2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
+3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
+4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
 - 2.11's build and Phase 2's last exit-gate box (the importer dry run) need a v3 export or anonymised copy (OQ-02, OQ-12, ADR 0009).
