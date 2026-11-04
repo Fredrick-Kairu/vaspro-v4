@@ -1,6 +1,6 @@
 # Build status
 
-**Updated:** 2026-11-04
+**Updated:** 2026-11-04 (dev environment added, outside the phases)
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
 **Current task:** 3.1–3.6 done (2026-11-04). Next: 3.7, reversals with maker-checker.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
@@ -383,6 +383,43 @@
       - auto-buy buying when it won't help, and a disabled rule buying (caught by the domain tests; in the app a useless purchase rolls back with the refused hold, and the domain re-checks `Enabled`, so both are defended twice).
   - **`make check`** (after staging): green first time. Lint 0 issues; 26 packages fresh, 44 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.6:** the dashboard's rule routes (3.9); `tokens.low`/`tokens.depleted` alerts (monitoring, Phase 16).
+
+## Dev environment (2026-11-04, not a ROADMAP task)
+For testers and the frontend team, at your request. It's on branch `ops/dev-environment`, off `p3/phase-3`, because it includes the ledger. Runbook: `docs/runbooks/dev-environment.md`.
+- **What runs:** identity, accounts, ledger, the gateway and the fake KYC vendor, with postgres, redis, nats, SeaweedFS, ClamAV and Mailpit, on a private network (`deploy/compose/docker-compose.dev.yml`, project `vaspro-dev`).
+  - **Only the gateway publishes a port** (8081).
+  - Health checks use `/readyz`.
+  - `make dev-up`/`dev-down`/`dev-reset`/`dev-logs`/`dev-kyc`/`dev-staff`.
+  - RabbitMQ, ClickHouse and Grafana are left out (unused so far, your choice); the ledger is in, because the gateway requires its URL.
+- **Images** (`deploy/docker/`): one per binary (gateway, identity, accounts, ledger, vaspro, kycvendor) plus `migrate` (goose v3.29.0 and psql). Each is a multi-stage build on `golang:1.26.10-alpine` with an `alpine:3.22` runtime, user 10001.
+- **Variables:** `deploy/compose/env.example` lists every variable from the four Config structs. `deploy/compose/dev-secrets.sh` writes `.env` with fresh secrets and never overwrites one.
+- **Database** (`deploy/compose/db-setup.sh`, a one-shot run before the services, safe to rerun):
+  - per service, `<svc>_owner` runs the migrations (goose table `goose.<svc>_version`) and `<svc>_app` is the login role; both have search_path `<svc>,public`;
+  - DML for the identity and accounts app roles, and `ledger_service` for `ledger_app`;
+  - the six narrow roles `WITH INHERIT FALSE`.
+  - **Found by the first run:** accounts' migrations seed built-in roles, which RLS lets only a superuser write (2.1). The tests always migrated as the superuser. So the owner roles have `BYPASSRLS`. They're used only for migrations; the app roles don't have it.
+- **Fake KYC vendor:** `tools/fakes/kycvendor` gains a standalone mode (`NewStandalone`, `Handler`). Testers decide a check by our check ID through `POST /checks/{id}/decision` (or `make dev-kyc`), and `GET /checks` lists checks. `New` and the existing tests are unchanged. The command is `tools/fakes/kycvendor/cmd/kycvendor` (`serve`, `list`, `decide`).
+- **One gateway behaviour change (approved):** `GATEWAY_CORS_ALLOWED_ORIGINS`, an exact-origin allow-list over the existing `httpx.CORS`. Empty means no change.
+- **Tests:**
+  - `TestCORS_AllowListedOrigin` and `TestCORS_EmptyAllowListChangesNothing` (integration). The first was seen failing.
+    - **A test fix while writing it:** I'd assumed an OPTIONS request with no allow-list was forwarded. It's actually refused by request validation (400), and the test now pins that.
+  - `TestFakeVendorProvider_TesterDecision`, seen failing (404) before the route existed.
+- **Verified from a clean copy** (tracked and new files only, no `.env`): `dev-secrets.sh`, `make dev-up` (all healthy, `db-setup` exit 0), a second `dev-up` (setup reran as a no-op), then `make dev-reset` from empty volumes. Through `localhost:8081`:
+  1. sign-up, email code (Mailpit API), verification, password, sign-in;
+  2. create and select an account;
+  3. individual KYC, decided passed by `make dev-kyc` → **Starter**;
+  4. the ledger staff route: 403 AUTH-4025, then 200 after `make dev-staff`;
+  5. a document upload (201, scanned and stored);
+  6. a CORS preflight (204 with headers; another origin got none);
+  7. `vaspro identity rotate-signing-key` (JWKS 2 keys).
+
+  Events reached all three NATS streams, and the service logs had no errors.
+- **`make check`:**
+  - **The first run failed in one test:** `TestClamdScanner_AgainstRealClamAV`'s container wasn't ready after 3 attempts. My dev stack, with its own 1 GB ClamAV, was still running. It passed alone (52s) once the stack was down.
+  - **The second full run was green:** lint 0 issues, the changed packages fresh, the rest cached.
+  - gitleaks 8.30.1 through Docker found no leaks.
+  - **Don't run `make check` while the dev stack is up on an 8 GB Docker VM.**
+- **Next:** the Caddy step (item 7). It needs a decision on the gateway trusting `X-Forwarded-For` from the proxy: today rate limits and IP allowlists use the connection's address, so behind Caddy every caller would share one IP.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -944,6 +981,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
+0. Dev environment's Caddy step (see "Dev environment" above), then back to Phase 3.
 1. Task 3.7: reversals with maker-checker (system design §4.3).
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).

@@ -68,6 +68,12 @@ type Config struct {
 	// gateway's own connection, not identity's; it owns no schema to
 	// share a service's Redis namespace with.
 	RedisURL string `env:"GATEWAY_REDIS_URL,required"`
+
+	// CORSAllowedOrigins lets browsers on these exact origins call the
+	// API (the dashboard during development). Comma-separated, no
+	// wildcard; empty means no CORS headers and preflights go to the
+	// backends as before.
+	CORSAllowedOrigins []string `env:"GATEWAY_CORS_ALLOWED_ORIGINS"`
 }
 
 // Service wires the gateway's dependencies together.
@@ -114,6 +120,14 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	ledgerProxy := newReverseProxy(ledgerTarget)
 
 	r := chi.NewRouter()
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		r.Use(httpx.CORS(httpx.CORSConfig{
+			AllowedOrigins: cfg.CORSAllowedOrigins,
+			AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
+			AllowedHeaders: []string{"Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id"},
+			MaxAge:         10 * time.Minute,
+		}))
+	}
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))

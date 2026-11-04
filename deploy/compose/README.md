@@ -1,5 +1,7 @@
 # Local stack
 
+Infrastructure for running services on your machine (`make run`). The containerised dev environment for testers and the frontend team is `docker-compose.dev.yml`: see [docs/runbooks/dev-environment.md](../../docs/runbooks/dev-environment.md).
+
 ```
 cp deploy/compose/env.example deploy/compose/.env   # once
 make up      # start everything, wait for health

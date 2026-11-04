@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.vscode
+.idea
+bin
+tmp
+dist
+node_modules
+coverage.out
+*.test
+.env
+.env.*
+**/.env
+secrets

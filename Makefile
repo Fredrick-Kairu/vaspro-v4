@@ -2,9 +2,11 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml
+# The dev environment (docs/runbooks/dev-environment.md).
+COMPOSE_DEV := docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env
 GO_PKGS := $(shell go list ./... 2>/dev/null)
 
-.PHONY: up down reset gen gen-check migrate lint test test-int test-contract test-e2e check load run new-service
+.PHONY: up down reset gen gen-check migrate lint test test-int test-contract test-e2e check load run new-service dev-up dev-down dev-reset dev-logs dev-kyc dev-staff
 
 up:
 	$(COMPOSE) up -d --wait
@@ -15,6 +17,28 @@ down:
 reset:
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
+
+dev-up:
+	$(COMPOSE_DEV) up -d --build --wait
+
+dev-down:
+	$(COMPOSE_DEV) down
+
+dev-reset:
+	$(COMPOSE_DEV) down -v
+	$(COMPOSE_DEV) up -d --build --wait
+
+dev-logs:
+	$(COMPOSE_DEV) logs -f $(SVC)
+
+# make dev-kyc ID=<check id> STATUS=passed|review|failed|expired (no ID: list)
+dev-kyc:
+	@if [ -z "$${ID:-}" ]; then $(COMPOSE_DEV) exec kyc-vendor kycvendor list; \
+	else $(COMPOSE_DEV) exec kyc-vendor kycvendor decide "$(ID)" "$(STATUS)"; fi
+
+# make dev-staff EMAIL=<user's email> BY=<operator>
+dev-staff:
+	$(COMPOSE_DEV) run --rm vaspro identity grant-staff -by "$(BY)" "$(EMAIL)"
 
 # Runs every generator whose input already exists. Each step is a no-op,
 # not a failure, until the task that introduces its input lands. Every
