@@ -4,7 +4,9 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/testcontainers/testcontainers-go"
@@ -20,26 +22,25 @@ import (
 // connection the tech stack table (ROADMAP §6) already names.
 func StartRabbitMQ(t *testing.T) *amqp.Connection {
 	t.Helper()
-	ctx := context.Background()
-
-	ctr, err := rabbitmqcontainer.Run(ctx, "rabbitmq:3.12.11-management-alpine",
-		rabbitmqcontainer.WithAdminUsername("vaspro"),
-		rabbitmqcontainer.WithAdminPassword("vaspro"),
-	)
-	if err != nil {
-		t.Fatalf("testkit: failed to start rabbitmq container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	url, err := ctr.AmqpURL(ctx)
-	if err != nil {
-		t.Fatalf("testkit: failed to get rabbitmq amqp url: %v", err)
-	}
-
-	conn, err := amqp.Dial(url)
-	if err != nil {
-		t.Fatalf("testkit: failed to connect to rabbitmq: %v", err)
-	}
+	conn := startContainer(t, "rabbitmq", func(ctx context.Context) (*amqp.Connection, testcontainers.Container, error) {
+		ctr, err := rabbitmqcontainer.Run(ctx, "rabbitmq:3.12.11-management-alpine",
+			rabbitmqcontainer.WithAdminUsername("vaspro"),
+			rabbitmqcontainer.WithAdminPassword("vaspro"),
+		)
+		if err != nil {
+			return nil, ctr, fmt.Errorf("starting rabbitmq: %w", err)
+		}
+		url, err := ctr.AmqpURL(ctx)
+		if err != nil {
+			return nil, ctr, fmt.Errorf("rabbitmq amqp url: %w", err)
+		}
+		var conn *amqp.Connection
+		err = waitUntilReady(ctx, "rabbitmq", readyTimeout, 200*time.Millisecond, func(context.Context) error {
+			conn, err = amqp.Dial(url)
+			return err
+		})
+		return conn, ctr, err
+	})
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }

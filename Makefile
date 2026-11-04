@@ -26,7 +26,7 @@ reset:
 # version of this check).
 gen:
 	@if [ -f sqlc.yaml ]; then sqlc generate; else echo "gen: no sqlc.yaml yet, skipping sqlc"; fi
-	@if [ -f buf.yaml ]; then buf generate; else echo "gen: no buf.yaml yet, skipping buf"; fi
+	@if [ -f buf.yaml ]; then buf lint && buf generate; else echo "gen: no buf.yaml yet, skipping buf"; fi
 	@if ls docs/api/*.yaml >/dev/null 2>&1; then \
 		for f in docs/api/*.yaml; do \
 			case "$$f" in *.oapi-codegen.yaml) continue;; esac; \
@@ -36,8 +36,10 @@ gen:
 	@if [ -f docs/errors/catalogue.yaml ] && [ -d tools/errcodes ]; then go run ./tools/errcodes; \
 	else echo "gen: no error catalogue or generator yet, skipping"; fi
 
+# protoc plugins can't name their output *_gen, so their *.pb.go files
+# are checked too (ADR 0004, amended in task 2.2a).
 gen-check: gen
-	@git diff --exit-code -- ':(glob)**/*_gen.*' || \
+	@git diff --exit-code -- ':(glob)**/*_gen.*' ':(glob)**/*.pb.go' || \
 		(echo "gen-check: generated code is out of date; run make gen and commit the result" && exit 1)
 
 migrate:
@@ -57,9 +59,17 @@ test:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test: no Go packages yet, skipping"; \
 	else go test ./...; fi
 
+# Integration packages each start their own containers (Postgres, NATS,
+# Redis, RabbitMQ, SeaweedFS, ...). Go runs one package per CPU by
+# default, which on a 10-core machine meant ~300 containers at once on
+# an 8 GB Docker VM and containers that never became ready. Capping the
+# packages run at once keeps Docker within its means; override with
+# `make test-int INTEGRATION_PARALLELISM=n`.
+INTEGRATION_PARALLELISM ?= 4
+
 test-int:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test-int: no Go packages yet, skipping"; \
-	else go test -tags=integration ./...; fi
+	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) ./...; fi
 
 test-contract:
 	@if [ -z "$$(go list ./test/contract/... 2>/dev/null)" ]; then echo "test-contract: no packages under test/contract yet, skipping"; \

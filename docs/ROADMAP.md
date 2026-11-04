@@ -308,7 +308,7 @@ Code may rely on these. Changing one needs an ADR.
 | D-04 | UUIDv7 keys; prefixed public IDs such as `msg_…` and `inv_…` | Data model §1 |
 | D-05 | Money as `bigint` minor units plus an ISO currency code; never floats | Data model §1 |
 | D-06 | Transactional outbox for every event; an inbox (`processed_events`) wherever events are consumed; idempotency keys on every write API | Data model §1 |
-| D-07 | Email is the sign-in identity. People use passkeys or TOTP; machines use OAuth2 client credentials with 15–60 minute JWTs; high-value calls also carry an HMAC signature | System design §2–3 |
+| D-07 | Email is the sign-in identity. People use passkeys or TOTP (Google sign-in added by D-22); machines use OAuth2 client credentials with 15–60 minute JWTs; high-value calls also carry an HMAC signature | System design §2–3 |
 | D-08 | Errors are RFC 9457 problem+json with code families AUTH, KYC, VAL, BAL, CMP, RTE, DLR, RATE, SYS, LIM, PAY | System design §8 |
 | D-09 | Country rules live in versioned country packs (KE first, then TZ and UG) | System design §1 |
 | D-10 | Double-entry ledger; main wallet plus one token wallet per service; holds are not journal entries; usage settles in batches | Data model §5 |
@@ -323,6 +323,7 @@ Code may rely on these. Changing one needs an ADR.
 | D-19 | Kenya reaches v3 parity and v3 is switched off before new channels and countries | Requirements, phasing |
 | D-20 | Allocating money to a service is final for the client. No transaction moves tokens back to the main wallet; only an approved reversal claws back unused tokens | Decision 21 Oct |
 | D-21 | Code, shortcode and sender ID rentals are billed by invoice from the billable assets register (auto-pay or Pay now), not bought with tokens. Paying VASPRO (ledger, billing) and client collections and payouts (payments, no ledger except VASPRO's fee) are separate flows | Decision 21 Oct; data model §6–7 |
+| D-22 | People can sign in with Google (OIDC), always followed by VASPRO's own second factor: an authenticator app (TOTP) or a passkey. Accounts are matched on Google's `sub`, never on email, and are never linked silently. Google never satisfies step-up. A domain with company SSO is sent to its own identity provider | Decision 30 Oct; data model §3 (`identity.user_identities`); system design §3 |
 
 ### 4.3 Open decisions and when they block
 
@@ -422,7 +423,7 @@ Pin every version in `go.mod`, `package.json` and the `Makefile`. Upgrade on pur
 | IDs | `google/uuid` (UUIDv7) |
 | Decimals (tokens) | `shopspring/decimal` |
 | Phone numbers | `nyaruka/phonenumbers` |
-| Auth | `go-webauthn/webauthn`, `pquerna/otp`, `golang.org/x/crypto/argon2` and `bcrypt` (v3 import), `lestrrat-go/jwx/v3` (task 1.8: `v2` was deprecated upstream by the time this table's pin was first exercised, with nothing else in the repo yet depending on its API; `v4` was tried first but unconditionally imports Go's still-experimental `encoding/json/v2`/`jsontext` — gated behind `GOEXPERIMENT=jsonv2`, not enabled on this toolchain — so landed on `v3`, the more conservative maintained major with no such dependency) |
+| Auth | `go-webauthn/webauthn`, `pquerna/otp`, `coreos/go-oidc/v3` with `golang.org/x/oauth2` (Sign in with Google), `golang.org/x/crypto/argon2` and `bcrypt` (v3 import), `lestrrat-go/jwx/v3` (task 1.8: `v2` was deprecated upstream by the time this table's pin was first exercised, with nothing else in the repo yet depending on its API; `v4` was tried first but unconditionally imports Go's still-experimental `encoding/json/v2`/`jsontext` — gated behind `GOEXPERIMENT=jsonv2`, not enabled on this toolchain — so landed on `v3`, the more conservative maintained major with no such dependency) |
 | Config | `caarlos0/env` |
 | Observability | OpenTelemetry SDK; Prometheus metrics; locally the `grafana/otel-lgtm` container |
 | Testing | `testing`, `stretchr/testify`, `testcontainers-go`, `pgregory.net/rapid` (property tests), Go native fuzzing, k6 |
@@ -732,28 +733,35 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 1.13 v3 importer: users and profiles. v3 passwords are bcrypt of MD5: verify that way once, then re-hash with Argon2id. Users without a usable email are flagged.
 - [x] 1.14 Design (not enable) the v3 token compatibility route (OD-16).
 - [>] 1.15 OIDC single sign-on for clients who used Okta in v3, if time allows; otherwise in Phase 20. **Deferred to 20.8** (2026-10-23): the design leaves domain verification, tenant binding, account linking and IdP secret storage open, see OQ-03.
+- [x] 1.16 Sign in with Google (D-22): authorization code flow with PKCE, `state` and `nonce`; ID token checked against Google's keys, issuer and our client ID; sign-up through Google; linking and unlinking from security settings; second factor (TOTP or passkey) enrolled before the first session completes; SSO domains refused and redirected; `identity.user_identities` and `sessions.auth_method`. *Added 30 Oct 2026, after the Phase 1 exit gate; built at the start of Phase 2.*
 
 **Tests specific to this phase**
 
 - TOTP against the RFC 6238 test vectors, including time-step drift of ±1.
 - WebAuthn registration and assertion with a virtual authenticator; a sign counter that goes backwards is rejected.
 - v3 password import: a known bcrypt(MD5) hash verifies once and is replaced by Argon2id; the old hash no longer works afterwards.
-- Lockout after the configured number of failures; unlock by time and by staff. *Unlock by staff deferred to Phase 2 (2026-10-25): no staff role or admin console exists before `accounts`; unlock by time is covered.*
+- Lockout after the configured number of failures; unlock by time and by staff. *Unlock by staff deferred to Phase 2 (2026-10-25), done in 2.9 (2026-11-03): `TestUnlockByStaff`, and the onboarding e2e unlocks a user through the gateway.*
 - JWT: expired, wrong audience, unknown key ID, and a key rotated out but still in its overlap window.
 - HMAC: wrong signature, timestamp older than 5 minutes, replayed nonce.
 - Rate limit returns 429 with `Retry-After`; a missing scope returns 403 with an `AUTH-` code; a sandbox credential cannot reach live routes.
 - Fuzz test for email normalisation.
 - E2E: sign up → verify email → enrol TOTP → sign in → create API client → get a token → call a protected endpoint → revoke the client → the call fails.
+- Google sign-in, against a fake OIDC provider: a tampered or expired ID token, a wrong audience or issuer, a reused `nonce` and a mismatched `state` are all rejected.
+- Google sign-in never completes a session without TOTP or a passkey, and never satisfies step-up.
+- A Google account whose email matches an existing user is not linked until that user signs in the usual way; matching is by `sub`, so a changed Google email still finds the same user.
+- An email on a domain with an enabled SSO connection is refused Google sign-in and sent to SSO.
+- Unlinking Google is refused when it is the user's only way in.
+- E2E: sign up with Google → enrol TOTP → sign out → sign in with Google → TOTP → session created with `auth_method = google`.
 
 **Exit gate**
 
-- [x] The e2e scenario above is green. *Evidence: `internal/gateway` `TestGateway_SignupThroughApiClientAndToken_EndToEnd` (real `cmd/identity` subprocess), `make check` green 2026-10-25.*
+- [x] The e2e scenario above is green. *Evidence: `internal/gateway` `TestGateway_SignupThroughApiClientAndToken_EndToEnd` (real `cmd/identity` subprocess), `make check` green 2026-10-25; the Google e2e added with task 1.16 is `TestGateway_GoogleSignUpThroughTOTPSignIn_EndToEnd` (real `cmd/identity`, `tools/fakes/oidc` as Google), `make check` green 2026-10-30.*
 - [x] A negative-test pass covers every endpoint without a token, with a wrong scope, and with another tenant's IDs. *Evidence: `internal/identity/api` `TestEverySessionBearerOperation_RejectsMissingGarbageAndRevokedTokens`, `TestEveryIDTakingOperation_RejectsAnotherTenantsIDs` and `TestRequireSessionOperations_MatchesSpec` (all driven by `docs/api/identity.yaml`); wrong scope: `internal/gateway` `TestRequireScope`, `TestGateway_MissingScope_Returns403` (no identity operation is scope-gated).*
 - [x] No secret, password or token appears in any log line; a test greps test logs for them. *Evidence: the e2e above greps the gateway's and the identity subprocess's logs for every secret the flow handles; confirmed by mutation (logging the raw path fails it on the TOTP challenge).*
 
 **Kickoff prompt**
 
-> We're starting Phase 1 of docs/ROADMAP.md. Read the Phase 1 section, system design §2, §3 and §9, and data model §3. Check docs/api/identity.yaml and docs/api/gateway.yaml exist and cover tasks 1.2–1.11; if not, draft them first and stop for my review. Then plan tasks 1.1–1.14 in order, with the tests for each.
+> We're starting Phase 1 of docs/ROADMAP.md. Read the Phase 1 section, system design §2, §3 and §9, and data model §3. Check docs/api/identity.yaml and docs/api/gateway.yaml exist and cover tasks 1.2–1.11; if not, draft them first and stop for my review. Then plan tasks 1.1–1.16 in order, with the tests for each.
 
 ---
 
@@ -765,17 +773,17 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 2.1 `accounts` migrations and queries from data model §4.
-- [ ] 2.2 Tenant created in the sandbox at sign-up; tenant types (direct, reseller, sub-account).
-- [ ] 2.3 Memberships, roles and invitations; one email can belong to several accounts.
-- [ ] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country.
-- [ ] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
-- [ ] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided.
-- [ ] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter.
-- [ ] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications.
-- [ ] 2.9 Staff review queue for KYC and KYB decisions marked "review".
-- [ ] 2.10 Data residency tag per tenant.
-- [ ] 2.11 v3 importers: clients, user-client links, permissions to roles, resellers to parent tenants.
+- [x] 2.1 `accounts` migrations and queries from data model §4.
+- [x] 2.2 Tenant created in the sandbox at sign-up; tenant types (direct, reseller, sub-account). *Done 2026-11-02 in three commits. 2.2a: account creation by an explicit onboarding call (decision Q1), gateway session auth, first gRPC (`TestGateway_CreateAccountThroughGateway_EndToEnd`). 2.2b: reseller and sub-account types (`TestSubAccountAccess`, `TestCreateSubAccount_Refusals`). 2.2c: a session selects its account, and credentials belong to it; Phase 1 placeholders revoked (`TestGateway_SignupThroughApiClientAndToken_EndToEnd` checks the token's `tid`; `TestRevokePlaceholderCredentials_RevokesEveryRowCreatedBefore`).*
+- [x] 2.3 Memberships, roles and invitations; one email can belong to several accounts. *Done 2026-11-02 in two commits (OQ-05). 2.3a: four built-in roles over a permission catalogue, enforced in accounts and identity; member management; "my accounts" (`TestBuiltinRoles_PermissionMatrix`, the phase's role × permission matrix). 2.3b: invitations by email through identity, step-up to add users, accept or decline (`TestGateway_InviteThroughGateway_EndToEnd`).*
+- [x] 2.4 Service catalogue, service selection at onboarding, and the tier each service needs per country. *Done 2026-11-02 (OQ-06): seven services; each country's minimum tiers in `packs/ke`, synced into `service_country_rules`; selected services follow the tier in `ChangeTier`'s transaction; a locked service reports the tier it needs (`TestServiceSelectionAndTiers`, and the account e2e picks SMS and USSD).*
+- [x] 2.5 Tier state machine with `tier_changes` written in the same transaction as the tier.
+- [x] 2.6 KYC adapter interface, fake vendor and webhook handling; the real vendor when OD-03 is decided. *Done 2026-11-02 (OQ-07, ADR 0008): `KYCProvider` with the fake vendor until OD-03 is decided; signed webhooks through the gateway; a decided check is final (`TestKYCWebhook_PassPromotesToStarter`'s out-of-order case).*
+- [x] 2.7 KYB: business profile, directors and beneficial owners, registry lookup adapter. *Done 2026-11-03 (OQ-08) except the registry lookup adapter, deferred until registry access exists: profile and owners entered by the client, KYB submitted from Starter goes to staff review, a duplicate registration number is flagged (`TestSubmitKYB`).*
+- [x] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications. *Done 2026-11-03 (OQ-09): envelope-encrypted in SeaweedFS (`platform/objectstore`), PDF/JPEG/PNG from the bytes, 10 MB, scanned by ClamAV, the same file stored once per account, KYB needs the pack's documents and records their IDs (`TestUploadDocument_*`, `TestDocumentsAPI`).*
+- [x] 2.9 Staff review queue for KYC and KYB decisions marked "review". *Done 2026-11-03 in two commits (OQ-10). 2.9a: staff are users in `identity.staff_members`, granted only by the ops CLI (`vaspro identity grant-staff`); unlock by staff (`TestUnlockByStaff`). 2.9b: the cross-account queue, staff decisions that promote or reject, staff tier changes, making a reseller and opening documents, all staff-only (`TestStaffAPI_EveryStaffOperationIsStaffOnly`, `TestDecideKYCReview_*`); the onboarding e2e continues through staff review to Business, Financial, a reseller and its first sub-account.*
+- [x] 2.10 Data residency tag per tenant. *Done 2026-11-04 (OQ-11): the tag comes from the pack, is fixed for the account's life and a sub-account shares its reseller's, both enforced by the database (`TestTenantRegion_FixedAndSharedWithTheParent`); packs may only name a hosted region (`TestParse_DataRegion_OnlyAHostedRegion`); `tenant.created` carries it. Moving an account's data stays with 21.4 (OD-02).*
+- [>] 2.11 v3 importers: clients, user-client links, permissions to roles, resellers to parent tenants. **Designed, not built** (2026-11-04, OQ-12): ADR 0009 is the design; it is built when a v3 export or anonymised copy exists, since none is available here (OQ-02).
 
 **Tests specific to this phase**
 
@@ -788,8 +796,8 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] The onboarding e2e is green.
-- [ ] The v3 client importer dry run on an anonymised copy reports counts that match v3, and lists every flagged record.
+- [x] The onboarding e2e is green. *`TestGateway_OnboardingThroughKYC_EndToEnd` (2026-11-02): sign up → pick SMS and USSD → individual KYC through the fake vendor, whose signed webhook goes through the gateway → starter, SMS and USSD enabled → `tenant.tier_changed` read off accounts' NATS stream.*
+- [ ] The v3 client importer dry run on an anonymised copy reports counts that match v3, and lists every flagged record. *Open: waits for 2.11's build (ADR 0009) and an anonymised copy.*
 
 **Kickoff prompt**
 
@@ -1458,7 +1466,7 @@ Built alongside the backend phases, against the generated TypeScript API client.
 | Track | With phase | Delivers |
 |---|---|---|
 | F0 | 0–1 | App shell for `web/dashboard`, `web/console` and `web/portal`; design system; auth screens; i18n set-up (English first, then Swahili and French) |
-| F1 | 1–2 | Sign-up, sign-in with passkey or TOTP, onboarding service picker, KYC steps, team management |
+| F1 | 1–2 | Sign-up, sign-in with passkey, password and TOTP, or Google and TOTP; onboarding service picker, KYC steps, team management |
 | F2 | 3–4 | Wallet, token purchase, top-up, statements |
 | F3 | 6–7 | Contacts, imports, campaigns, send, message timeline, limits |
 | F4 | 9–11 | Invoices and Pay now; applications wizard; USSD builder and simulator; staff console |

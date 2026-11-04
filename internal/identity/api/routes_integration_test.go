@@ -11,11 +11,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
+
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/email"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantaccess"
 )
 
 func randomBase64Key(t *testing.T) string {
@@ -33,6 +37,30 @@ func randomBase64Key(t *testing.T) string {
 // test that needs to read an emailed code (step-up, verification,
 // password reset) doesn't have to reach around the router for it.
 func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
+	t.Helper()
+	return newTestRouterWith(t, nil)
+}
+
+// newTestRouterWith is newTestRouter with configure applied to the
+// Config first (task 1.16's Google tests set the GOOGLE_* fields).
+func newTestRouterWith(t *testing.T, configure func(*identity.Config)) (http.Handler, *email.Sender) {
+	t.Helper()
+	return newTestRouterWithAccess(t, configure, &tenantaccess.Fake{AllowAll: true})
+}
+
+// newTestRouterWithAccess is newTestRouterWith with accounts' access
+// check answered by access (task 2.2c); the other constructors let
+// every user into every account, so a test selects any account ID.
+func newTestRouterWithAccess(t *testing.T, configure func(*identity.Config), access adapters.TenantAccess) (http.Handler, *email.Sender) {
+	t.Helper()
+	r, sender, _ := newTestRouterWithPool(t, configure, access)
+	return r, sender
+}
+
+// newTestRouterWithPool is newTestRouterWithAccess that also returns
+// the database pool, for a test that must do what only the ops CLI
+// does (granting staff, task 2.9).
+func newTestRouterWithPool(t *testing.T, configure func(*identity.Config), access adapters.TenantAccess) (http.Handler, *email.Sender, *vasdb.Pool) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -55,8 +83,11 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 		WebAuthnOrigins:       []string{"https://localhost"},
 		RedisURL:              testkit.StartRedisURL(t),
 	}
+	if configure != nil {
+		configure(&cfg)
+	}
 	sender := &email.Sender{}
-	svc, err := identity.New(cfg, pool, nil, sender)
+	svc, err := identity.New(cfg, pool, nil, sender, access)
 	if err != nil {
 		t.Fatalf("building identity service: %v", err)
 	}
@@ -66,7 +97,7 @@ func newTestRouter(t *testing.T) (http.Handler, *email.Sender) {
 	if err := svc.EnsureActiveSigningKey(ctx); err != nil {
 		t.Fatalf("ensuring an active signing key: %v", err)
 	}
-	return svc.Router(), sender
+	return svc.Router(), sender, pool
 }
 
 func TestCreateSignup_MissingIdempotencyKey_Rejected(t *testing.T) {
@@ -137,4 +168,18 @@ func TestHealthzAndReadyz(t *testing.T) {
 			t.Fatalf("GET %s: got status %d", path, rec.Code)
 		}
 	}
+}
+
+// selectTenant has sessionToken's session select a new account, which
+// the allow-all fake lets anyone into, and returns its ID (task 2.2c:
+// API clients and SMPP accounts belong to the selected account).
+func selectTenant(t *testing.T, r http.Handler, sessionToken string) string {
+	t.Helper()
+	tenantID := uuid.NewString()
+	status, body := doJSON(t, r, http.MethodPut, "/v1/auth/sessions/current/tenant", sessionToken,
+		map[string]string{"tenant_id": tenantID}, "select-"+tenantID)
+	if status != http.StatusOK || body["tenant_id"] != tenantID {
+		t.Fatalf("selecting an account: got %d %v", status, body)
+	}
+	return tenantID
 }

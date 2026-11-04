@@ -15,19 +15,20 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at, token_hash)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash
+INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at, token_hash, auth_method)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash, auth_method
 `
 
 type CreateSessionParams struct {
-	ID        uuid.UUID   `json:"id"`
-	UserID    uuid.UUID   `json:"user_id"`
-	TenantID  pgtype.UUID `json:"tenant_id"`
-	Ip        *netip.Addr `json:"ip"`
-	UserAgent pgtype.Text `json:"user_agent"`
-	ExpiresAt time.Time   `json:"expires_at"`
-	TokenHash []byte      `json:"token_hash"`
+	ID         uuid.UUID   `json:"id"`
+	UserID     uuid.UUID   `json:"user_id"`
+	TenantID   pgtype.UUID `json:"tenant_id"`
+	Ip         *netip.Addr `json:"ip"`
+	UserAgent  pgtype.Text `json:"user_agent"`
+	ExpiresAt  time.Time   `json:"expires_at"`
+	TokenHash  []byte      `json:"token_hash"`
+	AuthMethod string      `json:"auth_method"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (IdentitySession, error) {
@@ -39,6 +40,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (I
 		arg.UserAgent,
 		arg.ExpiresAt,
 		arg.TokenHash,
+		arg.AuthMethod,
 	)
 	var i IdentitySession
 	err := row.Scan(
@@ -53,12 +55,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (I
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.TokenHash,
+		&i.AuthMethod,
 	)
 	return i, err
 }
 
 const getActiveSessionByID = `-- name: GetActiveSessionByID :one
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash, auth_method FROM identity.sessions
 WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
 `
 
@@ -82,12 +85,13 @@ func (q *Queries) GetActiveSessionByID(ctx context.Context, arg GetActiveSession
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.TokenHash,
+		&i.AuthMethod,
 	)
 	return i, err
 }
 
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash, auth_method FROM identity.sessions
 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
 `
 
@@ -113,12 +117,13 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActive
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.TokenHash,
+		&i.AuthMethod,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions WHERE id = $1
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash, auth_method FROM identity.sessions WHERE id = $1
 `
 
 func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (IdentitySession, error) {
@@ -136,12 +141,13 @@ func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (IdentitySes
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.TokenHash,
+		&i.AuthMethod,
 	)
 	return i, err
 }
 
 const listActiveSessionsByUserID = `-- name: ListActiveSessionsByUserID :many
-SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash FROM identity.sessions
+SELECT id, user_id, tenant_id, ip, user_agent, step_up_at, created_at, last_seen_at, expires_at, revoked_at, token_hash, auth_method FROM identity.sessions
 WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $2::timestamptz
 ORDER BY last_seen_at DESC
 `
@@ -172,6 +178,7 @@ func (q *Queries) ListActiveSessionsByUserID(ctx context.Context, arg ListActive
 			&i.ExpiresAt,
 			&i.RevokedAt,
 			&i.TokenHash,
+			&i.AuthMethod,
 		); err != nil {
 			return nil, err
 		}
@@ -236,6 +243,33 @@ UPDATE identity.sessions SET step_up_at = now() WHERE id = $1
 func (q *Queries) SetSessionStepUp(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, setSessionStepUp, id)
 	return err
+}
+
+const setSessionTenant = `-- name: SetSessionTenant :execrows
+UPDATE identity.sessions SET tenant_id = $1
+WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL AND expires_at > $4::timestamptz
+`
+
+type SetSessionTenantParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       uuid.UUID   `json:"id"`
+	UserID   uuid.UUID   `json:"user_id"`
+	Now      time.Time   `json:"now"`
+}
+
+// Selects the account an active session works in (task 2.2c); only the
+// session's own user can, and the caller has already asked accounts.
+func (q *Queries) SetSessionTenant(ctx context.Context, arg SetSessionTenantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSessionTenant,
+		arg.TenantID,
+		arg.ID,
+		arg.UserID,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateSessionLastSeenAt = `-- name: UpdateSessionLastSeenAt :exec

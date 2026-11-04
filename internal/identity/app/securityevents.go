@@ -66,6 +66,17 @@ func (s *Service) ListSecurityEvents(ctx context.Context, userID uuid.UUID) ([]S
 // is marshaled to JSON; a nil map becomes "{}", the column's own
 // default shape.
 func recordSecurityEvent(ctx context.Context, q *store.Queries, userID uuid.UUID, eventType string, ip net.IP, detail map[string]any) error {
+	return writeSecurityEvent(ctx, q, userID, pgtype.UUID{}, eventType, ip, detail)
+}
+
+// recordTenantSecurityEvent records a credential event (task 1.12) on
+// tenantID's API clients or SMPP accounts by userID, with the account
+// it belongs to (task 2.2c).
+func recordTenantSecurityEvent(ctx context.Context, q *store.Queries, tenantID, userID uuid.UUID, eventType string, detail map[string]any) error {
+	return writeSecurityEvent(ctx, q, userID, pgtype.UUID{Bytes: tenantID, Valid: true}, eventType, nil, detail)
+}
+
+func writeSecurityEvent(ctx context.Context, q *store.Queries, userID uuid.UUID, tenantID pgtype.UUID, eventType string, ip net.IP, detail map[string]any) error {
 	id, err := ids.New()
 	if err != nil {
 		return fmt.Errorf("app: generating security event id: %w", err)
@@ -78,11 +89,12 @@ func recordSecurityEvent(ctx context.Context, q *store.Queries, userID uuid.UUID
 		return fmt.Errorf("app: encoding security event detail: %w", err)
 	}
 	_, err = q.CreateSecurityEvent(ctx, store.CreateSecurityEventParams{
-		ID:     id,
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		Type:   eventType,
-		Ip:     toNetipAddr(ip),
-		Detail: detailJSON,
+		ID:       id,
+		UserID:   pgtype.UUID{Bytes: userID, Valid: true},
+		TenantID: tenantID,
+		Type:     eventType,
+		Ip:       toNetipAddr(ip),
+		Detail:   detailJSON,
 	})
 	if err != nil {
 		return fmt.Errorf("app: recording security event %q: %w", eventType, err)

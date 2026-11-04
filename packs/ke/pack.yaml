@@ -7,6 +7,12 @@
 version: "0"
 country_code: KE
 
+# A new account's defaults (task 2.2a). data_region is the account's
+# residency tag, fixed at creation (task 2.10); packs/schema.json lists
+# the hosted regions (OD-02).
+timezone: Africa/Nairobi
+data_region: ke
+
 currency:
   code: KES
   exponent: 2
@@ -29,3 +35,35 @@ send_windows:
     start: "08:00"
     end: "20:00"
     timezone: Africa/Nairobi
+
+# Business verification (task 2.7): profiles are checked against the
+# Business Registration Service, by staff until a registry integration
+# exists (OQ-08).
+kyb:
+  registry: BRS
+  tax_id_label: KRA PIN
+  # Uploaded before KYB can be submitted (task 2.8): the certificate of
+  # incorporation, the KRA PIN certificate and proof of address.
+  required_documents:
+    - incorporation_cert
+    - tax_certificate
+    - proof_of_address
+
+# Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
+# requirements' tier table. accounts syncs these into
+# service_country_rules at startup.
+services:
+  sms:
+    min_tier: starter
+  surveys:
+    min_tier: starter
+  ussd:
+    min_tier: starter
+  whatsapp:
+    min_tier: business
+  rewards:
+    min_tier: business
+  payouts:
+    min_tier: financial
+  collections:
+    min_tier: financial

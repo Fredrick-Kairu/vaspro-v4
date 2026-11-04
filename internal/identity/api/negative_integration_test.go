@@ -120,6 +120,7 @@ func TestEveryIDTakingOperation_RejectsAnotherTenantsIDs(t *testing.T) {
 	_, bob := signInForTokens(t, r, "bob@example.com", "bobs-strong-password", "bob-signin-1")
 	bobOtherSessionID, bobOther := signInForTokens(t, r, "bob@example.com", "bobs-strong-password", "bob-signin-2")
 	stepUpViaEmail(t, r, sender, bob)
+	selectTenant(t, r, bob)
 
 	passkeyID := registerPasskey(t, r, bob, "Bob's laptop")
 
@@ -149,6 +150,7 @@ func TestEveryIDTakingOperation_RejectsAnotherTenantsIDs(t *testing.T) {
 	signUpVerifyAndSetPassword(t, r, sender, "ada@example.com", "a-strong-password")
 	_, ada := signInForTokens(t, r, "ada@example.com", "a-strong-password", "ada-signin")
 	stepUpViaEmail(t, r, sender, ada)
+	selectTenant(t, r, ada) // a different account from bob's
 
 	attempts := map[string]struct {
 		path string

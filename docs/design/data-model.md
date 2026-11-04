@@ -115,7 +115,7 @@ CREATE TABLE identity.users (
   full_name          text NOT NULL,
   phone_e164         text CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
   phone_verified_at  timestamptz,
-  password_hash      text,                           -- Argon2id; null for passkey-only users
+  password_hash      text,                           -- Argon2id; null for passkey-only or Google-only users
   status             identity.user_status NOT NULL DEFAULT 'active',
   locale             text NOT NULL DEFAULT 'en',
   last_sign_in_at    timestamptz,
@@ -161,6 +161,7 @@ CREATE TABLE identity.sessions (
   tenant_id     uuid,                                -- account currently selected
   ip            inet,
   user_agent    text,
+  auth_method   text NOT NULL CHECK (auth_method IN ('password', 'passkey', 'google', 'sso')),
   step_up_at    timestamptz,                         -- last fresh MFA, for sensitive actions
   created_at    timestamptz NOT NULL DEFAULT now(),
   last_seen_at  timestamptz NOT NULL DEFAULT now(),
@@ -225,6 +226,19 @@ CREATE TABLE identity.sso_connections (
   domain     citext NOT NULL UNIQUE,                 -- users at this domain sign in by SSO
   config     jsonb NOT NULL,                         -- metadata URL, client ID; secrets in KMS
   enabled    boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE identity.user_identities (            -- external sign-in accounts linked to a user
+  id              uuid PRIMARY KEY,
+  user_id         uuid NOT NULL REFERENCES identity.users (id),
+  provider        text NOT NULL CHECK (provider IN ('google')),   -- more later, e.g. microsoft, apple
+  subject         text NOT NULL,                     -- the provider's stable user ID (OIDC sub), never the email
+  email_at_link   citext NOT NULL,                   -- the email the provider reported when linked
+  hosted_domain   text,                              -- Google Workspace domain (hd claim), if any
+  linked_at       timestamptz NOT NULL DEFAULT now(),
+  last_used_at    timestamptz,
+  UNIQUE (provider, subject),
+  UNIQUE (user_id, provider)                         -- one Google account per user
 );
 
 CREATE TABLE identity.signing_keys (                -- global: published as the JWKS

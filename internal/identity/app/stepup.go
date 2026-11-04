@@ -220,3 +220,20 @@ func (s *Service) ConfirmStepUpEmail(ctx context.Context, userID, sessionID uuid
 	}
 	return nil
 }
+
+// IsStepUpFresh is StepUpFresh for another service asking about a
+// session it was handed (task 2.3b): sessionID must be userID's own
+// active session, or it's never fresh.
+func (s *Service) IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error) {
+	session, err := store.New(s.pool).GetActiveSessionByID(ctx, store.GetActiveSessionByIDParams{ID: sessionID, Now: s.clk.Now()})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("app: looking up session: %w", err)
+	}
+	if session.UserID != userID || !session.StepUpAt.Valid {
+		return false, nil
+	}
+	return s.clk.Now().Sub(session.StepUpAt.Time) <= stepUpWindow, nil
+}

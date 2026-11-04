@@ -7,6 +7,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/getkin/kin-openapi/routers"
+	"github.com/getkin/kin-openapi/routers/gorillamux"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
@@ -53,4 +55,18 @@ func requireValidRequestShape(spec *openapi3.T) func(http.Handler) http.Handler 
 			problem.Respond(w, r, problem.New(problem.VAL4000, "the request doesn't match the API's OpenAPI spec"))
 		},
 	})
+}
+
+// loadSpecAndRoutes loads a backend's spec and the route table the
+// audit log reads route templates from.
+func loadSpecAndRoutes(path string) (*openapi3.T, routers.Router, error) {
+	spec, err := loadOpenAPISpec(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	routes, err := gorillamux.NewRouter(spec)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gateway: building openapi route table for %s: %w", path, err)
+	}
+	return spec, routes, nil
 }

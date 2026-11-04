@@ -2,6 +2,7 @@ package packs_test
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -49,6 +50,91 @@ func TestParse_RealKEPack_ParsesCleanly(t *testing.T) {
 	}
 	if p.SendWindows.Promotional.Start != "08:00" || p.SendWindows.Promotional.End != "20:00" || p.SendWindows.Promotional.Timezone != "Africa/Nairobi" {
 		t.Errorf("SendWindows.Promotional = %+v, unexpected", p.SendWindows.Promotional)
+	}
+}
+
+// A new account takes its time zone and data residency tag from its
+// country's pack (task 2.2a).
+func TestParse_RealKEPack_HasTenantDefaults(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Timezone != "Africa/Nairobi" || p.DataRegion != "ke" {
+		t.Errorf("Timezone = %q, DataRegion = %q, want Africa/Nairobi and ke", p.Timezone, p.DataRegion)
+	}
+}
+
+// Each service's minimum tier and availability in the country (task
+// 2.4, OQ-06): KE lists the requirements' tier table.
+func TestParse_RealKEPack_HasServiceRules(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{
+		"sms": "starter", "surveys": "starter", "ussd": "starter",
+		"whatsapp": "business", "rewards": "business",
+		"payouts": "financial", "collections": "financial",
+	}
+	if len(p.Services) != len(want) {
+		t.Fatalf("got %d services, want %d: %+v", len(p.Services), len(want), p.Services)
+	}
+	for code, tier := range want {
+		rule, ok := p.Services[code]
+		if !ok || rule.MinTier != tier || !rule.Enabled {
+			t.Errorf("%s: got %+v, want min tier %s, enabled", code, rule, tier)
+		}
+	}
+}
+
+// KYB's registry and tax ID name are country rules (task 2.7).
+func TestParse_RealKEPack_HasKYB(t *testing.T) {
+	p, err := packs.Parse(readFile(t, realSchemaPath), readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.KYB == nil || p.KYB.Registry != "BRS" || p.KYB.TaxIDLabel != "KRA PIN" {
+		t.Fatalf("KYB = %+v, want BRS and KRA PIN", p.KYB)
+	}
+	if want := []string{"incorporation_cert", "tax_certificate", "proof_of_address"}; !slices.Equal(p.KYB.RequiredDocuments, want) {
+		t.Fatalf("required documents %v, want %v (task 2.8)", p.KYB.RequiredDocuments, want)
+	}
+}
+
+func TestParse_ServiceRule_EnabledDefaultsToTrueAndTierIsChecked(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	base := string(readFile(t, realKEPackPath))
+	base = base[:strings.Index(base, "\nservices:")]
+
+	p, err := packs.Parse(schema, []byte(base+"\nservices:\n  sms:\n    min_tier: business\n  ussd:\n    min_tier: starter\n    enabled: false\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r := p.Services["sms"]; r.MinTier != "business" || !r.Enabled {
+		t.Errorf("sms: %+v, want business and enabled by default", r)
+	}
+	if r := p.Services["ussd"]; r.Enabled {
+		t.Errorf("ussd: %+v, want disabled", r)
+	}
+	if _, err := packs.Parse(schema, []byte(base+"\nservices:\n  sms:\n    min_tier: platinum\n")); err == nil {
+		t.Error("a tier that doesn't exist was accepted")
+	}
+}
+
+// TestParse_DataRegion_OnlyAHostedRegion covers task 2.10: a pack can
+// only start accounts in a region the schema lists as hosted.
+func TestParse_DataRegion_OnlyAHostedRegion(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	ke := string(readFile(t, realKEPackPath))
+	for _, region := range []string{"mars", "KE", ""} {
+		pack := strings.Replace(ke, "\ndata_region: ke\n", "\ndata_region: \""+region+"\"\n", 1)
+		if pack == ke {
+			t.Fatal("the KE pack no longer has the line this test replaces")
+		}
+		if _, err := packs.Parse(schema, []byte(pack)); err == nil {
+			t.Errorf("data_region %q was accepted", region)
+		}
 	}
 }
 

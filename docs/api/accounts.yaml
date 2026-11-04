@@ -1,0 +1,1555 @@
+openapi: 3.1.0
+info:
+  title: VASPRO accounts API
+  version: "1"
+  description: >
+    Client accounts (tenants), their members and verification tiers
+    (data model §4, system design §2). Every operation is reached
+    through the gateway, which checks the dashboard session
+    (sessionBearer) before accounts sees the request (task 2.2a).
+servers:
+  - url: /
+paths:
+  /v1/accounts/tenants:
+    post:
+      operationId: createTenant
+      summary: Create a client account
+      description: >
+        Onboarding's "create your account" step, called after the user
+        has signed up and verified their email (decision of 30 Oct,
+        2.2's Q1). Creates a direct account in the sandbox tier, with
+        the caller as its Admin. Currency, time zone and data region
+        come from the country's pack; an unsupported country is
+        VAL-4000.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantCreateRequest'
+            example:
+              display_name: "Acme Deliveries"
+              country_code: "KE"
+              legal_name: "Acme Deliveries Limited"
+              billing_email: "billing@acme.example"
+      responses:
+        "201":
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}:
+    get:
+      operationId: getTenant
+      summary: Show a client account the caller belongs to
+      description: >
+        The caller must be an active member of the account, or, for a
+        sub-account, an active member of its reseller (task 2.2b).
+        VAL-4003 when the account doesn't exist or the caller can't see
+        it, alike.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/sub-accounts:
+    post:
+      operationId: createSubAccount
+      summary: Create a sub-account under a reseller
+      description: >
+        A reseller's member creates an account for one of the reseller's
+        clients (task 2.2b). The sub-account starts in the sandbox tier
+        and earns tiers through its own verification. Needs
+        account:manage in the reseller (AUTH-4024 otherwise). It takes the
+        reseller's country, currency, time zone and data region. The
+        reseller's members reach it through the reseller; it gets no
+        members of its own until it invites them. The reseller must be
+        active and on the Financial tier: KYC-4021 when the account
+        isn't an active reseller, KYC-4020 when a reseller has dropped
+        below Financial. VAL-4003 when the caller isn't a member.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubAccountCreateRequest'
+            example:
+              display_name: "Kilimo Traders"
+              legal_name: "Kilimo Traders Limited"
+      responses:
+        "201":
+          description: Sub-account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listSubAccounts
+      summary: List a reseller's sub-accounts
+      description: >
+        Oldest first. The caller must be an active member of the
+        account; VAL-4003 otherwise. An account that isn't a reseller
+        has none.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The sub-accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubAccountList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/roles:
+    get:
+      operationId: listRoles
+      summary: List the built-in roles and their permissions
+      description: >
+        Admin, Developer, Finance and Viewer (task 2.3a). Admin's
+        permissions are ["*"], every permission now and later.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The roles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/me/memberships:
+    get:
+      operationId: listMyMemberships
+      summary: List the accounts the caller belongs to
+      description: >
+        Every account the caller is an active or invited member of, with
+        their role: one email can belong to several accounts (system
+        design §2). Sub-accounts reached only through a reseller aren't
+        listed; list them from the reseller.
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: The caller's memberships.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMembershipList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/members:
+    get:
+      operationId: listMembers
+      summary: List an account's members
+      description: >
+        Active and invited members, oldest first; removed members aren't
+        shown. Needs members:read. VAL-4003 when the caller isn't a
+        member; AUTH-4024 when their role doesn't allow it.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/members/{userId}:
+    patch:
+      operationId: updateMember
+      summary: Change a member's role
+      description: >
+        Needs members:manage. Only built-in roles can be assigned. An
+        account always keeps an active Admin: demoting the last one is
+        VAL-4004.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/UserID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberUpdateRequest'
+            example:
+              role_id: "019a0000-0000-7000-8000-000000000002"
+      responses:
+        "200":
+          description: The member with their new role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: removeMember
+      summary: Remove a member, or leave an account
+      description: >
+        Needs members:manage, except that anyone may remove themselves
+        (leave). The last active Admin can't be removed or leave
+        (VAL-4004). A removed member loses access at once, including to
+        the account's API clients and SMPP accounts.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/UserID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/invitations:
+    post:
+      operationId: createInvitation
+      summary: Invite someone to an account by email
+      description: >
+        Needs members:manage and a fresh step-up (system design §3:
+        adding users), AUTH-4012 otherwise. Identity finds the person
+        or creates an unverified user for the address and emails the
+        invitation, the same way whether or not the address was
+        registered (task 2.3b). The membership is "invited" until they
+        sign in and accept. Inviting someone already invited sends it
+        again with the new role; inviting an active member is VAL-4005;
+        a removed member can be invited again.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationRequest'
+            example:
+              email: "grace@example.com"
+              role_id: "019a0000-0000-7000-8000-000000000002"
+      responses:
+        "201":
+          description: Invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/me/memberships/{tenantId}/acceptance:
+    post:
+      operationId: acceptInvitation
+      summary: Accept an invitation
+      description: >
+        The caller's invited membership becomes active (task 2.3b). Only
+        an invitation can be accepted; anything else is VAL-4003. To
+        decline, leave the account (removeMember on yourself).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: Now an active member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/services:
+    get:
+      operationId: listServices
+      summary: The service catalogue for an account
+      description: >
+        Every service available in the account's country, with the tier
+        it needs there (from the country pack, task 2.4), whether the
+        account selected it, and whether it's locked: selected but above
+        the account's tier. required_tier is the lowest tier that
+        unlocks everything selected (system design §2: verification
+        stops there). Every service works in the sandbox; enabled means
+        live use. Needs account:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The catalogue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCatalogue'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/services/{code}:
+    put:
+      operationId: selectService
+      summary: Select a service
+      description: >
+        Needs account:manage. The service is enabled at once if the
+        account's tier reaches its minimum, otherwise selected and
+        locked until verification reaches it. Selecting it again
+        returns it unchanged. A service that doesn't exist or is off in
+        the account's country is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/ServiceCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The service as the account now has it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountService'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deselectService
+      summary: Remove a selected service
+      description: Needs account:manage. A service that isn't selected is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/ServiceCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/kyc-checks:
+    post:
+      operationId: createKycCheck
+      summary: Start a KYC check
+      description: >
+        Starts verification with the KYC vendor (task 2.6, ADR 0008).
+        Needs account:manage. An individual check verifies the caller
+        and, once passed, moves a sandbox account to the starter tier;
+        the response's url is the vendor's hosted flow (ID document and
+        selfie). Only individual checks in 2.6; business checks come
+        with KYB, which is submitted with submitKyb. VAL-4000 when KYC
+        isn't configured.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycCheckRequest'
+            example:
+              kind: individual
+      responses:
+        "201":
+          description: Started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listKycChecks
+      summary: List an account's KYC checks
+      description: Newest first. Needs account:read. Holds no personal data.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The checks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheckList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/kyc/webhooks/{provider}:
+    post:
+      operationId: receiveKycWebhook
+      summary: Receive a KYC vendor's result
+      description: >
+        Called by the KYC vendor, not by clients, so it carries no
+        session and no Idempotency-Key; the vendor's signature
+        authenticates it (task 2.6, ADR 0008). A bad or stale signature
+        is AUTH-4013 and changes nothing. Results are idempotent: a
+        decided check is final, so a repeated or out-of-order result
+        changes nothing, and nothing here ever demotes an account. An
+        unknown check is acknowledged and ignored.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile:
+    get:
+      operationId: getBusinessProfile
+      summary: The account's business profile and its owners
+      description: Needs account:read. VAL-4003 when the account has no profile yet.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessProfile'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: setBusinessProfile
+      summary: Enter or change the business profile
+      description: >
+        Needs account:manage (task 2.7). The registry comes from the
+        country pack (BRS in Kenya). Staff verify the details when KYB
+        is submitted (OQ-08: no registry lookup yet). Locked while a
+        business verification is in review or after it passed
+        (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessProfileRequest'
+            example:
+              registration_number: "PVT-AB1CDEF2"
+              registered_name: "Acme Deliveries Limited"
+              tax_id: "P051234567X"
+              registered_address: "Moi Avenue, Nairobi"
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessProfile'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile/owners:
+    post:
+      operationId: addBusinessOwner
+      summary: Add a director, owner or signatory
+      description: >
+        Needs account:manage and an existing profile. ownership_pct is a
+        decimal string from 0 to 100 with up to two places. Locked like
+        the profile (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessOwnerRequest'
+            example:
+              full_name: "Grace Wanjiru"
+              role: director
+              ownership_pct: "60.00"
+      responses:
+        "201":
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessOwner'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/business-profile/owners/{ownerId}:
+    delete:
+      operationId: removeBusinessOwner
+      summary: Remove a director, owner or signatory
+      description: Needs account:manage. Locked like the profile (VAL-4006).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/kyb-submissions:
+    post:
+      operationId: submitKyb
+      summary: Submit the business for verification
+      description: >
+        Needs account:manage, the starter tier (KYC-4020 below it), a
+        business profile and at least one director (VAL-4000). Creates
+        a business check that goes to the staff review queue (OQ-08);
+        staff decide it, promoting the account to the business tier
+        when it passes (task 2.9). The country's required documents must
+        be uploaded first (VAL-4000 naming the missing ones; task 2.8),
+        and the check records which it used. A registration number another
+        account also uses is flagged for the reviewer, not refused
+        (data model §4). One submission at a time: VAL-4006 while one
+        is in review or after one passed.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "201":
+          description: Submitted for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/documents:
+    post:
+      operationId: uploadDocument
+      summary: Upload a document
+      description: >
+        Needs account:manage (task 2.8, OQ-09). multipart/form-data with
+        type and file, up to 10 MB (VAL-4008); PDF, JPEG or PNG, judged
+        from the file's bytes (VAL-4007). Every file is virus-scanned
+        before it's stored (VAL-4009 when something is found) and
+        encrypted before it reaches object storage. The same file
+        uploaded again returns the existing document (200) instead of
+        storing it twice; it keeps its first type.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+      responses:
+        "201":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        "200":
+          description: The same file was already uploaded; this is that document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "413":
+          $ref: '#/components/responses/Problem'
+        "415":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listDocuments
+      summary: List an account's documents
+      description: Newest first, metadata only. Needs account:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The documents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/tenants/{id}/documents/{docId}/content:
+    get:
+      operationId: getDocumentContent
+      summary: Download a document
+      description: >
+        The decrypted file. Needs account:manage: identity and company
+        documents are sensitive, so Viewers and Developers can list
+        documents but not open them.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews:
+    get:
+      operationId: listKycReviews
+      summary: The staff review queue (staff only)
+      description: >
+        KYC and KYB checks waiting for a staff decision, across every
+        account, oldest first (task 2.9, OQ-10). Staff only (AUTH-4025
+        for anyone else, an account's own Admin included). Pages with
+        next_cursor; a decided check leaves the queue.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycReviewList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews/{checkId}:
+    get:
+      operationId: getKycReview
+      summary: One check under review, with what the reviewer needs (staff only)
+      description: >
+        The check and its account. A business check adds the business
+        profile, its owners and the metadata of the documents it was
+        submitted with; an individual check adds the subject's email and
+        name. A check that isn't in review is VAL-4010.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CheckID'
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycReview'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/kyc-reviews/{checkId}/decision:
+    post:
+      operationId: decideKycReview
+      summary: Pass or fail a check under review (staff only)
+      description: >
+        Passing a business check moves a starter account to business,
+        marks the business profile verified and accepts its documents.
+        Passing an individual check moves a sandbox account to starter.
+        Failing changes no tier; documents named in
+        rejected_document_ids are rejected, so the client uploads them
+        again before resubmitting. The reason is shown to the client.
+        A check already decided (by staff or the vendor) is VAL-4010.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/CheckID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycDecisionRequest'
+            example:
+              decision: passed
+              reason: "Certificate matches the registry extract"
+      responses:
+        "200":
+          description: The decided check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycCheck'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/tier-changes:
+    post:
+      operationId: createStaffTierChange
+      summary: Change an account's tier (staff only)
+      description: >
+        Staff may promote any number of tiers, and only staff reach
+        financial; demotions need staff or a failed or expired check
+        (task 2.5's rules). The account's services follow the tier. A
+        change the rules refuse is VAL-4011; a kyc_check_id that can't
+        back the change is VAL-4000.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffTierChangeRequest'
+            example:
+              to: financial
+              reason: "Existing v3 client with documents on file"
+      responses:
+        "200":
+          description: The account after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/reseller:
+    post:
+      operationId: createStaffReseller
+      summary: Make an account a reseller (staff only)
+      description: >
+        Only an active direct account on the financial tier (OQ-04);
+        below financial is KYC-4020, any other type or status is
+        KYC-4021.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffReasonRequest'
+            example:
+              reason: "Signed reseller agreement"
+      responses:
+        "200":
+          description: The account, now a reseller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/accounts/staff/tenants/{id}/documents/{docId}/content:
+    get:
+      operationId: getStaffDocumentContent
+      summary: Download an account's document (staff only)
+      description: >
+        The decrypted file, for reviewing a check. The gateway's audit
+        log records the staff member and the route.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user to accounts.
+  parameters:
+    TenantID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    ServiceCode:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckID:
+      name: checkId
+      in: path
+      required: true
+      schema:
+        type: string
+    UserID:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    TenantCreateRequest:
+      type: object
+      required: [display_name, country_code]
+      properties:
+        display_name:
+          type: string
+        country_code:
+          type: string
+          description: ISO 3166-1 alpha-2; must have a country pack (KE today).
+        legal_name:
+          type: string
+        billing_email:
+          type: string
+    Role:
+      type: object
+      required: [id, name, permissions]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    RoleList:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+    Member:
+      type: object
+      required: [user_id, role_id, status, created_at]
+      properties:
+        user_id:
+          type: string
+        role_id:
+          type: string
+        status:
+          type: string
+          enum: [invited, active]
+        invited_by:
+          type: string
+        email:
+          type: string
+          description: From identity; left out if identity can't be reached.
+        full_name:
+          type: string
+          description: From identity; empty until an invited person signs up.
+        created_at:
+          type: string
+          format: date-time
+    MemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+    AccountService:
+      type: object
+      required: [code, name, min_tier, selected, locked]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        min_tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        selected:
+          type: boolean
+        status:
+          type: string
+          enum: [selected, enabled, suspended]
+          description: Only for a selected service.
+        locked:
+          type: boolean
+          description: Selected, but the account's tier is below min_tier.
+    ServiceCatalogue:
+      type: object
+      required: [tier, required_tier, services]
+      properties:
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        required_tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountService'
+    DocumentUpload:
+      type: object
+      required: [type, file]
+      properties:
+        type:
+          type: string
+          enum: [national_id, passport, incorporation_cert, tax_certificate, proof_of_address, authorisation_letter]
+        file:
+          type: string
+          format: binary
+    Document:
+      type: object
+      required: [id, type, mime_type, size_bytes, sha256, status, created_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [national_id, passport, incorporation_cert, tax_certificate, proof_of_address, authorisation_letter]
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+        sha256:
+          type: string
+          description: Hex SHA-256 of the file.
+        status:
+          type: string
+          enum: [received, accepted, rejected, expired]
+        created_at:
+          type: string
+          format: date-time
+    DocumentList:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
+    BusinessProfileRequest:
+      type: object
+      required: [registration_number, registered_name]
+      properties:
+        registration_number:
+          type: string
+        registered_name:
+          type: string
+        tax_id:
+          type: string
+          description: The country's tax ID (KRA PIN in Kenya).
+        registered_address:
+          type: string
+    BusinessProfile:
+      type: object
+      required: [id, registry, registration_number, registered_name, owners]
+      properties:
+        id:
+          type: string
+        registry:
+          type: string
+          description: From the country pack (BRS in Kenya).
+        registration_number:
+          type: string
+        registered_name:
+          type: string
+        tax_id:
+          type: string
+        registered_address:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+        owners:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessOwner'
+    BusinessOwnerRequest:
+      type: object
+      required: [full_name, role]
+      properties:
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [director, owner, signatory]
+        ownership_pct:
+          type: string
+          description: A percentage from 0 to 100 with up to two decimal places, as a string.
+    BusinessOwner:
+      type: object
+      required: [id, full_name, role]
+      properties:
+        id:
+          type: string
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [director, owner, signatory]
+        ownership_pct:
+          type: string
+    KycCheckRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [individual]
+    KycCheck:
+      type: object
+      required: [id, kind, status, created_at]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [individual, business, screening]
+        status:
+          type: string
+          enum: [pending, passed, review, failed, expired]
+        url:
+          type: string
+          description: The vendor's hosted flow; only when the check is started.
+        decided_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          description: The reviewer's reason, once staff have decided (task 2.9).
+        created_at:
+          type: string
+          format: date-time
+    KycCheckList:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/KycCheck'
+    KycReviewSummary:
+      type: object
+      required: [check_id, tenant_id, account_name, country_code, tier, tenant_status, kind, created_at]
+      properties:
+        check_id:
+          type: string
+        tenant_id:
+          type: string
+        account_name:
+          type: string
+        country_code:
+          type: string
+        tier:
+          type: string
+        tenant_status:
+          type: string
+        kind:
+          type: string
+          enum: [individual, business, screening]
+        created_at:
+          type: string
+          format: date-time
+        duplicate_registration:
+          type: boolean
+          description: KYB only; another account has the same registration number.
+        other_accounts:
+          type: integer
+          description: KYB only; how many other accounts have it.
+    KycReviewList:
+      type: object
+      required: [reviews]
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/KycReviewSummary'
+        next_cursor:
+          type: string
+          description: Pass as cursor for the next page; absent on the last page.
+    KycReview:
+      type: object
+      required: [summary, check]
+      properties:
+        summary:
+          $ref: '#/components/schemas/KycReviewSummary'
+        check:
+          $ref: '#/components/schemas/KycCheck'
+        subject_email:
+          type: string
+          description: Individual checks only.
+        subject_name:
+          type: string
+          description: Individual checks only.
+        business_profile:
+          $ref: '#/components/schemas/BusinessProfile'
+        documents:
+          type: array
+          description: Business checks only; the documents it was submitted with.
+          items:
+            $ref: '#/components/schemas/Document'
+    KycDecisionRequest:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [passed, failed]
+        reason:
+          type: string
+        rejected_document_ids:
+          type: array
+          description: Only with failed; each must be one of the check's documents.
+          items:
+            type: string
+    StaffTierChangeRequest:
+      type: object
+      required: [to, reason]
+      properties:
+        to:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        reason:
+          type: string
+        kyc_check_id:
+          type: string
+    StaffReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+    InvitationRequest:
+      type: object
+      required: [email, role_id]
+      properties:
+        email:
+          type: string
+        role_id:
+          type: string
+    MemberUpdateRequest:
+      type: object
+      required: [role_id]
+      properties:
+        role_id:
+          type: string
+    MyMembership:
+      type: object
+      required: [tenant_id, display_name, type, tier, role_id, status]
+      properties:
+        tenant_id:
+          type: string
+        display_name:
+          type: string
+        type:
+          type: string
+          enum: [direct, reseller, sub_account]
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        role_id:
+          type: string
+        status:
+          type: string
+          enum: [invited, active]
+    MyMembershipList:
+      type: object
+      required: [memberships]
+      properties:
+        memberships:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyMembership'
+    SubAccountCreateRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+        legal_name:
+          type: string
+        billing_email:
+          type: string
+    SubAccountList:
+      type: object
+      required: [sub_accounts]
+      properties:
+        sub_accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+    Tenant:
+      type: object
+      required: [id, type, display_name, country_code, timezone, default_currency, region, tier, status, created_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [direct, reseller, sub_account]
+        parent_tenant_id:
+          type: string
+        legal_name:
+          type: string
+        display_name:
+          type: string
+        country_code:
+          type: string
+        timezone:
+          type: string
+        default_currency:
+          type: string
+        region:
+          type: string
+          description: >-
+            Data residency tag, from the country's pack (a sub-account's
+            is its reseller's). Fixed for the account's life.
+        tier:
+          type: string
+          enum: [sandbox, starter, business, financial]
+        status:
+          type: string
+          enum: [active, suspended, archived]
+        billing_email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

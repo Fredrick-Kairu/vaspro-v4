@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/tenant.type_changed.schema.json",
+  "title": "tenant.type_changed",
+  "description": "Published by accounts when staff make a direct account a reseller (task 2.2b; only an active, Financial-tier direct account qualifies), in the same transaction as the change. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "from_type", "to_type", "reason", "changed_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "from_type": {"type": "string", "enum": ["direct"]},
+    "to_type": {"type": "string", "enum": ["reseller"]},
+    "reason": {"type": "string", "minLength": 1},
+    "changed_by": {"type": "string", "format": "uuid", "description": "The staff member who made the change."}
+  },
+  "additionalProperties": false
+}

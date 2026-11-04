@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/service.selected.schema.json",
+  "title": "service.selected",
+  "description": "Published by accounts when an account selects a service at onboarding or later (data model §4's Events table, task 2.4), in the same transaction. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "service_code", "min_tier", "status", "selected_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "service_code": {"type": "string", "minLength": 1},
+    "min_tier": {"type": "string", "enum": ["sandbox", "starter", "business", "financial"]},
+    "status": {"type": "string", "enum": ["selected", "enabled"], "description": "enabled when the account's tier already reaches the minimum."},
+    "selected_by": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

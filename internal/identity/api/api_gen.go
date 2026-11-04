@@ -33,6 +33,63 @@ func (e ApiClientCreateRequestEnvironment) Valid() bool {
 	}
 }
 
+// Defines values for GoogleSignInResultSecondFactors.
+const (
+	GoogleSignInResultSecondFactorsPasskey GoogleSignInResultSecondFactors = "passkey"
+	GoogleSignInResultSecondFactorsTotp    GoogleSignInResultSecondFactors = "totp"
+)
+
+// Valid indicates whether the value is a known member of the GoogleSignInResultSecondFactors enum.
+func (e GoogleSignInResultSecondFactors) Valid() bool {
+	switch e {
+	case GoogleSignInResultSecondFactorsPasskey:
+		return true
+	case GoogleSignInResultSecondFactorsTotp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LinkedIdentityProvider.
+const (
+	LinkedIdentityProviderGoogle LinkedIdentityProvider = "google"
+)
+
+// Valid indicates whether the value is a known member of the LinkedIdentityProvider enum.
+func (e LinkedIdentityProvider) Valid() bool {
+	switch e {
+	case LinkedIdentityProviderGoogle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionSummaryAuthMethod.
+const (
+	SessionSummaryAuthMethodGoogle   SessionSummaryAuthMethod = "google"
+	SessionSummaryAuthMethodPasskey  SessionSummaryAuthMethod = "passkey"
+	SessionSummaryAuthMethodPassword SessionSummaryAuthMethod = "password"
+	SessionSummaryAuthMethodSso      SessionSummaryAuthMethod = "sso"
+)
+
+// Valid indicates whether the value is a known member of the SessionSummaryAuthMethod enum.
+func (e SessionSummaryAuthMethod) Valid() bool {
+	switch e {
+	case SessionSummaryAuthMethodGoogle:
+		return true
+	case SessionSummaryAuthMethodPasskey:
+		return true
+	case SessionSummaryAuthMethodPassword:
+		return true
+	case SessionSummaryAuthMethodSso:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SmppAccountCreateRequestEnvironment.
 const (
 	SmppAccountCreateRequestEnvironmentLive    SmppAccountCreateRequestEnvironment = "live"
@@ -170,6 +227,69 @@ type EmailVerificationResult struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// GoogleAuthorization defines model for GoogleAuthorization.
+type GoogleAuthorization struct {
+	AuthorizationUrl string `json:"authorization_url"`
+
+	// State Single use; expires after 10 minutes.
+	State string `json:"state"`
+}
+
+// GoogleCallbackRequest defines model for GoogleCallbackRequest.
+type GoogleCallbackRequest struct {
+	Code  string `json:"code"`
+	State string `json:"state"`
+}
+
+// GoogleChallengeRequest defines model for GoogleChallengeRequest.
+type GoogleChallengeRequest struct {
+	Challenge string `json:"challenge"`
+}
+
+// GoogleEnrollmentRequest defines model for GoogleEnrollmentRequest.
+type GoogleEnrollmentRequest struct {
+	EnrollmentToken string `json:"enrollment_token"`
+}
+
+// GooglePasskeyChallengeVerificationRequest defines model for GooglePasskeyChallengeVerificationRequest.
+type GooglePasskeyChallengeVerificationRequest struct {
+	Challenge string `json:"challenge"`
+
+	// Credential The navigator.credentials.get() response, passed through as-is.
+	Credential map[string]interface{} `json:"credential"`
+
+	// Session The session value createGooglePasskeyChallenge returned.
+	Session string `json:"session"`
+}
+
+// GooglePasskeyEnrollmentConfirmationRequest defines model for GooglePasskeyEnrollmentConfirmationRequest.
+type GooglePasskeyEnrollmentConfirmationRequest struct {
+	// Credential The navigator.credentials.create() response, passed through as-is.
+	Credential      map[string]interface{} `json:"credential"`
+	EnrollmentToken string                 `json:"enrollment_token"`
+	Name            *string                `json:"name,omitempty"`
+	Session         string                 `json:"session"`
+}
+
+// GoogleSignInResult defines model for GoogleSignInResult.
+type GoogleSignInResult struct {
+	// Challenge Set when the account has a second factor. Finish with createTotpChallengeVerification or createGooglePasskeyChallenge.
+	Challenge *string `json:"challenge,omitempty"`
+
+	// EnrollmentToken Set when the account has no second factor yet; enrol one through the Google enrollment endpoints. Expires after 15 minutes.
+	EnrollmentToken *string                            `json:"enrollment_token,omitempty"`
+	SecondFactors   *[]GoogleSignInResultSecondFactors `json:"second_factors,omitempty"`
+}
+
+// GoogleSignInResultSecondFactors defines model for GoogleSignInResult.SecondFactors.
+type GoogleSignInResultSecondFactors string
+
+// GoogleTotpEnrollmentConfirmationRequest defines model for GoogleTotpEnrollmentConfirmationRequest.
+type GoogleTotpEnrollmentConfirmationRequest struct {
+	Code            string `json:"code"`
+	EnrollmentToken string `json:"enrollment_token"`
+}
+
 // JwkKey defines model for JwkKey.
 type JwkKey struct {
 	// Alg "EdDSA".
@@ -193,6 +313,19 @@ type JwkKey struct {
 type Jwks struct {
 	Keys []JwkKey `json:"keys"`
 }
+
+// LinkedIdentity defines model for LinkedIdentity.
+type LinkedIdentity struct {
+	// Email The email Google reported when the account was linked.
+	Email        *string                 `json:"email,omitempty"`
+	HostedDomain *string                 `json:"hosted_domain,omitempty"`
+	LastUsedAt   *time.Time              `json:"last_used_at,omitempty"`
+	LinkedAt     *time.Time              `json:"linked_at,omitempty"`
+	Provider     *LinkedIdentityProvider `json:"provider,omitempty"`
+}
+
+// LinkedIdentityProvider defines model for LinkedIdentity.Provider.
+type LinkedIdentityProvider string
 
 // OAuthError defines model for OAuthError.
 type OAuthError struct {
@@ -322,7 +455,9 @@ type SessionList struct {
 
 // SessionSummary defines model for SessionSummary.
 type SessionSummary struct {
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	// AuthMethod How the session signed in.
+	AuthMethod *SessionSummaryAuthMethod `json:"auth_method,omitempty"`
+	CreatedAt  *time.Time                `json:"created_at,omitempty"`
 
 	// Current True for the session bound to the bearer token used on this request.
 	Current    *bool      `json:"current,omitempty"`
@@ -330,7 +465,23 @@ type SessionSummary struct {
 	Id         *string    `json:"id,omitempty"`
 	Ip         *string    `json:"ip,omitempty"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	UserAgent  *string    `json:"user_agent,omitempty"`
+
+	// TenantId The account this session has selected (selectSessionTenant), if any.
+	TenantId  *string `json:"tenant_id,omitempty"`
+	UserAgent *string `json:"user_agent,omitempty"`
+}
+
+// SessionSummaryAuthMethod How the session signed in.
+type SessionSummaryAuthMethod string
+
+// SessionTenant defines model for SessionTenant.
+type SessionTenant struct {
+	TenantId string `json:"tenant_id"`
+}
+
+// SessionTenantRequest defines model for SessionTenantRequest.
+type SessionTenantRequest struct {
+	TenantId string `json:"tenant_id"`
 }
 
 // SignInRequest defines model for SignInRequest.
@@ -424,6 +575,11 @@ type SmppAccountWithPassword struct {
 	SystemId *string `json:"system_id,omitempty"`
 }
 
+// StaffUnlockRequest defines model for StaffUnlockRequest.
+type StaffUnlockRequest struct {
+	Email string `json:"email"`
+}
+
 // StepUpEmailConfirmationRequest defines model for StepUpEmailConfirmationRequest.
 type StepUpEmailConfirmationRequest struct {
 	// Code The step-up code emailed by createStepUpEmail.
@@ -474,6 +630,72 @@ type RevokeApiClientSecretParams struct {
 
 // CreateEmailVerificationParams defines parameters for CreateEmailVerification.
 type CreateEmailVerificationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleAuthorizationParams defines parameters for CreateGoogleAuthorization.
+type CreateGoogleAuthorizationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGooglePasskeyEnrollmentParams defines parameters for CreateGooglePasskeyEnrollment.
+type CreateGooglePasskeyEnrollmentParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGooglePasskeyEnrollmentConfirmationParams defines parameters for CreateGooglePasskeyEnrollmentConfirmation.
+type CreateGooglePasskeyEnrollmentConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleTotpEnrollmentParams defines parameters for CreateGoogleTotpEnrollment.
+type CreateGoogleTotpEnrollmentParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleTotpEnrollmentConfirmationParams defines parameters for CreateGoogleTotpEnrollmentConfirmation.
+type CreateGoogleTotpEnrollmentConfirmationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// DeleteGoogleLinkParams defines parameters for DeleteGoogleLink.
+type DeleteGoogleLinkParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleLinkParams defines parameters for CreateGoogleLink.
+type CreateGoogleLinkParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleLinkAuthorizationParams defines parameters for CreateGoogleLinkAuthorization.
+type CreateGoogleLinkAuthorizationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGooglePasskeyChallengeParams defines parameters for CreateGooglePasskeyChallenge.
+type CreateGooglePasskeyChallengeParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGooglePasskeyChallengeVerificationParams defines parameters for CreateGooglePasskeyChallengeVerification.
+type CreateGooglePasskeyChallengeVerificationParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateGoogleSessionParams defines parameters for CreateGoogleSession.
+type CreateGoogleSessionParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -532,6 +754,12 @@ type CreateSessionParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// SelectSessionTenantParams defines parameters for SelectSessionTenant.
+type SelectSessionTenantParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -558,6 +786,12 @@ type UpdateSmppAccountStatusParams struct {
 
 // CreateSmppAccountPasswordParams defines parameters for CreateSmppAccountPassword.
 type CreateSmppAccountPasswordParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStaffUnlockParams defines parameters for CreateStaffUnlock.
+type CreateStaffUnlockParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -598,6 +832,30 @@ type CreateApiClientJSONRequestBody = ApiClientCreateRequest
 // CreateEmailVerificationJSONRequestBody defines body for CreateEmailVerification for application/json ContentType.
 type CreateEmailVerificationJSONRequestBody = EmailVerificationRequest
 
+// CreateGooglePasskeyEnrollmentJSONRequestBody defines body for CreateGooglePasskeyEnrollment for application/json ContentType.
+type CreateGooglePasskeyEnrollmentJSONRequestBody = GoogleEnrollmentRequest
+
+// CreateGooglePasskeyEnrollmentConfirmationJSONRequestBody defines body for CreateGooglePasskeyEnrollmentConfirmation for application/json ContentType.
+type CreateGooglePasskeyEnrollmentConfirmationJSONRequestBody = GooglePasskeyEnrollmentConfirmationRequest
+
+// CreateGoogleTotpEnrollmentJSONRequestBody defines body for CreateGoogleTotpEnrollment for application/json ContentType.
+type CreateGoogleTotpEnrollmentJSONRequestBody = GoogleEnrollmentRequest
+
+// CreateGoogleTotpEnrollmentConfirmationJSONRequestBody defines body for CreateGoogleTotpEnrollmentConfirmation for application/json ContentType.
+type CreateGoogleTotpEnrollmentConfirmationJSONRequestBody = GoogleTotpEnrollmentConfirmationRequest
+
+// CreateGoogleLinkJSONRequestBody defines body for CreateGoogleLink for application/json ContentType.
+type CreateGoogleLinkJSONRequestBody = GoogleCallbackRequest
+
+// CreateGooglePasskeyChallengeJSONRequestBody defines body for CreateGooglePasskeyChallenge for application/json ContentType.
+type CreateGooglePasskeyChallengeJSONRequestBody = GoogleChallengeRequest
+
+// CreateGooglePasskeyChallengeVerificationJSONRequestBody defines body for CreateGooglePasskeyChallengeVerification for application/json ContentType.
+type CreateGooglePasskeyChallengeVerificationJSONRequestBody = GooglePasskeyChallengeVerificationRequest
+
+// CreateGoogleSessionJSONRequestBody defines body for CreateGoogleSession for application/json ContentType.
+type CreateGoogleSessionJSONRequestBody = GoogleCallbackRequest
+
 // CreatePasskeyChallengeJSONRequestBody defines body for CreatePasskeyChallenge for application/json ContentType.
 type CreatePasskeyChallengeJSONRequestBody = PasskeyChallengeRequest
 
@@ -619,6 +877,9 @@ type CreatePasswordResetJSONRequestBody = PasswordResetRequest
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = SignInRequest
 
+// SelectSessionTenantJSONRequestBody defines body for SelectSessionTenant for application/json ContentType.
+type SelectSessionTenantJSONRequestBody = SessionTenantRequest
+
 // CreateSignupJSONRequestBody defines body for CreateSignup for application/json ContentType.
 type CreateSignupJSONRequestBody = SignupRequest
 
@@ -627,6 +888,9 @@ type CreateSmppAccountJSONRequestBody = SmppAccountCreateRequest
 
 // UpdateSmppAccountStatusJSONRequestBody defines body for UpdateSmppAccountStatus for application/json ContentType.
 type UpdateSmppAccountStatusJSONRequestBody = SmppAccountStatusUpdateRequest
+
+// CreateStaffUnlockJSONRequestBody defines body for CreateStaffUnlock for application/json ContentType.
+type CreateStaffUnlockJSONRequestBody = StaffUnlockRequest
 
 // CreateStepUpEmailConfirmationJSONRequestBody defines body for CreateStepUpEmailConfirmation for application/json ContentType.
 type CreateStepUpEmailConfirmationJSONRequestBody = StepUpEmailConfirmationRequest
@@ -669,6 +933,42 @@ type ServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams)
+	// CreateGoogleAuthorization Begin signing in (or signing up) with Google
+	// (POST /v1/auth/google/authorizations)
+	CreateGoogleAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleAuthorizationParams)
+	// CreateGooglePasskeyEnrollment Begin passkey enrollment for a Google account with no second factor
+	// (POST /v1/auth/google/enrollments/passkey)
+	CreateGooglePasskeyEnrollment(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentParams)
+	// CreateGooglePasskeyEnrollmentConfirmation Finish passkey enrollment and create the first session
+	// (POST /v1/auth/google/enrollments/passkey/confirmation)
+	CreateGooglePasskeyEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentConfirmationParams)
+	// CreateGoogleTotpEnrollment Begin TOTP enrollment for a Google account with no second factor
+	// (POST /v1/auth/google/enrollments/totp)
+	CreateGoogleTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentParams)
+	// CreateGoogleTotpEnrollmentConfirmation Confirm TOTP enrollment and create the first session
+	// (POST /v1/auth/google/enrollments/totp/confirmation)
+	CreateGoogleTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentConfirmationParams)
+	// DeleteGoogleLink Unlink the Google account
+	// (DELETE /v1/auth/google/link)
+	DeleteGoogleLink(w http.ResponseWriter, r *http.Request, params DeleteGoogleLinkParams)
+	// GetGoogleLink Show the linked Google account
+	// (GET /v1/auth/google/link)
+	GetGoogleLink(w http.ResponseWriter, r *http.Request)
+	// CreateGoogleLink Finish linking a Google account
+	// (POST /v1/auth/google/link)
+	CreateGoogleLink(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkParams)
+	// CreateGoogleLinkAuthorization Begin linking a Google account to the signed-in account
+	// (POST /v1/auth/google/link-authorizations)
+	CreateGoogleLinkAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkAuthorizationParams)
+	// CreateGooglePasskeyChallenge Begin a passkey as the second factor after Google
+	// (POST /v1/auth/google/passkey-challenges)
+	CreateGooglePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeParams)
+	// CreateGooglePasskeyChallengeVerification Finish a passkey second factor after Google
+	// (POST /v1/auth/google/passkey-challenges/verification)
+	CreateGooglePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeVerificationParams)
+	// CreateGoogleSession Finish the Google redirect
+	// (POST /v1/auth/google/sessions)
+	CreateGoogleSession(w http.ResponseWriter, r *http.Request, params CreateGoogleSessionParams)
 	// CreatePasskeyChallenge Begin signing in with a passkey
 	// (POST /v1/auth/passkey-challenges)
 	CreatePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreatePasskeyChallengeParams)
@@ -708,6 +1008,9 @@ type ServerInterface interface {
 	// CreateSession Sign in with email and password
 	// (POST /v1/auth/sessions)
 	CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams)
+	// SelectSessionTenant Select the account this session works in
+	// (PUT /v1/auth/sessions/current/tenant)
+	SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams)
 	// DeleteSession Revoke a session
 	// (DELETE /v1/auth/sessions/{id})
 	DeleteSession(w http.ResponseWriter, r *http.Request, id string, params DeleteSessionParams)
@@ -729,6 +1032,9 @@ type ServerInterface interface {
 	// CreateSmppAccountPassword Rotate an SMPP account's password
 	// (POST /v1/auth/smpp-accounts/{id}/password)
 	CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams)
+	// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+	// (POST /v1/auth/staff/unlocks)
+	CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(w http.ResponseWriter, r *http.Request, params CreateStepUpEmailParams)
@@ -801,6 +1107,78 @@ func (_ Unimplemented) RevokeApiClientSecret(w http.ResponseWriter, r *http.Requ
 // CreateEmailVerification Verify an email address with its code
 // (POST /v1/auth/email-verifications)
 func (_ Unimplemented) CreateEmailVerification(w http.ResponseWriter, r *http.Request, params CreateEmailVerificationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleAuthorization Begin signing in (or signing up) with Google
+// (POST /v1/auth/google/authorizations)
+func (_ Unimplemented) CreateGoogleAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleAuthorizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGooglePasskeyEnrollment Begin passkey enrollment for a Google account with no second factor
+// (POST /v1/auth/google/enrollments/passkey)
+func (_ Unimplemented) CreateGooglePasskeyEnrollment(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGooglePasskeyEnrollmentConfirmation Finish passkey enrollment and create the first session
+// (POST /v1/auth/google/enrollments/passkey/confirmation)
+func (_ Unimplemented) CreateGooglePasskeyEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentConfirmationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleTotpEnrollment Begin TOTP enrollment for a Google account with no second factor
+// (POST /v1/auth/google/enrollments/totp)
+func (_ Unimplemented) CreateGoogleTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleTotpEnrollmentConfirmation Confirm TOTP enrollment and create the first session
+// (POST /v1/auth/google/enrollments/totp/confirmation)
+func (_ Unimplemented) CreateGoogleTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentConfirmationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteGoogleLink Unlink the Google account
+// (DELETE /v1/auth/google/link)
+func (_ Unimplemented) DeleteGoogleLink(w http.ResponseWriter, r *http.Request, params DeleteGoogleLinkParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetGoogleLink Show the linked Google account
+// (GET /v1/auth/google/link)
+func (_ Unimplemented) GetGoogleLink(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleLink Finish linking a Google account
+// (POST /v1/auth/google/link)
+func (_ Unimplemented) CreateGoogleLink(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleLinkAuthorization Begin linking a Google account to the signed-in account
+// (POST /v1/auth/google/link-authorizations)
+func (_ Unimplemented) CreateGoogleLinkAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkAuthorizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGooglePasskeyChallenge Begin a passkey as the second factor after Google
+// (POST /v1/auth/google/passkey-challenges)
+func (_ Unimplemented) CreateGooglePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGooglePasskeyChallengeVerification Finish a passkey second factor after Google
+// (POST /v1/auth/google/passkey-challenges/verification)
+func (_ Unimplemented) CreateGooglePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeVerificationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateGoogleSession Finish the Google redirect
+// (POST /v1/auth/google/sessions)
+func (_ Unimplemented) CreateGoogleSession(w http.ResponseWriter, r *http.Request, params CreateGoogleSessionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -882,6 +1260,12 @@ func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, par
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// SelectSessionTenant Select the account this session works in
+// (PUT /v1/auth/sessions/current/tenant)
+func (_ Unimplemented) SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // DeleteSession Revoke a session
 // (DELETE /v1/auth/sessions/{id})
 func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, id string, params DeleteSessionParams) {
@@ -921,6 +1305,12 @@ func (_ Unimplemented) UpdateSmppAccountStatus(w http.ResponseWriter, r *http.Re
 // CreateSmppAccountPassword Rotate an SMPP account's password
 // (POST /v1/auth/smpp-accounts/{id}/password)
 func (_ Unimplemented) CreateSmppAccountPassword(w http.ResponseWriter, r *http.Request, id string, params CreateSmppAccountPasswordParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+// (POST /v1/auth/staff/unlocks)
+func (_ Unimplemented) CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1281,6 +1671,515 @@ func (siw *ServerInterfaceWrapper) CreateEmailVerification(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateEmailVerification(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleAuthorization operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleAuthorization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleAuthorizationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleAuthorization(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGooglePasskeyEnrollment operation middleware
+func (siw *ServerInterfaceWrapper) CreateGooglePasskeyEnrollment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGooglePasskeyEnrollmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGooglePasskeyEnrollment(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGooglePasskeyEnrollmentConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreateGooglePasskeyEnrollmentConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGooglePasskeyEnrollmentConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGooglePasskeyEnrollmentConfirmation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleTotpEnrollment operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleTotpEnrollment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleTotpEnrollmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleTotpEnrollment(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleTotpEnrollmentConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleTotpEnrollmentConfirmationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleTotpEnrollmentConfirmation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGoogleLink operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGoogleLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteGoogleLinkParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGoogleLink(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGoogleLink operation middleware
+func (siw *ServerInterfaceWrapper) GetGoogleLink(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGoogleLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleLink operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleLinkParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleLink(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleLinkAuthorization operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleLinkAuthorization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleLinkAuthorizationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleLinkAuthorization(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGooglePasskeyChallenge operation middleware
+func (siw *ServerInterfaceWrapper) CreateGooglePasskeyChallenge(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGooglePasskeyChallengeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGooglePasskeyChallenge(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGooglePasskeyChallengeVerification operation middleware
+func (siw *ServerInterfaceWrapper) CreateGooglePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGooglePasskeyChallengeVerificationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGooglePasskeyChallengeVerification(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoogleSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoogleSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateGoogleSessionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoogleSession(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1781,6 +2680,51 @@ func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// SelectSessionTenant operation middleware
+func (siw *ServerInterfaceWrapper) SelectSessionTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SelectSessionTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SelectSessionTenant(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSession operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
 
@@ -2064,6 +3008,51 @@ func (siw *ServerInterfaceWrapper) CreateSmppAccountPassword(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateSmppAccountPassword(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStaffUnlock operation middleware
+func (siw *ServerInterfaceWrapper) CreateStaffUnlock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStaffUnlockParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStaffUnlock(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2476,6 +3465,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/v1/auth/sessions/{id}", wrapper.DeleteSession)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/auth/sessions/current/tenant", wrapper.SelectSessionTenant)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/totp-challenges/{challenge}/verification", wrapper.CreateTotpChallengeVerification)
 	})
 	r.Group(func(r chi.Router) {
@@ -2515,6 +3507,42 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/auth/passkey-challenges/{challenge}/verification", wrapper.CreatePasskeyChallengeVerification)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/authorizations", wrapper.CreateGoogleAuthorization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/sessions", wrapper.CreateGoogleSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/passkey-challenges", wrapper.CreateGooglePasskeyChallenge)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/passkey-challenges/verification", wrapper.CreateGooglePasskeyChallengeVerification)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/enrollments/totp", wrapper.CreateGoogleTotpEnrollment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/enrollments/totp/confirmation", wrapper.CreateGoogleTotpEnrollmentConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/enrollments/passkey", wrapper.CreateGooglePasskeyEnrollment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/enrollments/passkey/confirmation", wrapper.CreateGooglePasskeyEnrollmentConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/link-authorizations", wrapper.CreateGoogleLinkAuthorization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/auth/google/link", wrapper.DeleteGoogleLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/auth/google/link", wrapper.GetGoogleLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/google/link", wrapper.CreateGoogleLink)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/api-clients", wrapper.ListApiClients)
 	})
 	r.Group(func(r chi.Router) {
@@ -2534,6 +3562,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/security-events", wrapper.ListSecurityEvents)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/auth/staff/unlocks", wrapper.CreateStaffUnlock)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/auth/smpp-accounts", wrapper.ListSmppAccounts)
@@ -2620,6 +3651,20 @@ func (response ListApiClients401ApplicationProblemPlusJSONResponse) VisitListApi
 	return err
 }
 
+type ListApiClients403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListApiClients403ApplicationProblemPlusJSONResponse) VisitListApiClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListApiClientsdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -2690,6 +3735,20 @@ func (response CreateApiClient401ApplicationProblemPlusJSONResponse) VisitCreate
 	return err
 }
 
+type CreateApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClient403ApplicationProblemPlusJSONResponse) VisitCreateApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateApiClientdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -2736,6 +3795,20 @@ func (response RevokeApiClient401ApplicationProblemPlusJSONResponse) VisitRevoke
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClient403ApplicationProblemPlusJSONResponse) VisitRevokeApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2805,6 +3878,20 @@ func (response GetApiClient401ApplicationProblemPlusJSONResponse) VisitGetApiCli
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiClient403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetApiClient403ApplicationProblemPlusJSONResponse) VisitGetApiClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2893,6 +3980,20 @@ func (response CreateApiClientSecret401ApplicationProblemPlusJSONResponse) Visit
 	return err
 }
 
+type CreateApiClientSecret403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateApiClientSecret403ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateApiClientSecret404ApplicationProblemPlusJSONResponse Problem
 
 func (response CreateApiClientSecret404ApplicationProblemPlusJSONResponse) VisitCreateApiClientSecretResponse(w http.ResponseWriter) error {
@@ -2954,6 +4055,20 @@ func (response RevokeApiClientSecret401ApplicationProblemPlusJSONResponse) Visit
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiClientSecret403ApplicationProblemPlusJSONResponse Problem
+
+func (response RevokeApiClientSecret403ApplicationProblemPlusJSONResponse) VisitRevokeApiClientSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3034,6 +4149,793 @@ type CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateEmailVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateEmailVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleAuthorizationRequestObject struct {
+	Params CreateGoogleAuthorizationParams
+}
+
+type CreateGoogleAuthorizationResponseObject interface {
+	VisitCreateGoogleAuthorizationResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleAuthorization200JSONResponse GoogleAuthorization
+
+func (response CreateGoogleAuthorization200JSONResponse) VisitCreateGoogleAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleAuthorization404ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleAuthorization404ApplicationProblemPlusJSONResponse) VisitCreateGoogleAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleAuthorizationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleAuthorizationdefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentRequestObject struct {
+	Params CreateGooglePasskeyEnrollmentParams
+	Body   *CreateGooglePasskeyEnrollmentJSONRequestBody
+}
+
+type CreateGooglePasskeyEnrollmentResponseObject interface {
+	VisitCreateGooglePasskeyEnrollmentResponse(w http.ResponseWriter) error
+}
+
+type CreateGooglePasskeyEnrollment200JSONResponse PasskeyCeremonyOptions
+
+func (response CreateGooglePasskeyEnrollment200JSONResponse) VisitCreateGooglePasskeyEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollment401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGooglePasskeyEnrollment401ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGooglePasskeyEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentConfirmationRequestObject struct {
+	Params CreateGooglePasskeyEnrollmentConfirmationParams
+	Body   *CreateGooglePasskeyEnrollmentConfirmationJSONRequestBody
+}
+
+type CreateGooglePasskeyEnrollmentConfirmationResponseObject interface {
+	VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreateGooglePasskeyEnrollmentConfirmation200JSONResponse SignInResult
+
+func (response CreateGooglePasskeyEnrollmentConfirmation200JSONResponse) VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGooglePasskeyEnrollmentConfirmation400ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentConfirmation401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGooglePasskeyEnrollmentConfirmation401ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGooglePasskeyEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollmentRequestObject struct {
+	Params CreateGoogleTotpEnrollmentParams
+	Body   *CreateGoogleTotpEnrollmentJSONRequestBody
+}
+
+type CreateGoogleTotpEnrollmentResponseObject interface {
+	VisitCreateGoogleTotpEnrollmentResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleTotpEnrollment200JSONResponse TotpEnrollmentResult
+
+func (response CreateGoogleTotpEnrollment200JSONResponse) VisitCreateGoogleTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollment401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleTotpEnrollment401ApplicationProblemPlusJSONResponse) VisitCreateGoogleTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleTotpEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleTotpEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollmentConfirmationRequestObject struct {
+	Params CreateGoogleTotpEnrollmentConfirmationParams
+	Body   *CreateGoogleTotpEnrollmentConfirmationJSONRequestBody
+}
+
+type CreateGoogleTotpEnrollmentConfirmationResponseObject interface {
+	VisitCreateGoogleTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleTotpEnrollmentConfirmation200JSONResponse SignInResult
+
+func (response CreateGoogleTotpEnrollmentConfirmation200JSONResponse) VisitCreateGoogleTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollmentConfirmation401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleTotpEnrollmentConfirmation401ApplicationProblemPlusJSONResponse) VisitCreateGoogleTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleTotpEnrollmentConfirmationdefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleTotpEnrollmentConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGoogleLinkRequestObject struct {
+	Params DeleteGoogleLinkParams
+}
+
+type DeleteGoogleLinkResponseObject interface {
+	VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error
+}
+
+type DeleteGoogleLink204Response struct {
+}
+
+func (response DeleteGoogleLink204Response) VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGoogleLink401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteGoogleLink401ApplicationProblemPlusJSONResponse) VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGoogleLink404ApplicationProblemPlusJSONResponse Problem
+
+func (response DeleteGoogleLink404ApplicationProblemPlusJSONResponse) VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGoogleLink409ApplicationProblemPlusJSONResponse Problem
+
+func (response DeleteGoogleLink409ApplicationProblemPlusJSONResponse) VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGoogleLinkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteGoogleLinkdefaultApplicationProblemPlusJSONResponse) VisitDeleteGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGoogleLinkRequestObject struct {
+}
+
+type GetGoogleLinkResponseObject interface {
+	VisitGetGoogleLinkResponse(w http.ResponseWriter) error
+}
+
+type GetGoogleLink200JSONResponse LinkedIdentity
+
+func (response GetGoogleLink200JSONResponse) VisitGetGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGoogleLink401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetGoogleLink401ApplicationProblemPlusJSONResponse) VisitGetGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGoogleLink404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetGoogleLink404ApplicationProblemPlusJSONResponse) VisitGetGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGoogleLinkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetGoogleLinkdefaultApplicationProblemPlusJSONResponse) VisitGetGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLinkRequestObject struct {
+	Params CreateGoogleLinkParams
+	Body   *CreateGoogleLinkJSONRequestBody
+}
+
+type CreateGoogleLinkResponseObject interface {
+	VisitCreateGoogleLinkResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleLink200JSONResponse LinkedIdentity
+
+func (response CreateGoogleLink200JSONResponse) VisitCreateGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLink400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleLink400ApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLink401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGoogleLink401ApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLink409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGoogleLink409ApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLinkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleLinkdefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLinkAuthorizationRequestObject struct {
+	Params CreateGoogleLinkAuthorizationParams
+}
+
+type CreateGoogleLinkAuthorizationResponseObject interface {
+	VisitCreateGoogleLinkAuthorizationResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleLinkAuthorization200JSONResponse GoogleAuthorization
+
+func (response CreateGoogleLinkAuthorization200JSONResponse) VisitCreateGoogleLinkAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLinkAuthorization401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleLinkAuthorization401ApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleLinkAuthorizationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleLinkAuthorizationdefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleLinkAuthorizationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengeRequestObject struct {
+	Params CreateGooglePasskeyChallengeParams
+	Body   *CreateGooglePasskeyChallengeJSONRequestBody
+}
+
+type CreateGooglePasskeyChallengeResponseObject interface {
+	VisitCreateGooglePasskeyChallengeResponse(w http.ResponseWriter) error
+}
+
+type CreateGooglePasskeyChallenge200JSONResponse PasskeyCeremonyOptions
+
+func (response CreateGooglePasskeyChallenge200JSONResponse) VisitCreateGooglePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallenge401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGooglePasskeyChallenge401ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGooglePasskeyChallengedefaultApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyChallengeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengeVerificationRequestObject struct {
+	Params CreateGooglePasskeyChallengeVerificationParams
+	Body   *CreateGooglePasskeyChallengeVerificationJSONRequestBody
+}
+
+type CreateGooglePasskeyChallengeVerificationResponseObject interface {
+	VisitCreateGooglePasskeyChallengeVerificationResponse(w http.ResponseWriter) error
+}
+
+type CreateGooglePasskeyChallengeVerification200JSONResponse SignInResult
+
+func (response CreateGooglePasskeyChallengeVerification200JSONResponse) VisitCreateGooglePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengeVerification400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGooglePasskeyChallengeVerification400ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengeVerification401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGooglePasskeyChallengeVerification401ApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGooglePasskeyChallengeVerificationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGooglePasskeyChallengeVerificationdefaultApplicationProblemPlusJSONResponse) VisitCreateGooglePasskeyChallengeVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleSessionRequestObject struct {
+	Params CreateGoogleSessionParams
+	Body   *CreateGoogleSessionJSONRequestBody
+}
+
+type CreateGoogleSessionResponseObject interface {
+	VisitCreateGoogleSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateGoogleSession200JSONResponse GoogleSignInResult
+
+func (response CreateGoogleSession200JSONResponse) VisitCreateGoogleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleSession401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateGoogleSession401ApplicationProblemPlusJSONResponse) VisitCreateGoogleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleSession403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGoogleSession403ApplicationProblemPlusJSONResponse) VisitCreateGoogleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleSession409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateGoogleSession409ApplicationProblemPlusJSONResponse) VisitCreateGoogleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGoogleSessiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateGoogleSessiondefaultApplicationProblemPlusJSONResponse) VisitCreateGoogleSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3824,6 +5726,90 @@ func (response CreateSessiondefaultApplicationProblemPlusJSONResponse) VisitCrea
 	return err
 }
 
+type SelectSessionTenantRequestObject struct {
+	Params SelectSessionTenantParams
+	Body   *SelectSessionTenantJSONRequestBody
+}
+
+type SelectSessionTenantResponseObject interface {
+	VisitSelectSessionTenantResponse(w http.ResponseWriter) error
+}
+
+type SelectSessionTenant200JSONResponse SessionTenant
+
+func (response SelectSessionTenant200JSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SelectSessionTenant400ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant401ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectSessionTenant401ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenant404ApplicationProblemPlusJSONResponse Problem
+
+func (response SelectSessionTenant404ApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SelectSessionTenantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SelectSessionTenantdefaultApplicationProblemPlusJSONResponse) VisitSelectSessionTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteSessionRequestObject struct {
 	Id     string `json:"id"`
 	Params DeleteSessionParams
@@ -3981,6 +5967,20 @@ func (response ListSmppAccounts401ApplicationProblemPlusJSONResponse) VisitListS
 	return err
 }
 
+type ListSmppAccounts403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSmppAccounts403ApplicationProblemPlusJSONResponse) VisitListSmppAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSmppAccountsdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -4051,6 +6051,20 @@ func (response CreateSmppAccount401ApplicationProblemPlusJSONResponse) VisitCrea
 	return err
 }
 
+type CreateSmppAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccount403ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateSmppAccountdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -4102,6 +6116,20 @@ func (response GetSmppAccount401ApplicationProblemPlusJSONResponse) VisitGetSmpp
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSmppAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetSmppAccount403ApplicationProblemPlusJSONResponse) VisitGetSmppAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4191,6 +6219,20 @@ func (response UpdateSmppAccountStatus401ApplicationProblemPlusJSONResponse) Vis
 	return err
 }
 
+type UpdateSmppAccountStatus403ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateSmppAccountStatus403ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse Problem
 
 func (response UpdateSmppAccountStatus404ApplicationProblemPlusJSONResponse) VisitUpdateSmppAccountStatusResponse(w http.ResponseWriter) error {
@@ -4261,6 +6303,20 @@ func (response CreateSmppAccountPassword401ApplicationProblemPlusJSONResponse) V
 	return err
 }
 
+type CreateSmppAccountPassword403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateSmppAccountPassword403ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateSmppAccountPassword404ApplicationProblemPlusJSONResponse Problem
 
 func (response CreateSmppAccountPassword404ApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
@@ -4281,6 +6337,98 @@ type CreateSmppAccountPassworddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateSmppAccountPassworddefaultApplicationProblemPlusJSONResponse) VisitCreateSmppAccountPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlockRequestObject struct {
+	Params CreateStaffUnlockParams
+	Body   *CreateStaffUnlockJSONRequestBody
+}
+
+type CreateStaffUnlockResponseObject interface {
+	VisitCreateStaffUnlockResponse(w http.ResponseWriter) error
+}
+
+type CreateStaffUnlock204Response struct {
+}
+
+func (response CreateStaffUnlock204Response) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CreateStaffUnlock400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStaffUnlock400ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock401ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock403ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlock404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStaffUnlock404ApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStaffUnlockdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStaffUnlockdefaultApplicationProblemPlusJSONResponse) VisitCreateStaffUnlockResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4758,6 +6906,42 @@ type StrictServerInterface interface {
 	// CreateEmailVerification Verify an email address with its code
 	// (POST /v1/auth/email-verifications)
 	CreateEmailVerification(ctx context.Context, request CreateEmailVerificationRequestObject) (CreateEmailVerificationResponseObject, error)
+	// CreateGoogleAuthorization Begin signing in (or signing up) with Google
+	// (POST /v1/auth/google/authorizations)
+	CreateGoogleAuthorization(ctx context.Context, request CreateGoogleAuthorizationRequestObject) (CreateGoogleAuthorizationResponseObject, error)
+	// CreateGooglePasskeyEnrollment Begin passkey enrollment for a Google account with no second factor
+	// (POST /v1/auth/google/enrollments/passkey)
+	CreateGooglePasskeyEnrollment(ctx context.Context, request CreateGooglePasskeyEnrollmentRequestObject) (CreateGooglePasskeyEnrollmentResponseObject, error)
+	// CreateGooglePasskeyEnrollmentConfirmation Finish passkey enrollment and create the first session
+	// (POST /v1/auth/google/enrollments/passkey/confirmation)
+	CreateGooglePasskeyEnrollmentConfirmation(ctx context.Context, request CreateGooglePasskeyEnrollmentConfirmationRequestObject) (CreateGooglePasskeyEnrollmentConfirmationResponseObject, error)
+	// CreateGoogleTotpEnrollment Begin TOTP enrollment for a Google account with no second factor
+	// (POST /v1/auth/google/enrollments/totp)
+	CreateGoogleTotpEnrollment(ctx context.Context, request CreateGoogleTotpEnrollmentRequestObject) (CreateGoogleTotpEnrollmentResponseObject, error)
+	// CreateGoogleTotpEnrollmentConfirmation Confirm TOTP enrollment and create the first session
+	// (POST /v1/auth/google/enrollments/totp/confirmation)
+	CreateGoogleTotpEnrollmentConfirmation(ctx context.Context, request CreateGoogleTotpEnrollmentConfirmationRequestObject) (CreateGoogleTotpEnrollmentConfirmationResponseObject, error)
+	// DeleteGoogleLink Unlink the Google account
+	// (DELETE /v1/auth/google/link)
+	DeleteGoogleLink(ctx context.Context, request DeleteGoogleLinkRequestObject) (DeleteGoogleLinkResponseObject, error)
+	// GetGoogleLink Show the linked Google account
+	// (GET /v1/auth/google/link)
+	GetGoogleLink(ctx context.Context, request GetGoogleLinkRequestObject) (GetGoogleLinkResponseObject, error)
+	// CreateGoogleLink Finish linking a Google account
+	// (POST /v1/auth/google/link)
+	CreateGoogleLink(ctx context.Context, request CreateGoogleLinkRequestObject) (CreateGoogleLinkResponseObject, error)
+	// CreateGoogleLinkAuthorization Begin linking a Google account to the signed-in account
+	// (POST /v1/auth/google/link-authorizations)
+	CreateGoogleLinkAuthorization(ctx context.Context, request CreateGoogleLinkAuthorizationRequestObject) (CreateGoogleLinkAuthorizationResponseObject, error)
+	// CreateGooglePasskeyChallenge Begin a passkey as the second factor after Google
+	// (POST /v1/auth/google/passkey-challenges)
+	CreateGooglePasskeyChallenge(ctx context.Context, request CreateGooglePasskeyChallengeRequestObject) (CreateGooglePasskeyChallengeResponseObject, error)
+	// CreateGooglePasskeyChallengeVerification Finish a passkey second factor after Google
+	// (POST /v1/auth/google/passkey-challenges/verification)
+	CreateGooglePasskeyChallengeVerification(ctx context.Context, request CreateGooglePasskeyChallengeVerificationRequestObject) (CreateGooglePasskeyChallengeVerificationResponseObject, error)
+	// CreateGoogleSession Finish the Google redirect
+	// (POST /v1/auth/google/sessions)
+	CreateGoogleSession(ctx context.Context, request CreateGoogleSessionRequestObject) (CreateGoogleSessionResponseObject, error)
 	// CreatePasskeyChallenge Begin signing in with a passkey
 	// (POST /v1/auth/passkey-challenges)
 	CreatePasskeyChallenge(ctx context.Context, request CreatePasskeyChallengeRequestObject) (CreatePasskeyChallengeResponseObject, error)
@@ -4797,6 +6981,9 @@ type StrictServerInterface interface {
 	// CreateSession Sign in with email and password
 	// (POST /v1/auth/sessions)
 	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
+	// SelectSessionTenant Select the account this session works in
+	// (PUT /v1/auth/sessions/current/tenant)
+	SelectSessionTenant(ctx context.Context, request SelectSessionTenantRequestObject) (SelectSessionTenantResponseObject, error)
 	// DeleteSession Revoke a session
 	// (DELETE /v1/auth/sessions/{id})
 	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
@@ -4818,6 +7005,9 @@ type StrictServerInterface interface {
 	// CreateSmppAccountPassword Rotate an SMPP account's password
 	// (POST /v1/auth/smpp-accounts/{id}/password)
 	CreateSmppAccountPassword(ctx context.Context, request CreateSmppAccountPasswordRequestObject) (CreateSmppAccountPasswordResponseObject, error)
+	// CreateStaffUnlock Unlock a user locked out by failed sign-ins (staff only)
+	// (POST /v1/auth/staff/unlocks)
+	CreateStaffUnlock(ctx context.Context, request CreateStaffUnlockRequestObject) (CreateStaffUnlockResponseObject, error)
 	// CreateStepUpEmail Request a step-up code by email
 	// (POST /v1/auth/step-up/email)
 	CreateStepUpEmail(ctx context.Context, request CreateStepUpEmailRequestObject) (CreateStepUpEmailResponseObject, error)
@@ -5095,6 +7285,372 @@ func (sh *strictHandler) CreateEmailVerification(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateEmailVerificationResponseObject); ok {
 		if err := validResponse.VisitCreateEmailVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleAuthorization operation middleware
+func (sh *strictHandler) CreateGoogleAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleAuthorizationParams) {
+	var request CreateGoogleAuthorizationRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleAuthorization(ctx, request.(CreateGoogleAuthorizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleAuthorization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleAuthorizationResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleAuthorizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGooglePasskeyEnrollment operation middleware
+func (sh *strictHandler) CreateGooglePasskeyEnrollment(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentParams) {
+	var request CreateGooglePasskeyEnrollmentRequestObject
+
+	request.Params = params
+
+	var body CreateGooglePasskeyEnrollmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGooglePasskeyEnrollment(ctx, request.(CreateGooglePasskeyEnrollmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGooglePasskeyEnrollment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGooglePasskeyEnrollmentResponseObject); ok {
+		if err := validResponse.VisitCreateGooglePasskeyEnrollmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGooglePasskeyEnrollmentConfirmation operation middleware
+func (sh *strictHandler) CreateGooglePasskeyEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyEnrollmentConfirmationParams) {
+	var request CreateGooglePasskeyEnrollmentConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreateGooglePasskeyEnrollmentConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGooglePasskeyEnrollmentConfirmation(ctx, request.(CreateGooglePasskeyEnrollmentConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGooglePasskeyEnrollmentConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGooglePasskeyEnrollmentConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreateGooglePasskeyEnrollmentConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleTotpEnrollment operation middleware
+func (sh *strictHandler) CreateGoogleTotpEnrollment(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentParams) {
+	var request CreateGoogleTotpEnrollmentRequestObject
+
+	request.Params = params
+
+	var body CreateGoogleTotpEnrollmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleTotpEnrollment(ctx, request.(CreateGoogleTotpEnrollmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleTotpEnrollment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleTotpEnrollmentResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleTotpEnrollmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleTotpEnrollmentConfirmation operation middleware
+func (sh *strictHandler) CreateGoogleTotpEnrollmentConfirmation(w http.ResponseWriter, r *http.Request, params CreateGoogleTotpEnrollmentConfirmationParams) {
+	var request CreateGoogleTotpEnrollmentConfirmationRequestObject
+
+	request.Params = params
+
+	var body CreateGoogleTotpEnrollmentConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleTotpEnrollmentConfirmation(ctx, request.(CreateGoogleTotpEnrollmentConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleTotpEnrollmentConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleTotpEnrollmentConfirmationResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleTotpEnrollmentConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGoogleLink operation middleware
+func (sh *strictHandler) DeleteGoogleLink(w http.ResponseWriter, r *http.Request, params DeleteGoogleLinkParams) {
+	var request DeleteGoogleLinkRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGoogleLink(ctx, request.(DeleteGoogleLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGoogleLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGoogleLinkResponseObject); ok {
+		if err := validResponse.VisitDeleteGoogleLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGoogleLink operation middleware
+func (sh *strictHandler) GetGoogleLink(w http.ResponseWriter, r *http.Request) {
+	var request GetGoogleLinkRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGoogleLink(ctx, request.(GetGoogleLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGoogleLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGoogleLinkResponseObject); ok {
+		if err := validResponse.VisitGetGoogleLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleLink operation middleware
+func (sh *strictHandler) CreateGoogleLink(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkParams) {
+	var request CreateGoogleLinkRequestObject
+
+	request.Params = params
+
+	var body CreateGoogleLinkJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleLink(ctx, request.(CreateGoogleLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleLinkResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleLinkAuthorization operation middleware
+func (sh *strictHandler) CreateGoogleLinkAuthorization(w http.ResponseWriter, r *http.Request, params CreateGoogleLinkAuthorizationParams) {
+	var request CreateGoogleLinkAuthorizationRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleLinkAuthorization(ctx, request.(CreateGoogleLinkAuthorizationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleLinkAuthorization")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleLinkAuthorizationResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleLinkAuthorizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGooglePasskeyChallenge operation middleware
+func (sh *strictHandler) CreateGooglePasskeyChallenge(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeParams) {
+	var request CreateGooglePasskeyChallengeRequestObject
+
+	request.Params = params
+
+	var body CreateGooglePasskeyChallengeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGooglePasskeyChallenge(ctx, request.(CreateGooglePasskeyChallengeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGooglePasskeyChallenge")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGooglePasskeyChallengeResponseObject); ok {
+		if err := validResponse.VisitCreateGooglePasskeyChallengeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGooglePasskeyChallengeVerification operation middleware
+func (sh *strictHandler) CreateGooglePasskeyChallengeVerification(w http.ResponseWriter, r *http.Request, params CreateGooglePasskeyChallengeVerificationParams) {
+	var request CreateGooglePasskeyChallengeVerificationRequestObject
+
+	request.Params = params
+
+	var body CreateGooglePasskeyChallengeVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGooglePasskeyChallengeVerification(ctx, request.(CreateGooglePasskeyChallengeVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGooglePasskeyChallengeVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGooglePasskeyChallengeVerificationResponseObject); ok {
+		if err := validResponse.VisitCreateGooglePasskeyChallengeVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGoogleSession operation middleware
+func (sh *strictHandler) CreateGoogleSession(w http.ResponseWriter, r *http.Request, params CreateGoogleSessionParams) {
+	var request CreateGoogleSessionRequestObject
+
+	request.Params = params
+
+	var body CreateGoogleSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGoogleSession(ctx, request.(CreateGoogleSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGoogleSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGoogleSessionResponseObject); ok {
+		if err := validResponse.VisitCreateGoogleSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5485,6 +8041,39 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// SelectSessionTenant operation middleware
+func (sh *strictHandler) SelectSessionTenant(w http.ResponseWriter, r *http.Request, params SelectSessionTenantParams) {
+	var request SelectSessionTenantRequestObject
+
+	request.Params = params
+
+	var body SelectSessionTenantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SelectSessionTenant(ctx, request.(SelectSessionTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SelectSessionTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SelectSessionTenantResponseObject); ok {
+		if err := validResponse.VisitSelectSessionTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteSession operation middleware
 func (sh *strictHandler) DeleteSession(w http.ResponseWriter, r *http.Request, id string, params DeleteSessionParams) {
 	var request DeleteSessionRequestObject
@@ -5682,6 +8271,39 @@ func (sh *strictHandler) CreateSmppAccountPassword(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSmppAccountPasswordResponseObject); ok {
 		if err := validResponse.VisitCreateSmppAccountPasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStaffUnlock operation middleware
+func (sh *strictHandler) CreateStaffUnlock(w http.ResponseWriter, r *http.Request, params CreateStaffUnlockParams) {
+	var request CreateStaffUnlockRequestObject
+
+	request.Params = params
+
+	var body CreateStaffUnlockJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStaffUnlock(ctx, request.(CreateStaffUnlockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStaffUnlock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStaffUnlockResponseObject); ok {
+		if err := validResponse.VisitCreateStaffUnlockResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

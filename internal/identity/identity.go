@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/redis/go-redis/v9"
+	gogrpc "google.golang.org/grpc"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
@@ -28,6 +29,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity/app"
+	identitygrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/identity/grpc"
 )
 
 // totpKMSKeyID names the LocalKMS master key TOTP secrets are
@@ -52,8 +54,17 @@ type Config struct {
 	DatabaseURL string `env:"IDENTITY_DATABASE_URL,required"`
 	NATSURL     string `env:"IDENTITY_NATS_URL,required"`
 	HTTPAddr    string `env:"IDENTITY_HTTP_ADDR" envDefault:":8080"`
-	SMTPAddr    string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
-	EmailFrom   string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
+	// GRPCAddr serves identity's internal gRPC API (proto/identity/v1,
+	// task 2.2a) to other services. Plaintext on the internal network
+	// for now; mTLS between services is Phase 17 hardening.
+	GRPCAddr string `env:"IDENTITY_GRPC_ADDR" envDefault:":9090"`
+	// AccountsGRPCAddr is accounts' internal gRPC API (task 2.2c):
+	// identity asks it whether a user may work in an account before a
+	// session selects it and before each use of its credentials.
+	// Dialled lazily, so identity starts while accounts is down.
+	AccountsGRPCAddr string `env:"IDENTITY_ACCOUNTS_GRPC_ADDR,required"`
+	SMTPAddr         string `env:"IDENTITY_SMTP_ADDR" envDefault:"localhost:1025"`
+	EmailFrom        string `env:"IDENTITY_EMAIL_FROM" envDefault:"no-reply@vaspro.io"`
 
 	// TOTPKMSKey is LocalKMS's master key, base64-encoded, exactly 32
 	// bytes once decoded (AES-256) — encrypts user_totp.secret_ciphertext.
@@ -91,6 +102,16 @@ type Config struct {
 	// RedisURL caches identity.sessions (1.5) — ResolveSession's
 	// per-request check tries it before Postgres.
 	RedisURL string `env:"IDENTITY_REDIS_URL,required"`
+
+	// Sign in with Google (task 1.16). Optional: with no client ID,
+	// Google sign-in is off and its routes return VAL-4003.
+	// GoogleRedirectURL is the dashboard page Google sends the browser
+	// back to; it must be registered with Google exactly. GoogleIssuer
+	// is only overridden in tests (tools/fakes/oidc).
+	GoogleClientID     string `env:"IDENTITY_GOOGLE_CLIENT_ID"`
+	GoogleClientSecret string `env:"IDENTITY_GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURL  string `env:"IDENTITY_GOOGLE_REDIRECT_URL"`
+	GoogleIssuer       string `env:"IDENTITY_GOOGLE_ISSUER" envDefault:"https://accounts.google.com"`
 }
 
 // Service wires identity's dependencies together and runs them.
@@ -106,7 +127,7 @@ type Service struct {
 // the usual entry point; New exists separately so tests can build a
 // Service against testkit's containers (and a fake email sender)
 // without going through it.
-func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Service, error) {
+func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender, access adapters.TenantAccess) (*Service, error) {
 	totpKMSKey, err := base64.StdEncoding.DecodeString(cfg.TOTPKMSKey)
 	if err != nil {
 		return nil, fmt.Errorf("identity: decoding IDENTITY_TOTP_KMS_KEY: %w", err)
@@ -142,6 +163,18 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 	}
 	c := cache.New(redisOpts)
 
+	var oidcProvider adapters.OIDCProvider
+	if cfg.GoogleClientID != "" {
+		if cfg.GoogleRedirectURL == "" {
+			return nil, fmt.Errorf("identity: IDENTITY_GOOGLE_REDIRECT_URL is required when IDENTITY_GOOGLE_CLIENT_ID is set")
+		}
+		issuer := cfg.GoogleIssuer
+		if issuer == "" {
+			issuer = "https://accounts.google.com"
+		}
+		oidcProvider = adapters.NewGoogleOIDC(issuer, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL)
+	}
+
 	a := app.New(app.Deps{
 		Pool:             pool,
 		Email:            email,
@@ -152,6 +185,8 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, email adapters.EmailSender) (*Se
 		ChallengeKey:     challengeKey,
 		WebAuthn:         wa,
 		Cache:            c,
+		OIDC:             oidcProvider,
+		TenantAccess:     access,
 	})
 	h := api.NewHandlers(a)
 	store := idempotency.NewPostgresStore(pool)
@@ -176,7 +211,11 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 		return nil, fmt.Errorf("identity: connecting to nats: %w", err)
 	}
 	email := adapters.NewSMTPSender(cfg.SMTPAddr, cfg.EmailFrom)
-	return New(cfg, pool, b, email)
+	access, err := adapters.DialTenantAccess(cfg.AccountsGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	return New(cfg, pool, b, email, access)
 }
 
 // Router is identity's HTTP handler, exported so tests can drive it
@@ -230,8 +269,23 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("identity: listening on %s: %w", s.cfg.HTTPAddr, err)
 	}
 
+	grpcLn, err := net.Listen("tcp", s.cfg.GRPCAddr)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("identity: listening for gRPC on %s: %w", s.cfg.GRPCAddr, err)
+	}
+	grpcSrv := gogrpc.NewServer()
+	identitygrpc.Register(grpcSrv, s.app)
+	grpcDone := make(chan struct{})
+	go func() {
+		defer close(grpcDone)
+		_ = grpcSrv.Serve(grpcLn)
+	}()
+
 	srv := &http.Server{Handler: s.rtr, ReadHeaderTimeout: 5 * time.Second}
 	err = server.Serve(ctx, srv, ln, 10*time.Second)
+	grpcSrv.GracefulStop()
+	<-grpcDone
 	<-relayDone
 	return err
 }

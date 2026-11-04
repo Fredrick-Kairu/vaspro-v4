@@ -4,7 +4,11 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/testcontainers/testcontainers-go"
 	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
@@ -32,17 +36,25 @@ func StartNATS(t *testing.T) *bus.Bus {
 // in-process *bus.Bus. Use StartNATS for everything else.
 func StartNATSURL(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
-
-	ctr, err := natscontainer.Run(ctx, "nats:2.11.7")
-	if err != nil {
-		t.Fatalf("testkit: failed to start nats container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	url, err := ctr.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("testkit: failed to get nats connection string: %v", err)
-	}
-	return url
+	return startContainer(t, "nats", func(ctx context.Context) (string, testcontainers.Container, error) {
+		ctr, err := natscontainer.Run(ctx, "nats:2.11.7")
+		if err != nil {
+			return "", ctr, fmt.Errorf("starting nats: %w", err)
+		}
+		url, err := ctr.ConnectionString(ctx)
+		if err != nil {
+			return "", ctr, fmt.Errorf("nats connection string: %w", err)
+		}
+		// The nats module only waits for the port to listen, which Docker
+		// Desktop's proxy does before NATS is serving (a client then gets
+		// EOF), so prove a full handshake and round trip.
+		return url, ctr, waitUntilReady(ctx, "nats", readyTimeout, 200*time.Millisecond, func(ctx context.Context) error {
+			nc, err := nats.Connect(url, nats.Timeout(probeAttemptTimeout), nats.NoReconnect())
+			if err != nil {
+				return err
+			}
+			defer nc.Close()
+			return nc.FlushWithContext(ctx)
+		})
+	})
 }

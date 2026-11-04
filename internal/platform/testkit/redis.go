@@ -4,11 +4,14 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/cache"
 )
@@ -36,17 +39,31 @@ func StartRedis(t *testing.T) *cache.Cache {
 // else.
 func StartRedisURL(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
-
-	ctr, err := rediscontainer.Run(ctx, "redis:7-alpine")
-	if err != nil {
-		t.Fatalf("testkit: failed to start redis container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	uri, err := ctr.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("testkit: failed to get redis connection string: %v", err)
-	}
-	return uri
+	return startContainer(t, "redis", func(ctx context.Context) (string, testcontainers.Container, error) {
+		// The module's own port wait gives up after 10s, which a loaded
+		// Docker daemon (a full parallel integration run) can exceed; use
+		// the same 60s budget as postgres.
+		ctr, err := rediscontainer.Run(ctx, "redis:7-alpine",
+			testcontainers.WithWaitStrategy(wait.ForAll(
+				wait.ForListeningPort("6379/tcp"),
+				wait.ForLog("Ready to accept connections"),
+			).WithDeadline(60*time.Second)),
+		)
+		if err != nil {
+			return "", ctr, fmt.Errorf("starting redis: %w", err)
+		}
+		uri, err := ctr.ConnectionString(ctx)
+		if err != nil {
+			return "", ctr, fmt.Errorf("redis connection string: %w", err)
+		}
+		opts, err := redis.ParseURL(uri)
+		if err != nil {
+			return "", ctr, fmt.Errorf("parsing redis url %q: %w", uri, err)
+		}
+		return uri, ctr, waitUntilReady(ctx, "redis", readyTimeout, 200*time.Millisecond, func(ctx context.Context) error {
+			c := redis.NewClient(opts)
+			defer func() { _ = c.Close() }()
+			return c.Ping(ctx).Err()
+		})
+	})
 }

@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package identity.v1;
+
+option go_package = "github.com/Fredrick-Kairu/vaspro-v4/proto/identity/v1;identityv1";
+
+// IdentityService is identity's internal API for other VASPRO services.
+// It is never exposed to clients.
+service IdentityService {
+  // ResolveSession checks a dashboard session token: the gateway calls
+  // it for every session-bearer request to a service other than
+  // identity (task 2.2a). A missing, unknown, expired or revoked token
+  // returns UNAUTHENTICATED, all alike.
+  rpc ResolveSession(ResolveSessionRequest) returns (ResolveSessionResponse);
+
+  // EnsureInvitee finds the user with an email, or creates an unverified
+  // one (as sign-up does), for an invitation to an account (task 2.3b).
+  // Every case returns a user ID, so the caller can't tell whether the
+  // address was registered. A malformed email is INVALID_ARGUMENT.
+  rpc EnsureInvitee(EnsureInviteeRequest) returns (EnsureInviteeResponse);
+
+  // SendInvitation emails a user that someone invited them to an
+  // account, once accounts has recorded the invitation (task 2.3b). The
+  // same email goes to everyone: sign in, or sign up with this address,
+  // then accept. An unknown user is NOT_FOUND.
+  rpc SendInvitation(SendInvitationRequest) returns (SendInvitationResponse);
+
+  // IsStepUpFresh reports whether a session's step-up MFA is recent
+  // enough for a sensitive action (task 1.6), such as adding users. A
+  // session that isn't the user's own active one is never fresh.
+  rpc IsStepUpFresh(IsStepUpFreshRequest) returns (IsStepUpFreshResponse);
+
+  // GetUsers returns the email and name of each known user ID, for
+  // showing an account's members. Unknown IDs are left out.
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+
+  // IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
+  // ask on every staff action, so a revocation takes effect at once.
+  // A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+  rpc IsStaff(IsStaffRequest) returns (IsStaffResponse);
+}
+
+message ResolveSessionRequest {
+  // The session token from Authorization: Bearer, never a session ID.
+  string session_token = 1;
+}
+
+message ResolveSessionResponse {
+  string session_id = 1;
+  string user_id = 2;
+}
+
+message EnsureInviteeRequest {
+  string email = 1;
+}
+
+message EnsureInviteeResponse {
+  string user_id = 1;
+}
+
+message SendInvitationRequest {
+  string user_id = 1;
+  string invited_by_user_id = 2;
+  // The account's display name, for the email.
+  string account_name = 3;
+}
+
+message SendInvitationResponse {}
+
+message IsStepUpFreshRequest {
+  string session_id = 1;
+  string user_id = 2;
+}
+
+message IsStepUpFreshResponse {
+  bool fresh = 1;
+}
+
+message GetUsersRequest {
+  repeated string user_ids = 1;
+}
+
+message User {
+  string user_id = 1;
+  string email = 2;
+  string full_name = 3;
+}
+
+message GetUsersResponse {
+  repeated User users = 1;
+}
+
+message IsStaffRequest {
+  string user_id = 1;
+}
+
+message IsStaffResponse {
+  bool is_staff = 1;
+}

@@ -57,16 +57,15 @@ func smppAccountSummary(row store.IdentitySmppAccount) SMPPAccountSummary {
 	return summary
 }
 
-// CreateSMPPAccount creates a new SMPP account under tenantID (this
-// phase's placeholder: the creating user's own ID — same reasoning as
-// CreateApiClient, apiclients.go's own doc comment) plus its first
-// password. The password is returned exactly once; only its Argon2id
+// CreateSMPPAccount creates a new SMPP account for tenantID, the
+// account the user's session has selected (task 2.2c; userID is who
+// created it), plus its first password. The password is returned exactly once; only its Argon2id
 // hash is stored. ipAllowlist must be non-empty: data model §3's own
 // comment says SMPP accounts always require one, since the protocol's
 // 8-character password ceiling leaves little else to lean on.
 func (s *Service) CreateSMPPAccount(
 	ctx context.Context,
-	userID uuid.UUID,
+	tenantID, userID uuid.UUID,
 	systemID, environment string,
 	ipAllowlist []string,
 	maxBinds int16,
@@ -103,8 +102,6 @@ func (s *Service) CreateSMPPAccount(
 		return nil, fmt.Errorf("app: hashing smpp account password: %w", err)
 	}
 
-	tenantID := userID // this phase's placeholder — see CreateApiClient's own doc comment
-
 	var result *SMPPAccountWithPassword
 
 	err = s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -127,7 +124,7 @@ func (s *Service) CreateSMPPAccount(
 		if err != nil {
 			return fmt.Errorf("app: creating smpp account: %w", err)
 		}
-		if err := recordSecurityEvent(ctx, q, userID, "smpp_account_created", nil, map[string]any{
+		if err := recordTenantSecurityEvent(ctx, q, tenantID, userID, "smpp_account_created", map[string]any{
 			"smpp_account_id": accountID.String(), "system_id": systemID, "environment": string(env),
 		}); err != nil {
 			return err
@@ -199,7 +196,7 @@ func (s *Service) GetSMPPAccount(ctx context.Context, tenantID, accountID uuid.U
 // overwriting the previous one outright — unlike API client secrets
 // (1.7), smpp_accounts has a single password_hash column, not a
 // rotation-overlap table, so there's no "two active at once" to manage.
-func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, accountID uuid.UUID) (*SMPPAccountWithPassword, error) {
+func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, userID, accountID uuid.UUID) (*SMPPAccountWithPassword, error) {
 	var (
 		result   *SMPPAccountWithPassword
 		notFound bool
@@ -239,7 +236,7 @@ func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, accou
 			return nil
 		}
 
-		if err := recordSecurityEvent(ctx, q, tenantID, "smpp_account_password_rotated", nil, map[string]any{
+		if err := recordTenantSecurityEvent(ctx, q, tenantID, userID, "smpp_account_password_rotated", map[string]any{
 			"smpp_account_id": accountID.String(),
 		}); err != nil {
 			return err
@@ -262,7 +259,7 @@ func (s *Service) RotateSMPPAccountPassword(ctx context.Context, tenantID, accou
 // shared implementation. eventType names the security event this
 // particular status change records — the two callers each pass their
 // own.
-func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID uuid.UUID, status, eventType string) error {
+func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, userID, accountID uuid.UUID, status, eventType string) error {
 	var n int64
 	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
@@ -278,7 +275,7 @@ func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID 
 		if n == 0 {
 			return nil
 		}
-		return recordSecurityEvent(ctx, q, tenantID, eventType, nil, map[string]any{
+		return recordTenantSecurityEvent(ctx, q, tenantID, userID, eventType, map[string]any{
 			"smpp_account_id": accountID.String(),
 		})
 	})
@@ -295,13 +292,13 @@ func (s *Service) setSMPPAccountStatus(ctx context.Context, tenantID, accountID 
 // configuration — the schema's only states are "active" and
 // "suspended" (data model §3's CHECK constraint), so there's no
 // permanent revoke to model here.
-func (s *Service) SuspendSMPPAccount(ctx context.Context, tenantID, accountID uuid.UUID) error {
-	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusSuspended, "smpp_account_suspended")
+func (s *Service) SuspendSMPPAccount(ctx context.Context, tenantID, userID, accountID uuid.UUID) error {
+	return s.setSMPPAccountStatus(ctx, tenantID, userID, accountID, smppAccountStatusSuspended, "smpp_account_suspended")
 }
 
 // ReactivateSMPPAccount reverses SuspendSMPPAccount.
-func (s *Service) ReactivateSMPPAccount(ctx context.Context, tenantID, accountID uuid.UUID) error {
-	return s.setSMPPAccountStatus(ctx, tenantID, accountID, smppAccountStatusActive, "smpp_account_reactivated")
+func (s *Service) ReactivateSMPPAccount(ctx context.Context, tenantID, userID, accountID uuid.UUID) error {
+	return s.setSMPPAccountStatus(ctx, tenantID, userID, accountID, smppAccountStatusActive, "smpp_account_reactivated")
 }
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint

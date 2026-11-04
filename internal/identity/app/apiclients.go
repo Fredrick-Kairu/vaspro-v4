@@ -121,14 +121,13 @@ func toTimestamptz(t *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
-// CreateApiClient creates a new API client under tenantID (this
-// phase's placeholder: the creating user's own ID — accounts/real
-// tenants don't exist until Phase 2 task 2.2) plus its first secret.
-// The secret is returned exactly once; only its Argon2id hash is
-// stored.
+// CreateApiClient creates a new API client for tenantID, the account
+// the user's session has selected (SessionTenant, task 2.2c), plus its
+// first secret; userID is who created it. The secret is returned
+// exactly once; only its Argon2id hash is stored.
 func (s *Service) CreateApiClient(
 	ctx context.Context,
-	userID uuid.UUID,
+	tenantID, userID uuid.UUID,
 	name, environment string,
 	scopes, ipAllowlist []string,
 	expiresAt *time.Time,
@@ -156,8 +155,6 @@ func (s *Service) CreateApiClient(
 	if err != nil {
 		return nil, fmt.Errorf("app: hashing api client secret: %w", err)
 	}
-
-	tenantID := userID // this phase's placeholder — see apiclients.go's own doc comment
 
 	var result *ApiClientWithSecret
 
@@ -198,7 +195,7 @@ func (s *Service) CreateApiClient(
 			return fmt.Errorf("app: storing api client secret: %w", err)
 		}
 
-		if err := recordSecurityEvent(ctx, q, userID, "api_client_created", nil, map[string]any{
+		if err := recordTenantSecurityEvent(ctx, q, tenantID, userID, "api_client_created", map[string]any{
 			"api_client_id": clientID.String(), "name": name, "environment": string(env),
 		}); err != nil {
 			return err
@@ -296,7 +293,7 @@ func (s *Service) GetApiClient(ctx context.Context, tenantID, clientID uuid.UUID
 // the caller must revoke one first. The precondition check and the
 // mutation share one transaction, closing the race a separate
 // check-then-act pair would leave open.
-func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, clientID uuid.UUID) (*ApiClientSecretResult, error) {
+func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, userID, clientID uuid.UUID) (*ApiClientSecretResult, error) {
 	var (
 		result   *ApiClientSecretResult
 		notFound bool
@@ -362,7 +359,7 @@ func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, clientID 
 			return fmt.Errorf("app: storing rotated api client secret: %w", err)
 		}
 
-		if err := recordSecurityEvent(ctx, q, tenantID, "api_client_secret_rotated", nil, map[string]any{
+		if err := recordTenantSecurityEvent(ctx, q, tenantID, userID, "api_client_secret_rotated", map[string]any{
 			"api_client_id": clientID.String(), "secret_id": secretRow.ID.String(),
 		}); err != nil {
 			return err
@@ -386,7 +383,7 @@ func (s *Service) RotateApiClientSecret(ctx context.Context, tenantID, clientID 
 // RevokeApiClient revokes clientID as a whole — every secret it has
 // stops working regardless of each secret's own state (task 1.8's
 // job to check both when it builds the real token exchange).
-func (s *Service) RevokeApiClient(ctx context.Context, tenantID, clientID uuid.UUID) error {
+func (s *Service) RevokeApiClient(ctx context.Context, tenantID, userID, clientID uuid.UUID) error {
 	var n int64
 	err := s.pool.WithTenantTx(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
@@ -398,7 +395,7 @@ func (s *Service) RevokeApiClient(ctx context.Context, tenantID, clientID uuid.U
 		if n == 0 {
 			return nil
 		}
-		return recordSecurityEvent(ctx, q, tenantID, "api_client_revoked", nil, map[string]any{
+		return recordTenantSecurityEvent(ctx, q, tenantID, userID, "api_client_revoked", map[string]any{
 			"api_client_id": clientID.String(),
 		})
 	})

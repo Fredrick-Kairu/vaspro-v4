@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/membership.removed.schema.json",
+  "title": "membership.removed",
+  "description": "Published by accounts when a member is removed from an account or leaves it (data model §4's Events table, task 2.3a), in the same transaction. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "user_id", "removed_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "user_id": {"type": "string", "format": "uuid"},
+    "removed_by": {"type": "string", "format": "uuid", "description": "Who removed them; the member themselves when they left."}
+  },
+  "additionalProperties": false
+}

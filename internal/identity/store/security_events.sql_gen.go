@@ -103,6 +103,21 @@ func (q *Queries) CreateSecurityEvent(ctx context.Context, arg CreateSecurityEve
 	return i, err
 }
 
+const latestStaffUnlockAt = `-- name: LatestStaffUnlockAt :one
+SELECT COALESCE(max(occurred_at), 'epoch'::timestamptz)::timestamptz FROM identity.security_events
+WHERE user_id = $1 AND type = 'unlocked_by_staff'
+`
+
+// The most recent unlock by staff (task 2.9); sign-in failures before
+// it no longer count toward the lockout. The epoch when never unlocked,
+// so the caller's window start always wins.
+func (q *Queries) LatestStaffUnlockAt(ctx context.Context, userID pgtype.UUID) (time.Time, error) {
+	row := q.db.QueryRow(ctx, latestStaffUnlockAt, userID)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listSecurityEventsByUser = `-- name: ListSecurityEventsByUser :many
 SELECT id, user_id, tenant_id, type, ip, detail, occurred_at FROM identity.security_events WHERE user_id = $1 ORDER BY occurred_at DESC LIMIT 100
 `

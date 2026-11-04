@@ -22,9 +22,32 @@ type Pack struct {
 	Version     string
 	CountryCode string
 	Currency    money.Currency
+	// Timezone and DataRegion are a new account's defaults (task 2.2a):
+	// accounts.tenants.timezone and .region (data model §4).
+	Timezone    string
+	DataRegion  string
 	Numbering   Numbering
 	Tax         Tax
 	SendWindows SendWindows
+	// Services is each service's minimum tier and availability here,
+	// keyed by accounts' service code (task 2.4).
+	Services map[string]ServiceRule
+	// KYB is business verification here (task 2.7); nil when the
+	// country can't do KYB yet.
+	KYB *KYB
+}
+
+// KYB is a country's business verification rule.
+type KYB struct {
+	Registry          string   // BRS, BRELA, URSB
+	TaxIDLabel        string   // KRA PIN, TIN
+	RequiredDocuments []string // document types KYB needs uploaded (task 2.8)
+}
+
+// ServiceRule is one service's rule in a country.
+type ServiceRule struct {
+	MinTier string
+	Enabled bool
 }
 
 type Numbering struct {
@@ -54,6 +77,8 @@ type SendWindows struct {
 type jsonPack struct {
 	Version     string `json:"version"`
 	CountryCode string `json:"country_code"`
+	Timezone    string `json:"timezone"`
+	DataRegion  string `json:"data_region"`
 	Currency    struct {
 		Code     string `json:"code"`
 		Exponent int    `json:"exponent"`
@@ -74,6 +99,15 @@ type jsonPack struct {
 			Timezone string `json:"timezone"`
 		} `json:"promotional"`
 	} `json:"send_windows"`
+	KYB *struct {
+		Registry          string   `json:"registry"`
+		TaxIDLabel        string   `json:"tax_id_label"`
+		RequiredDocuments []string `json:"required_documents"`
+	} `json:"kyb"`
+	Services map[string]struct {
+		MinTier string `json:"min_tier"`
+		Enabled *bool  `json:"enabled"`
+	} `json:"services"`
 }
 
 // Parse validates packYAML against schemaJSON and decodes it into a
@@ -111,10 +145,24 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		return nil, fmt.Errorf("packs: decoding validated pack: %w", err)
 	}
 
+	services := make(map[string]ServiceRule, len(jp.Services))
+	for code, r := range jp.Services {
+		services[code] = ServiceRule{MinTier: r.MinTier, Enabled: r.Enabled == nil || *r.Enabled}
+	}
+
+	var kyb *KYB
+	if jp.KYB != nil {
+		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel, RequiredDocuments: jp.KYB.RequiredDocuments}
+	}
+
 	return &Pack{
+		KYB:         kyb,
+		Services:    services,
 		Version:     jp.Version,
 		CountryCode: jp.CountryCode,
 		Currency:    money.Currency{Code: jp.Currency.Code, Exponent: jp.Currency.Exponent},
+		Timezone:    jp.Timezone,
+		DataRegion:  jp.DataRegion,
 		Numbering: Numbering{
 			CountryCode:                     jp.Numbering.CountryCode,
 			TrunkPrefix:                     jp.Numbering.TrunkPrefix,

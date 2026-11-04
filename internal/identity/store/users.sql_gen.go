@@ -12,6 +12,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createGoogleUser = `-- name: CreateGoogleUser :one
+INSERT INTO identity.users (id, email, full_name, email_verified_at)
+VALUES ($1, $2, $3, now())
+RETURNING id, email, email_verified_at, full_name, phone_e164, phone_verified_at, password_hash, status, locale, last_sign_in_at, version, created_at, updated_at
+`
+
+type CreateGoogleUserParams struct {
+	ID       uuid.UUID `json:"id"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+}
+
+// task 1.16: Google has verified the email (email_verified claim), so
+// the account starts verified; there is no password until the user
+// sets one through a password reset.
+func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserParams) (IdentityUser, error) {
+	row := q.db.QueryRow(ctx, createGoogleUser, arg.ID, arg.Email, arg.FullName)
+	var i IdentityUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+		&i.PhoneE164,
+		&i.PhoneVerifiedAt,
+		&i.PasswordHash,
+		&i.Status,
+		&i.Locale,
+		&i.LastSignInAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO identity.users (id, email, full_name, phone_e164)
 VALUES ($1, $2, $3, $4)
@@ -150,6 +186,36 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (IdentityUser, 
 	return i, err
 }
 
+const listUsersByIDs = `-- name: ListUsersByIDs :many
+SELECT id, email, full_name FROM identity.users WHERE id = ANY($1::uuid[]) ORDER BY id
+`
+
+type ListUsersByIDsRow struct {
+	ID       uuid.UUID `json:"id"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+}
+
+func (q *Queries) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]ListUsersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listUsersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersByIDsRow
+	for rows.Next() {
+		var i ListUsersByIDsRow
+		if err := rows.Scan(&i.ID, &i.Email, &i.FullName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE identity.users SET email_verified_at = now(), updated_at = now() WHERE id = $1
 `
@@ -170,5 +236,21 @@ type SetPasswordHashParams struct {
 
 func (q *Queries) SetPasswordHash(ctx context.Context, arg SetPasswordHashParams) error {
 	_, err := q.db.Exec(ctx, setPasswordHash, arg.ID, arg.PasswordHash)
+	return err
+}
+
+const setUserFullNameIfEmpty = `-- name: SetUserFullNameIfEmpty :exec
+UPDATE identity.users SET full_name = $2, updated_at = now(), version = version + 1
+WHERE id = $1 AND full_name = ''
+`
+
+type SetUserFullNameIfEmptyParams struct {
+	ID       uuid.UUID `json:"id"`
+	FullName string    `json:"full_name"`
+}
+
+// An invited user (task 2.3b) is created with no name; sign-up fills it.
+func (q *Queries) SetUserFullNameIfEmpty(ctx context.Context, arg SetUserFullNameIfEmptyParams) error {
+	_, err := q.db.Exec(ctx, setUserFullNameIfEmpty, arg.ID, arg.FullName)
 	return err
 }

@@ -77,6 +77,17 @@ func TestPasskey_RegisterThenSignIn_CreatesSessionWithoutPasswordOrTOTP(t *testi
 	if session == nil {
 		t.Fatal("expected a session after a successful passkey sign-in")
 	}
+	sessionID, _, err := svc.ResolveSession(ctx, session.Token)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	row, err := store.New(pool).GetSessionByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetSessionByID: %v", err)
+	}
+	if row.AuthMethod != "passkey" {
+		t.Fatalf("got auth_method %q, want passkey", row.AuthMethod)
+	}
 }
 
 // TestPasskey_BackupEligibleAuthenticator_SignsInTwice proves the

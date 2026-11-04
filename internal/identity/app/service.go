@@ -110,7 +110,17 @@ type Service struct {
 	// cache is identity.sessions' Redis cache (1.5) — write-through on
 	// createSession, evicted on revoke, consulted first by
 	// ResolveSession (sessions.go) before falling back to Postgres.
+	// Also holds Google sign-in flow state (google.go, task 1.16).
 	cache *cache.Cache
+
+	// oidc is Sign in with Google (task 1.16). nil when Google isn't
+	// configured; every Google use case then returns ErrNotFound.
+	oidc adapters.OIDCProvider
+
+	// access asks accounts whether a user may work in an account (task
+	// 2.2c): when a session selects one, and before each use of its
+	// credentials.
+	access adapters.TenantAccess
 }
 
 // Deps is everything New needs. Grouped into a struct rather than
@@ -126,6 +136,8 @@ type Deps struct {
 	ChallengeKey     []byte
 	WebAuthn         *webauthn.WebAuthn
 	Cache            *cache.Cache
+	OIDC             adapters.OIDCProvider
+	TenantAccess     adapters.TenantAccess
 }
 
 // New builds a Service.
@@ -140,6 +152,8 @@ func New(d Deps) *Service {
 		challengeKey:     d.ChallengeKey,
 		webauthn:         d.WebAuthn,
 		cache:            d.Cache,
+		oidc:             d.OIDC,
+		access:           d.TenantAccess,
 	}
 }
 
@@ -191,9 +205,17 @@ func toNetipAddr(ip net.IP) *netip.Addr {
 // more sign_in_failed security events within the last lockoutWindow —
 // the rolling-window lockout check shared by password and TOTP/recovery
 // verification. "Unlocks by time" for free: once a failure ages out of
-// the window, the count (and the lockout) drops on its own.
+// the window, the count (and the lockout) drops on its own. Failures
+// before the latest unlock by staff (task 2.9) don't count either.
 func (s *Service) tooManyRecentFailures(ctx context.Context, q *store.Queries, userID uuid.UUID) (bool, error) {
 	since := s.clk.Now().Add(-lockoutWindow)
+	unlockedAt, err := q.LatestStaffUnlockAt(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	if err != nil {
+		return false, fmt.Errorf("app: finding the latest staff unlock: %w", err)
+	}
+	if unlockedAt.After(since) {
+		since = unlockedAt
+	}
 	count, err := q.CountRecentSignInFailures(ctx, store.CountRecentSignInFailuresParams{
 		UserID:     pgtype.UUID{Bytes: userID, Valid: true},
 		OccurredAt: since,
@@ -238,7 +260,9 @@ func (s *Service) recordSignInFailure(ctx context.Context, q *store.Queries, use
 // recordSignInEvent) — every sign-in path (password, TOTP, passkey)
 // funnels through this one function, so the sign_in security event
 // and the new-IP check only need to live here, not in each of them.
-func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uuid.UUID, ip net.IP, userAgent string) (session *Session, alertNewIP bool, err error) {
+// authMethod is recorded on the row (sessions.auth_method, task 1.16):
+// one of the authMethod* constants.
+func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uuid.UUID, ip net.IP, userAgent, authMethod string) (session *Session, alertNewIP bool, err error) {
 	id, err := ids.New()
 	if err != nil {
 		return nil, false, fmt.Errorf("app: generating session id: %w", err)
@@ -249,13 +273,14 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 	}
 	expiresAt := s.clk.Now().Add(sessionTTL)
 	row, err := q.CreateSession(ctx, store.CreateSessionParams{
-		ID:        id,
-		UserID:    userID,
-		TenantID:  pgtype.UUID{},
-		Ip:        toNetipAddr(ip),
-		UserAgent: pgtype.Text{String: userAgent, Valid: userAgent != ""},
-		ExpiresAt: expiresAt,
-		TokenHash: domain.HashSessionToken(token),
+		ID:         id,
+		UserID:     userID,
+		TenantID:   pgtype.UUID{},
+		Ip:         toNetipAddr(ip),
+		UserAgent:  pgtype.Text{String: userAgent, Valid: userAgent != ""},
+		ExpiresAt:  expiresAt,
+		TokenHash:  domain.HashSessionToken(token),
+		AuthMethod: authMethod,
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("app: creating session: %w", err)
@@ -267,9 +292,20 @@ func (s *Service) createSession(ctx context.Context, q *store.Queries, userID uu
 	return &Session{ID: row.ID, Token: token, ExpiresAt: row.ExpiresAt}, alertNewIP, nil
 }
 
-// totpChallenge is the payload inside a sign-in challenge token.
+// Values of sessions.auth_method (data model §3).
+const (
+	authMethodPassword = "password"
+	authMethodPasskey  = "passkey"
+	authMethodGoogle   = "google"
+)
+
+// totpChallenge is the payload inside a sign-in challenge token. Method
+// is how the first factor was proved, so the session the challenge
+// completes records it; empty means password (tokens issued before
+// task 1.16 carried no method).
 type totpChallenge struct {
 	UserID    uuid.UUID `json:"user_id"`
+	Method    string    `json:"method,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -311,9 +347,10 @@ func verifyPayload(key []byte, token string) (payload []byte, ok bool) {
 }
 
 // issueChallenge returns a short-lived, stateless, HMAC-signed token
-// proving the caller already supplied a correct password for userID.
-func (s *Service) issueChallenge(userID uuid.UUID) (string, error) {
-	c := totpChallenge{UserID: userID, ExpiresAt: s.clk.Now().Add(challengeTTL)}
+// proving the caller already passed the first factor (method) for
+// userID.
+func (s *Service) issueChallenge(userID uuid.UUID, method string) (string, error) {
+	c := totpChallenge{UserID: userID, Method: method, ExpiresAt: s.clk.Now().Add(challengeTTL)}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return "", fmt.Errorf("app: building challenge: %w", err)
@@ -321,19 +358,26 @@ func (s *Service) issueChallenge(userID uuid.UUID) (string, error) {
 	return signPayload(s.challengeKey, payload), nil
 }
 
-// verifyChallenge reverses issueChallenge and rejects an expired
-// challenge.
-func (s *Service) verifyChallenge(token string) (uuid.UUID, error) {
+// verifyChallenge reverses issueChallenge, rejects an expired
+// challenge, and returns the challenge's user and first-factor method.
+func (s *Service) verifyChallenge(token string) (uuid.UUID, string, error) {
 	payload, ok := verifyPayload(s.challengeKey, token)
 	if !ok {
-		return uuid.Nil, ErrTwoFactorInvalid
+		return uuid.Nil, "", ErrTwoFactorInvalid
 	}
 	var c totpChallenge
 	if err := json.Unmarshal(payload, &c); err != nil {
-		return uuid.Nil, ErrTwoFactorInvalid
+		return uuid.Nil, "", ErrTwoFactorInvalid
 	}
-	if s.clk.Now().After(c.ExpiresAt) {
-		return uuid.Nil, ErrTwoFactorInvalid
+	if c.UserID == uuid.Nil || s.clk.Now().After(c.ExpiresAt) {
+		return uuid.Nil, "", ErrTwoFactorInvalid
 	}
-	return c.UserID, nil
+	switch c.Method {
+	case "":
+		c.Method = authMethodPassword
+	case authMethodPassword, authMethodGoogle:
+	default:
+		return uuid.Nil, "", ErrTwoFactorInvalid
+	}
+	return c.UserID, c.Method, nil
 }

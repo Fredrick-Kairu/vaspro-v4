@@ -24,10 +24,19 @@ const (
 	AUTH4014 Code = "AUTH-4014"
 	AUTH4015 Code = "AUTH-4015"
 	AUTH4016 Code = "AUTH-4016"
+	AUTH4018 Code = "AUTH-4018"
+	AUTH4019 Code = "AUTH-4019"
+	AUTH4020 Code = "AUTH-4020"
+	AUTH4021 Code = "AUTH-4021"
+	AUTH4022 Code = "AUTH-4022"
+	AUTH4023 Code = "AUTH-4023"
+	AUTH4024 Code = "AUTH-4024"
+	AUTH4025 Code = "AUTH-4025"
 	BAL4001  Code = "BAL-4001"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
+	KYC4021  Code = "KYC-4021"
 	LIM4501  Code = "LIM-4501"
 	PAY6501  Code = "PAY-6501"
 	RATE4290 Code = "RATE-4290"
@@ -38,6 +47,14 @@ const (
 	VAL4001  Code = "VAL-4001"
 	VAL4002  Code = "VAL-4002"
 	VAL4003  Code = "VAL-4003"
+	VAL4004  Code = "VAL-4004"
+	VAL4005  Code = "VAL-4005"
+	VAL4006  Code = "VAL-4006"
+	VAL4007  Code = "VAL-4007"
+	VAL4008  Code = "VAL-4008"
+	VAL4009  Code = "VAL-4009"
+	VAL4010  Code = "VAL-4010"
+	VAL4011  Code = "VAL-4011"
 )
 
 var registry = map[Code]entry{
@@ -97,6 +114,70 @@ var registry = map[Code]entry{
 		Retryable: false,
 		Billable:  false,
 	},
+	AUTH4018: {
+		Status:    401,
+		Title:     "External sign-in failed",
+		Cause:     "The Sign in with Google flow failed - an unknown, reused or mismatched state; a failed code exchange; an ID token with a bad signature, wrong issuer or audience, past expiry or another flow's nonce; or an unverified Google email at sign-up. Deliberately not distinguished.",
+		Fix:       "Start Sign in with Google again from the beginning.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4019: {
+		Status:    403,
+		Title:     "Sign in with your organisation's single sign-on",
+		Cause:     "The email's domain has an enabled single sign-on connection, so Sign in with Google isn't allowed for it.",
+		Fix:       "Sign in through your organisation's single sign-on.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4020: {
+		Status:    409,
+		Title:     "Account exists; link Google first",
+		Cause:     "The Google account isn't linked to anyone, but its email belongs to an existing VASPRO account. VASPRO never links accounts silently.",
+		Fix:       "Sign in with your password or passkey, then link Google from security settings.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4021: {
+		Status:    409,
+		Title:     "Google account linked to another user",
+		Cause:     "The Google account being linked is already linked to a different VASPRO user.",
+		Fix:       "Unlink it from the other account first, or link a different Google account.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4022: {
+		Status:    409,
+		Title:     "Can't remove your only way to sign in",
+		Cause:     "Unlinking Google would leave the account with no password and no passkey.",
+		Fix:       "Set a password or register a passkey, then unlink Google.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4023: {
+		Status:    403,
+		Title:     "Select an account you belong to",
+		Cause:     "API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected.",
+		Fix:       "Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4024: {
+		Status:    403,
+		Title:     "Your role doesn't allow this",
+		Cause:     "You are a member of this account, but your role doesn't include the permission this action needs.",
+		Fix:       "Ask an Admin of the account for a role that allows it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	AUTH4025: {
+		Status:    403,
+		Title:     "Staff only",
+		Cause:     "This action is for VASPRO staff, and you aren't listed as staff.",
+		Fix:       "Ask VASPRO operations if you believe you should have staff access.",
+		Retryable: false,
+		Billable:  false,
+	},
 	BAL4001: {
 		Status:    402,
 		Title:     "Insufficient balance",
@@ -126,6 +207,14 @@ var registry = map[Code]entry{
 		Title:     "Account tier too low for this service",
 		Cause:     "The tenant hasn't completed the KYC tier this service requires in this country.",
 		Fix:       "Complete the next tier's verification, then retry.",
+		Retryable: false,
+		Billable:  false,
+	},
+	KYC4021: {
+		Status:    403,
+		Title:     "Not an active reseller account",
+		Cause:     "Only an active reseller account can create sub-accounts; this account is direct or a sub-account, or it is suspended or archived.",
+		Fix:       "Ask VASPRO staff to make the account a reseller (it needs the Financial tier), or reactivate it.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -206,6 +295,70 @@ var registry = map[Code]entry{
 		Title:     "Resource not found",
 		Cause:     "The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.",
 		Fix:       "Check the ID and retry; the resource may have been deleted or never belonged to this account.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4004: {
+		Status:    409,
+		Title:     "An account needs an Admin",
+		Cause:     "This change would leave the account without an active Admin.",
+		Fix:       "Make another member an Admin first.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4005: {
+		Status:    409,
+		Title:     "Already a member",
+		Cause:     "The person invited is already an active member of this account.",
+		Fix:       "Change their role instead of inviting them again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4006: {
+		Status:    409,
+		Title:     "Business profile is locked",
+		Cause:     "The business profile and its owners can't change while a business verification is in review or after it has passed.",
+		Fix:       "Wait for the review's decision; changes after verification come with re-verification.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4007: {
+		Status:    415,
+		Title:     "File type not allowed",
+		Cause:     "Documents must be PDF, JPEG or PNG files. The type is read from the file itself, not its name.",
+		Fix:       "Upload the document as a PDF, JPEG or PNG.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4008: {
+		Status:    413,
+		Title:     "File too large",
+		Cause:     "Documents are limited to 10 MB.",
+		Fix:       "Upload a smaller file, for example a lower-resolution scan.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4009: {
+		Status:    422,
+		Title:     "File failed the virus scan",
+		Cause:     "The virus scanner found something in the file, so it wasn't stored.",
+		Fix:       "Scan the file on your side and upload a clean copy.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4010: {
+		Status:    409,
+		Title:     "Check already decided",
+		Cause:     "The check isn't waiting for review any more; a reviewer or the vendor has already decided it.",
+		Fix:       "Reload the review queue; decided checks leave it.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4011: {
+		Status:    409,
+		Title:     "Tier change not allowed",
+		Cause:     "The account's tier can't move this way, for example more than one step on a check alone, a promotion of a suspended account, or no change at all.",
+		Fix:       "Check the account's current tier and status, then ask for an allowed change.",
 		Retryable: false,
 		Billable:  false,
 	},

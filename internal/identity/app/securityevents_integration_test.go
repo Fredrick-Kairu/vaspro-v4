@@ -138,14 +138,14 @@ func TestApiClientLifecycle_RecordsSecurityEvents(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "test client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
-	if _, err := svc.RotateApiClientSecret(ctx, userID, client.ID); err != nil {
+	if _, err := svc.RotateApiClientSecret(ctx, tenantOf(userID), userID, client.ID); err != nil {
 		t.Fatalf("RotateApiClientSecret: %v", err)
 	}
-	if err := svc.RevokeApiClient(ctx, userID, client.ID); err != nil {
+	if err := svc.RevokeApiClient(ctx, tenantOf(userID), userID, client.ID); err != nil {
 		t.Fatalf("RevokeApiClient: %v", err)
 	}
 
@@ -175,17 +175,17 @@ func TestSMPPAccountLifecycle_RecordsSecurityEvents(t *testing.T) {
 	svc, _, sender, _, _ := newTestService(t)
 	userID := signedInUserID(t, ctx, svc, sender, "ada@example.com")
 
-	account, err := svc.CreateSMPPAccount(ctx, userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
+	account, err := svc.CreateSMPPAccount(ctx, tenantOf(userID), userID, "ACME01", "sandbox", []string{"203.0.113.0/24"}, 2, 50)
 	if err != nil {
 		t.Fatalf("CreateSMPPAccount: %v", err)
 	}
-	if _, err := svc.RotateSMPPAccountPassword(ctx, userID, account.ID); err != nil {
+	if _, err := svc.RotateSMPPAccountPassword(ctx, tenantOf(userID), userID, account.ID); err != nil {
 		t.Fatalf("RotateSMPPAccountPassword: %v", err)
 	}
-	if err := svc.SuspendSMPPAccount(ctx, userID, account.ID); err != nil {
+	if err := svc.SuspendSMPPAccount(ctx, tenantOf(userID), userID, account.ID); err != nil {
 		t.Fatalf("SuspendSMPPAccount: %v", err)
 	}
-	if err := svc.ReactivateSMPPAccount(ctx, userID, account.ID); err != nil {
+	if err := svc.ReactivateSMPPAccount(ctx, tenantOf(userID), userID, account.ID); err != nil {
 		t.Fatalf("ReactivateSMPPAccount: %v", err)
 	}
 

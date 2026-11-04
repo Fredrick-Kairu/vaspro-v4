@@ -1,0 +1,261 @@
+// Package accounts is the accounts service: client accounts (tenants),
+// members and verification tiers (data model §4). Wiring only; business
+// rules live in domain/, use cases in app/, HTTP in api/.
+package accounts
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"path/filepath"
+	"time"
+
+	gogrpc "google.golang.org/grpc"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/bus"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/config"
+	vascrypto "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/crypto"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/httpx"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/objectstore"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/server"
+
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/adapters"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/api"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/app"
+	accountsgrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/accounts/grpc"
+)
+
+// Config is accounts' process configuration (platform/config.Load).
+//
+// accounts trusts the X-Vaspro-User-Id header the gateway sets after
+// checking the session (task 2.2a), so HTTPAddr must be reachable only
+// from the gateway: a deployment rule (compose network, production
+// network policy in Phase 17), not something accounts can check.
+//
+// DatabaseURL's connection must resolve unqualified table names to the
+// accounts schema (search_path=accounts,public; public for citext);
+// platform/outbox and platform/idempotency rely on it.
+type Config struct {
+	DatabaseURL string `env:"ACCOUNTS_DATABASE_URL,required"`
+	NATSURL     string `env:"ACCOUNTS_NATS_URL,required"`
+	HTTPAddr    string `env:"ACCOUNTS_HTTP_ADDR" envDefault:":8082"`
+	// GRPCAddr serves accounts' internal gRPC API (proto/accounts/v1,
+	// task 2.2c) to other services, plaintext on the internal network
+	// for now (mTLS between services is Phase 17).
+	GRPCAddr string `env:"ACCOUNTS_GRPC_ADDR" envDefault:":9091"`
+	// IdentityGRPCAddr is identity's internal gRPC API (task 2.3b):
+	// invitations, step-up checks and members' names. Dialled lazily,
+	// so accounts starts while identity is down.
+	IdentityGRPCAddr string `env:"ACCOUNTS_IDENTITY_GRPC_ADDR,required"`
+	// KYC (task 2.6, ADR 0008): the vendor's adapter, its base URL and
+	// the secret its webhooks are signed with. Only "fake" exists until
+	// OD-03 picks a vendor; with no URL, KYC is off and starting a
+	// check is VAL-4000.
+	KYCProvider      string `env:"ACCOUNTS_KYC_PROVIDER" envDefault:"fake"`
+	KYCFakeURL       string `env:"ACCOUNTS_KYC_FAKE_URL"`
+	KYCWebhookSecret string `env:"ACCOUNTS_KYC_WEBHOOK_SECRET"`
+	// Documents (task 2.8, OQ-09): S3-compatible object storage, the
+	// 32-byte base64 key documents are sealed under before they're
+	// stored, and clamd for virus scanning. With no endpoint, documents
+	// are off; with an endpoint, the key and clamd are required, so
+	// nothing is ever stored unencrypted or unscanned.
+	ObjectStorageEndpoint  string `env:"ACCOUNTS_OBJECT_STORAGE_ENDPOINT"`
+	ObjectStorageAccessKey string `env:"ACCOUNTS_OBJECT_STORAGE_ACCESS_KEY"`
+	ObjectStorageSecretKey string `env:"ACCOUNTS_OBJECT_STORAGE_SECRET_KEY"`
+	ObjectStorageBucket    string `env:"ACCOUNTS_OBJECT_STORAGE_BUCKET" envDefault:"documents"`
+	ObjectStorageUseTLS    bool   `env:"ACCOUNTS_OBJECT_STORAGE_USE_TLS"`
+	DocumentsKMSKey        string `env:"ACCOUNTS_DOCUMENTS_KMS_KEY"`
+	ClamAVAddr             string `env:"ACCOUNTS_CLAMAV_ADDR"`
+	// PacksDir holds schema.json and one <cc>/pack.yaml per country.
+	PacksDir string `env:"ACCOUNTS_PACKS_DIR" envDefault:"packs"`
+}
+
+// Service wires accounts' dependencies together and runs them.
+type Service struct {
+	cfg     Config
+	pool    *db.Pool
+	bus     *bus.Bus
+	app     *app.Service
+	packs   map[string]*packs.Pack
+	objects *objectstore.Store // nil when documents are off
+	rtr     http.Handler
+}
+
+// New builds a Service from already-connected dependencies.
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) (*Service, error) {
+	loaded, err := loadPacks(cfg.PacksDir)
+	if err != nil {
+		return nil, err
+	}
+	kyc, err := kycProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+	documents, objects, err := documentDeps(cfg)
+	if err != nil {
+		return nil, err
+	}
+	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Packs: loaded, Identity: identity, KYC: kyc, Documents: documents})
+	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
+		func(ctx context.Context) error { return pool.Ping(ctx) },
+	}, idempotency.NewPostgresStore(pool))
+	return &Service{cfg: cfg, pool: pool, bus: b, app: a, packs: loaded, objects: objects, rtr: rtr}, nil
+}
+
+// documentsKMSKeyID names the documents' master key in LocalKMS.
+const documentsKMSKeyID = "accounts-documents"
+
+// documentDeps builds object storage, the scanner and the envelope for
+// documents, or nil when documents are off (no endpoint).
+func documentDeps(cfg Config) (*app.DocumentDeps, *objectstore.Store, error) {
+	if cfg.ObjectStorageEndpoint == "" {
+		return nil, nil, nil
+	}
+	if cfg.ClamAVAddr == "" || cfg.DocumentsKMSKey == "" {
+		return nil, nil, fmt.Errorf("accounts: ACCOUNTS_CLAMAV_ADDR and ACCOUNTS_DOCUMENTS_KMS_KEY are required with ACCOUNTS_OBJECT_STORAGE_ENDPOINT")
+	}
+	key, err := base64.StdEncoding.DecodeString(cfg.DocumentsKMSKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: decoding ACCOUNTS_DOCUMENTS_KMS_KEY: %w", err)
+	}
+	kms, err := vascrypto.NewLocalKMS(map[string][]byte{documentsKMSKeyID: key})
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: building the documents KMS: %w", err)
+	}
+	objects, err := objectstore.New(objectstore.Config{
+		Endpoint: cfg.ObjectStorageEndpoint, AccessKey: cfg.ObjectStorageAccessKey, SecretKey: cfg.ObjectStorageSecretKey,
+		Bucket: cfg.ObjectStorageBucket, UseTLS: cfg.ObjectStorageUseTLS,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("accounts: %w", err)
+	}
+	return &app.DocumentDeps{
+		Store: objects, Scanner: adapters.NewClamdScanner(cfg.ClamAVAddr),
+		Envelope: vascrypto.NewEnvelope(kms), KeyID: documentsKMSKeyID,
+	}, objects, nil
+}
+
+// kycProvider builds the configured KYC adapter, or nil when KYC is
+// off.
+func kycProvider(cfg Config) (adapters.KYCProvider, error) {
+	if cfg.KYCFakeURL == "" {
+		return nil, nil
+	}
+	if cfg.KYCProvider != "fake" {
+		return nil, fmt.Errorf("accounts: unknown ACCOUNTS_KYC_PROVIDER %q (only \"fake\" until OD-03 picks a vendor)", cfg.KYCProvider)
+	}
+	if cfg.KYCWebhookSecret == "" {
+		return nil, fmt.Errorf("accounts: ACCOUNTS_KYC_WEBHOOK_SECRET is required with ACCOUNTS_KYC_FAKE_URL")
+	}
+	return adapters.NewFakeVendorProvider(cfg.KYCFakeURL, []byte(cfg.KYCWebhookSecret)), nil
+}
+
+// loadPacks loads every country pack under dir, keyed by country code.
+func loadPacks(dir string) (map[string]*packs.Pack, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "pack.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("accounts: finding packs: %w", err)
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("accounts: no country packs under %s", dir)
+	}
+	loaded := make(map[string]*packs.Pack, len(paths))
+	for _, p := range paths {
+		pack, err := packs.Load(filepath.Join(dir, "schema.json"), p)
+		if err != nil {
+			return nil, fmt.Errorf("accounts: loading %s: %w", p, err)
+		}
+		loaded[pack.CountryCode] = pack
+	}
+	return loaded, nil
+}
+
+// Bootstrap loads Config from the environment and connects every
+// dependency New needs.
+func Bootstrap(ctx context.Context) (*Service, error) {
+	cfg := config.MustLoad[Config]()
+	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: connecting to database: %w", err)
+	}
+	b, err := bus.Connect(ctx, cfg.NATSURL)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: connecting to nats: %w", err)
+	}
+	identity, err := adapters.DialIdentity(cfg.IdentityGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	return New(cfg, pool, b, identity)
+}
+
+// Router is accounts' HTTP handler, exported for tests.
+func (s *Service) Router() http.Handler { return s.rtr }
+
+func relaySubject(eventType string) string { return "accounts." + eventType }
+
+// Run starts the HTTP and gRPC servers and the outbox relay, and blocks
+// until ctx is cancelled.
+func (s *Service) Run(ctx context.Context) error {
+	// The country packs are the source of each service's minimum tier
+	// per country (task 2.4); a code a pack misspells stops startup.
+	if err := s.app.SyncServiceRules(ctx, s.packs); err != nil {
+		return fmt.Errorf("accounts: syncing service rules from the packs: %w", err)
+	}
+	if s.objects != nil {
+		if err := s.objects.EnsureBucket(ctx); err != nil {
+			return fmt.Errorf("accounts: %w", err)
+		}
+	}
+	if err := s.bus.EnsureStream(ctx, "ACCOUNTS_EVENTS", []string{"accounts.>"}); err != nil {
+		return fmt.Errorf("accounts: ensuring stream: %w", err)
+	}
+
+	relay := outbox.NewRelay(s.pool, s.bus, relaySubject)
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_, _ = relay.RelayOnce(ctx)
+			}
+		}
+	}()
+
+	ln, err := net.Listen("tcp", s.cfg.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("accounts: listening on %s: %w", s.cfg.HTTPAddr, err)
+	}
+	grpcLn, err := net.Listen("tcp", s.cfg.GRPCAddr)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("accounts: listening for gRPC on %s: %w", s.cfg.GRPCAddr, err)
+	}
+	grpcSrv := gogrpc.NewServer()
+	accountsgrpc.Register(grpcSrv, s.app)
+	grpcDone := make(chan struct{})
+	go func() {
+		defer close(grpcDone)
+		_ = grpcSrv.Serve(grpcLn)
+	}()
+
+	srv := &http.Server{Handler: s.rtr, ReadHeaderTimeout: 5 * time.Second}
+	err = server.Serve(ctx, srv, ln, 10*time.Second)
+	grpcSrv.GracefulStop()
+	<-grpcDone
+	<-relayDone
+	return err
+}

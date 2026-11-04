@@ -1,6 +1,6 @@
 -- name: CreateSession :one
-INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at, token_hash)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO identity.sessions (id, user_id, tenant_id, ip, user_agent, expires_at, token_hash, auth_method)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetSessionByID :one
@@ -38,3 +38,9 @@ UPDATE identity.sessions SET last_seen_at = now() WHERE id = $1;
 
 -- name: SetSessionStepUp :exec
 UPDATE identity.sessions SET step_up_at = now() WHERE id = $1;
+
+-- name: SetSessionTenant :execrows
+-- Selects the account an active session works in (task 2.2c); only the
+-- session's own user can, and the caller has already asked accounts.
+UPDATE identity.sessions SET tenant_id = @tenant_id
+WHERE id = @id AND user_id = @user_id AND revoked_at IS NULL AND expires_at > @now::timestamptz;

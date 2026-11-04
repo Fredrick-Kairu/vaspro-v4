@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver, used only to run goose migrations
 	"github.com/pressly/goose/v3"
 	"github.com/testcontainers/testcontainers-go"
@@ -20,6 +21,12 @@ import (
 )
 
 const postgresTestDatabase = "vaspro_test"
+
+// readyTimeout is how long a Start* helper waits for its container to
+// accept a real client connection after the container's own wait
+// strategy has passed (see waitUntilReady): long enough for a slow but
+// live container under load; a dead one still fails, naming its error.
+const readyTimeout = 60 * time.Second
 
 // Postgres is a running PostgreSQL test container, connected as its
 // superuser.
@@ -57,37 +64,48 @@ func StartPostgres(t *testing.T, opts ...PostgresOption) *Postgres {
 
 	ctx := context.Background()
 
-	// The official postgres image logs "database system is ready to
-	// accept connections" once for a temporary setup server and again
-	// for the real one; waiting for only the first occurrence races the
-	// restart in between and produces "connection reset by peer".
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase(postgresTestDatabase),
-		postgres.WithUsername("super"),
-		postgres.WithPassword("super"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("testkit: failed to start postgres container: %v", err)
-	}
-	testcontainers.CleanupContainer(t, ctr)
-
-	dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("testkit: failed to get postgres connection string: %v", err)
-	}
-	host, err := ctr.Host(ctx)
-	if err != nil {
-		t.Fatalf("testkit: failed to get postgres host: %v", err)
-	}
-	port, err := ctr.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("testkit: failed to get postgres port: %v", err)
-	}
+	type endpoint struct{ dsn, host, port string }
+	ep := startContainer(t, "postgres", func(ctx context.Context) (endpoint, testcontainers.Container, error) {
+		// The official postgres image logs "database system is ready to
+		// accept connections" once for a temporary setup server and again
+		// for the real one; waiting for only the first occurrence races
+		// the restart in between and produces "connection reset by peer".
+		ctr, err := postgres.Run(ctx, "postgres:16-alpine",
+			postgres.WithDatabase(postgresTestDatabase),
+			postgres.WithUsername("super"),
+			postgres.WithPassword("super"),
+			testcontainers.WithWaitStrategy(
+				wait.ForLog("database system is ready to accept connections").
+					WithOccurrence(2).
+					WithStartupTimeout(60*time.Second),
+			),
+		)
+		if err != nil {
+			return endpoint{}, ctr, fmt.Errorf("starting postgres: %w", err)
+		}
+		dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
+		if err != nil {
+			return endpoint{}, ctr, fmt.Errorf("postgres connection string: %w", err)
+		}
+		host, err := ctr.Host(ctx)
+		if err != nil {
+			return endpoint{}, ctr, fmt.Errorf("postgres host: %w", err)
+		}
+		port, err := ctr.MappedPort(ctx, "5432/tcp")
+		if err != nil {
+			return endpoint{}, ctr, fmt.Errorf("postgres port: %w", err)
+		}
+		err = waitUntilReady(ctx, "postgres", readyTimeout, 200*time.Millisecond, func(ctx context.Context) error {
+			conn, err := pgx.Connect(ctx, dsn)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = conn.Close(context.Background()) }()
+			return conn.Ping(ctx)
+		})
+		return endpoint{dsn: dsn, host: host, port: port.Port()}, ctr, err
+	})
+	dsn := ep.dsn
 
 	if cfg.migrationsDir != "" {
 		if err := applyMigrations(ctx, dsn, cfg.migrationsDir); err != nil {
@@ -101,7 +119,7 @@ func StartPostgres(t *testing.T, opts ...PostgresOption) *Postgres {
 	}
 	t.Cleanup(pool.Close)
 
-	return &Postgres{Pool: pool, dsn: dsn, host: host, port: port.Port()}
+	return &Postgres{Pool: pool, dsn: dsn, host: ep.host, port: ep.port}
 }
 
 // DSN returns the superuser connection string.

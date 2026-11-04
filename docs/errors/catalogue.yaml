@@ -84,11 +84,83 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4018
+    status: 401
+    title: External sign-in failed
+    cause: The Sign in with Google flow failed - an unknown, reused or mismatched state; a failed code exchange; an ID token with a bad signature, wrong issuer or audience, past expiry or another flow's nonce; or an unverified Google email at sign-up. Deliberately not distinguished.
+    fix: Start Sign in with Google again from the beginning.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4019
+    status: 403
+    title: Sign in with your organisation's single sign-on
+    cause: The email's domain has an enabled single sign-on connection, so Sign in with Google isn't allowed for it.
+    fix: Sign in through your organisation's single sign-on.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4020
+    status: 409
+    title: Account exists; link Google first
+    cause: The Google account isn't linked to anyone, but its email belongs to an existing VASPRO account. VASPRO never links accounts silently.
+    fix: Sign in with your password or passkey, then link Google from security settings.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4021
+    status: 409
+    title: Google account linked to another user
+    cause: The Google account being linked is already linked to a different VASPRO user.
+    fix: Unlink it from the other account first, or link a different Google account.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4022
+    status: 409
+    title: Can't remove your only way to sign in
+    cause: Unlinking Google would leave the account with no password and no passkey.
+    fix: Set a password or register a passkey, then unlink Google.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4023
+    status: 403
+    title: Select an account you belong to
+    cause: API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected.
+    fix: Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4024
+    status: 403
+    title: Your role doesn't allow this
+    cause: You are a member of this account, but your role doesn't include the permission this action needs.
+    fix: Ask an Admin of the account for a role that allows it.
+    retryable: false
+    billable: false
+
+  - code: AUTH-4025
+    status: 403
+    title: Staff only
+    cause: This action is for VASPRO staff, and you aren't listed as staff.
+    fix: Ask VASPRO operations if you believe you should have staff access.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
     cause: The tenant hasn't completed the KYC tier this service requires in this country.
     fix: Complete the next tier's verification, then retry.
+    retryable: false
+    billable: false
+
+  - code: KYC-4021
+    status: 403
+    title: Not an active reseller account
+    cause: Only an active reseller account can create sub-accounts; this account is direct or a sub-account, or it is suspended or archived.
+    fix: Ask VASPRO staff to make the account a reseller (it needs the Financial tier), or reactivate it.
     retryable: false
     billable: false
 
@@ -121,6 +193,70 @@ codes:
     title: Resource not found
     cause: The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response.
     fix: Check the ID and retry; the resource may have been deleted or never belonged to this account.
+    retryable: false
+    billable: false
+
+  - code: VAL-4004
+    status: 409
+    title: An account needs an Admin
+    cause: This change would leave the account without an active Admin.
+    fix: Make another member an Admin first.
+    retryable: false
+    billable: false
+
+  - code: VAL-4005
+    status: 409
+    title: Already a member
+    cause: The person invited is already an active member of this account.
+    fix: Change their role instead of inviting them again.
+    retryable: false
+    billable: false
+
+  - code: VAL-4006
+    status: 409
+    title: Business profile is locked
+    cause: The business profile and its owners can't change while a business verification is in review or after it has passed.
+    fix: Wait for the review's decision; changes after verification come with re-verification.
+    retryable: false
+    billable: false
+
+  - code: VAL-4007
+    status: 415
+    title: File type not allowed
+    cause: Documents must be PDF, JPEG or PNG files. The type is read from the file itself, not its name.
+    fix: Upload the document as a PDF, JPEG or PNG.
+    retryable: false
+    billable: false
+
+  - code: VAL-4008
+    status: 413
+    title: File too large
+    cause: Documents are limited to 10 MB.
+    fix: Upload a smaller file, for example a lower-resolution scan.
+    retryable: false
+    billable: false
+
+  - code: VAL-4009
+    status: 422
+    title: File failed the virus scan
+    cause: The virus scanner found something in the file, so it wasn't stored.
+    fix: Scan the file on your side and upload a clean copy.
+    retryable: false
+    billable: false
+
+  - code: VAL-4010
+    status: 409
+    title: Check already decided
+    cause: The check isn't waiting for review any more; a reviewer or the vendor has already decided it.
+    fix: Reload the review queue; decided checks leave it.
+    retryable: false
+    billable: false
+
+  - code: VAL-4011
+    status: 409
+    title: Tier change not allowed
+    cause: The account's tier can't move this way, for example more than one step on a check alone, a promotion of a suspended account, or no change at all.
+    fix: Check the account's current tier and status, then ask for an allowed change.
     retryable: false
     billable: false
 

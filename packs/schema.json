@@ -4,7 +4,7 @@
   "title": "VASPRO country pack",
   "description": "The versioned, per-country rules platform/packs loads (ROADMAP Stage A item A6; D-09). Required fields are what task 0.10 needs now (numbering, currency, tax, send windows); operators/routes/rails/compliance_keywords/test_numbers are reserved here so later tasks (Phase 7 routes, Stage A6 completion) only need to add data, not change this schema.",
   "type": "object",
-  "required": ["version", "country_code", "currency", "numbering", "tax", "send_windows"],
+  "required": ["version", "country_code", "timezone", "data_region", "currency", "numbering", "tax", "send_windows"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -15,6 +15,48 @@
       "type": "string",
       "pattern": "^[A-Z]{2}$",
       "description": "ISO 3166-1 alpha-2, e.g. KE."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IANA time zone a new account in this country starts with, e.g. Africa/Nairobi (accounts.tenants.timezone)."
+    },
+    "data_region": {
+      "type": "string",
+      "enum": ["ke"],
+      "description": "Data residency tag a new account in this country starts with (accounts.tenants.region), fixed for the account's life (task 2.10). Only regions VASPRO hosts are listed: adding one is a hosting decision (OD-02), made here when it is hosted."
+    },
+    "kyb": {
+      "type": "object",
+      "description": "Business verification in this country (task 2.7): which company registry a business profile is checked against, and what the tax ID is called. A country without it can't do KYB yet.",
+      "required": ["registry", "tax_id_label"],
+      "additionalProperties": false,
+      "properties": {
+        "registry": { "type": "string", "pattern": "^[A-Z]{2,10}$" },
+        "tax_id_label": { "type": "string", "minLength": 1 },
+        "required_documents": {
+          "type": "array",
+          "description": "Document types a KYB submission needs uploaded first (task 2.8).",
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["national_id", "passport", "incorporation_cert", "tax_certificate", "proof_of_address", "authorisation_letter"] }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "description": "Each service's minimum KYC tier and availability in this country (task 2.4, OQ-06), keyed by accounts' service code. accounts syncs it into service_country_rules; a service not listed uses the catalogue default and is enabled.",
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "object",
+          "required": ["min_tier"],
+          "additionalProperties": false,
+          "properties": {
+            "min_tier": { "type": "string", "enum": ["sandbox", "starter", "business", "financial"] },
+            "enabled": { "type": "boolean", "default": true }
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "currency": {
       "type": "object",

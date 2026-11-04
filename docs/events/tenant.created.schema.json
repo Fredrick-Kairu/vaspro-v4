@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/tenant.created.schema.json",
+  "title": "tenant.created",
+  "description": "Published by accounts when an account is created (data model §4's Events table: sign-up creates the sandbox account), in the same transaction. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "type", "display_name", "country_code", "region", "tier", "created_by"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "type": {"type": "string", "enum": ["direct", "reseller", "sub_account"]},
+    "parent_tenant_id": {"type": "string", "format": "uuid"},
+    "display_name": {"type": "string", "minLength": 1},
+    "country_code": {"type": "string", "pattern": "^[A-Z]{2}$"},
+    "region": {"type": "string", "pattern": "^[a-z0-9-]+$", "description": "The account's data residency tag (tenants.region), fixed for its life; a sub-account's is its reseller's (task 2.10)."},
+    "tier": {"type": "string", "enum": ["sandbox"]},
+    "created_by": {"type": "string", "format": "uuid", "description": "The user who created the account: its Admin for a direct account, a member of the reseller for a sub-account (task 2.2b)."}
+  },
+  "additionalProperties": false,
+  "if": {"properties": {"type": {"const": "sub_account"}}},
+  "then": {"required": ["parent_tenant_id"]},
+  "else": {"not": {"required": ["parent_tenant_id"]}}
+}

@@ -37,6 +37,7 @@ func TestApiClients_CreateRotateEndToEnd(t *testing.T) {
 	_, signInBody := doJSON(t, r, http.MethodPost, "/v1/auth/sessions", "",
 		map[string]string{"email": "ada@example.com", "password": "a-strong-password"}, "signin-key")
 	sessionToken, _ := signInBody["session_token"].(string)
+	selectTenant(t, r, sessionToken)
 	if sessionToken == "" {
 		t.Fatalf("expected a session_token, got %v", signInBody)
 	}

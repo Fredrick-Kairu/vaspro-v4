@@ -10,6 +10,10 @@ import (
 )
 
 func (h *Handlers) CreateSmppAccount(ctx context.Context, request CreateSmppAccountRequestObject) (CreateSmppAccountResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	body := request.Body
 	// max_binds/max_tps come straight off the wire as plain JSON
 	// integers (oapi-codegen's SmppAccountCreateRequest has no format
@@ -24,7 +28,7 @@ func (h *Handlers) CreateSmppAccount(ctx context.Context, request CreateSmppAcco
 	}
 	account, err := h.app.CreateSMPPAccount(
 		ctx,
-		sessionUserIDFromContext(ctx),
+		tenantID, userID,
 		body.SystemId,
 		string(body.Environment),
 		body.IpAllowlist,
@@ -38,7 +42,11 @@ func (h *Handlers) CreateSmppAccount(ctx context.Context, request CreateSmppAcco
 }
 
 func (h *Handlers) ListSmppAccounts(ctx context.Context, request ListSmppAccountsRequestObject) (ListSmppAccountsResponseObject, error) {
-	accounts, err := h.app.ListSMPPAccounts(ctx, sessionUserIDFromContext(ctx))
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	accounts, err := h.app.ListSMPPAccounts(ctx, tenantID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -50,11 +58,15 @@ func (h *Handlers) ListSmppAccounts(ctx context.Context, request ListSmppAccount
 }
 
 func (h *Handlers) GetSmppAccount(ctx context.Context, request GetSmppAccountRequestObject) (GetSmppAccountResponseObject, error) {
+	tenantID, _, err := h.sessionTenant(ctx, credentialsRead)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	accountID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	account, err := h.app.GetSMPPAccount(ctx, sessionUserIDFromContext(ctx), accountID)
+	account, err := h.app.GetSMPPAccount(ctx, tenantID, accountID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -62,24 +74,27 @@ func (h *Handlers) GetSmppAccount(ctx context.Context, request GetSmppAccountReq
 }
 
 func (h *Handlers) UpdateSmppAccountStatus(ctx context.Context, request UpdateSmppAccountStatusRequestObject) (UpdateSmppAccountStatusResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	accountID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	userID := sessionUserIDFromContext(ctx)
 	switch request.Body.Status {
 	case Active:
-		if err := h.app.ReactivateSMPPAccount(ctx, userID, accountID); err != nil {
+		if err := h.app.ReactivateSMPPAccount(ctx, tenantID, userID, accountID); err != nil {
 			return nil, toProblem(err)
 		}
 	case Suspended:
-		if err := h.app.SuspendSMPPAccount(ctx, userID, accountID); err != nil {
+		if err := h.app.SuspendSMPPAccount(ctx, tenantID, userID, accountID); err != nil {
 			return nil, toProblem(err)
 		}
 	default:
 		return nil, toProblem(app.ErrValidation)
 	}
-	account, err := h.app.GetSMPPAccount(ctx, userID, accountID)
+	account, err := h.app.GetSMPPAccount(ctx, tenantID, accountID)
 	if err != nil {
 		return nil, toProblem(err)
 	}
@@ -87,11 +102,15 @@ func (h *Handlers) UpdateSmppAccountStatus(ctx context.Context, request UpdateSm
 }
 
 func (h *Handlers) CreateSmppAccountPassword(ctx context.Context, request CreateSmppAccountPasswordRequestObject) (CreateSmppAccountPasswordResponseObject, error) {
+	tenantID, userID, err := h.sessionTenant(ctx, credentialsManage)
+	if err != nil {
+		return nil, toProblem(err)
+	}
 	accountID, err := uuid.Parse(request.Id)
 	if err != nil {
 		return nil, toProblem(app.ErrNotFound)
 	}
-	account, err := h.app.RotateSMPPAccountPassword(ctx, sessionUserIDFromContext(ctx), accountID)
+	account, err := h.app.RotateSMPPAccountPassword(ctx, tenantID, userID, accountID)
 	if err != nil {
 		return nil, toProblem(err)
 	}

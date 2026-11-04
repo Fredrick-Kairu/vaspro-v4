@@ -28,3 +28,10 @@ SELECT count(*) FROM identity.security_events WHERE user_id = $1 AND type = 'sig
 -- lockout — drops on its own ("unlock by time" for free).
 SELECT count(*) FROM identity.security_events
 WHERE user_id = $1 AND type = 'sign_in_failed' AND occurred_at > $2;
+
+-- name: LatestStaffUnlockAt :one
+-- The most recent unlock by staff (task 2.9); sign-in failures before
+-- it no longer count toward the lockout. The epoch when never unlocked,
+-- so the caller's window start always wins.
+SELECT COALESCE(max(occurred_at), 'epoch'::timestamptz)::timestamptz FROM identity.security_events
+WHERE user_id = $1 AND type = 'unlocked_by_staff';

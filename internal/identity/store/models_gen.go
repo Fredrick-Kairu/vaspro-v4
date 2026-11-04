@@ -222,6 +222,7 @@ type IdentitySession struct {
 	ExpiresAt  time.Time          `json:"expires_at"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
 	TokenHash  []byte             `json:"token_hash"`
+	AuthMethod string             `json:"auth_method"`
 }
 
 type IdentitySigningKey struct {
@@ -255,6 +256,12 @@ type IdentitySsoConnection struct {
 	Enabled  bool      `json:"enabled"`
 }
 
+type IdentityStaffMember struct {
+	UserID    uuid.UUID `json:"user_id"`
+	GrantedBy string    `json:"granted_by"`
+	GrantedAt time.Time `json:"granted_at"`
+}
+
 type IdentityUser struct {
 	ID              uuid.UUID          `json:"id"`
 	Email           string             `json:"email"`
@@ -269,6 +276,17 @@ type IdentityUser struct {
 	Version         int32              `json:"version"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+type IdentityUserIdentity struct {
+	ID           uuid.UUID          `json:"id"`
+	UserID       uuid.UUID          `json:"user_id"`
+	Provider     string             `json:"provider"`
+	Subject      string             `json:"subject"`
+	EmailAtLink  string             `json:"email_at_link"`
+	HostedDomain pgtype.Text        `json:"hosted_domain"`
+	LinkedAt     time.Time          `json:"linked_at"`
+	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
 }
 
 type IdentityUserPasskey struct {

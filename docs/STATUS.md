@@ -1,9 +1,530 @@
 # Build status
 
-**Updated:** 2026-10-29
-**Current phase:** Phase 1: Identity, access and API gateway (Phase 0 complete: tasks 0.1-0.14 done; M0 exit gate not yet fully verified, see Notes)
-**Current task:** Phase 1 closed (`phase-1-done`, 2026-10-27) after the TOTP replay fix. Next: Phase 2 kickoff.
-**Branch:** p1/totp-replay (on top of p1/identity-schema)
+**Updated:** 2026-11-04
+**Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** Phase 2's tasks are done except 2.11's build, which is designed (ADR 0009) and waits for a v3 export (2026-11-04). Next: Phase 2's PR to `main` (needs your go-ahead), then Phase 3. Done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
+**Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
+
+## Phase 2 plan (agreed 2026-10-30)
+Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
+
+| # | Task | Tests first |
+|---|---|---|
+| 1.16 | Sign in with Google (D-22, roadmap update of 30 Oct): OIDC code flow + PKCE/state/nonce, `identity.user_identities`, `sessions.auth_method`, second factor before the session, SSO domains refused | fake OIDC provider: tampered/expired token, wrong aud/iss, reused nonce, bad state; no session without TOTP/passkey; no silent linking; unlink refused if it's the only way in; Google e2e |
+| 2.1 | `accounts` migration (data model §4) + starter sqlc queries; no service code yet (1.1's precedent) | migration applies; RLS per tenant-owned table; every CHECK/UNIQUE |
+| 2.5 | Tier state machine (`domain/`), `tier_changes` in the same transaction as the tier | table test of every transition; no tier change without a `tier_changes` row |
+| 2.2 | Scaffold the service; tenant created by an explicit onboarding call; tenant types; `tenant.created`; migrate Phase 1 placeholder tenants | RLS cross-tenant; placeholder rows moved |
+| 2.3 | Memberships, roles, invitations; one email in several accounts | role × permission matrix |
+| 2.4 | Service catalogue, selection, minimum tier per country (from `packs/ke`) | locked service reports the tier it needs |
+| 2.6 | KYC adapter, fake vendor, webhooks; ADR for OD-03's default | idempotent, verified webhooks; out-of-order result never demotes |
+| 2.7 | KYB: business profile, owners, registry lookup adapter | duplicate registration number goes to review |
+| 2.8 | Documents: object storage (SeaweedFS S3) in `platform`, hash, type/size checks, virus-scan hook | wrong type, too large, same hash stored once |
+| 2.9 | Staff review queue; also unlock by staff (carried from Phase 1) | staff-only access; decision promotes or rejects |
+| 2.10 | Data residency tag per tenant | |
+| 2.11 | v3 importers in `tools/migrate-v3` | dry-run counts, flagged records |
+
+**Decisions (2026-10-30):**
+- **Q1 tenant at sign-up:** an explicit onboarding call after email verification (`display_name`, country; currency/timezone/region from the pack), not auto-created from `user.email_verified`. So accounts consumes no identity event in 2.1.
+- **Q2 how identity learns memberships/tier (decided 30 Oct):** identity asks accounts over gRPC, so removing a member takes effect at once. A copy built from events may serve the token's `kyc_tier` claim later.
+- **Session auth for services other than identity (decided 30 Oct):** the gateway resolves the dashboard session through identity's `ResolveSession` RPC and forwards a trusted `X-Vaspro-User-Id`/`X-Vaspro-Session-Id`, stripping client-sent copies. 2.2 ships as three commits (2.2a/b/c), and Phase 1 placeholder credentials are revoked (not moved) in 2.2c.
+- **Q3 Phase 1 placeholder tenants** (`api_clients`/`smpp_accounts.tenant_id` = the creating user's ID): first approved as "move them to the user's first real tenant", then revised on 30 Oct to **revoke them by migration** in 2.2c (done; no real data exists yet).
+- **Q4 staff:** a minimal staff role check for 2.9, no console (the console is Phase 10).
+
+## Done in Phase 2
+- **Roadmap update (2026-10-30).** `docs/ROADMAP_UPDATED.md` was made from an older copy, before the Phase 0/1 ticks and evidence. Its new content is now in `docs/ROADMAP.md` and the duplicate is deleted:
+  - D-22 (Sign in with Google) and the D-07 note;
+  - `coreos/go-oidc/v3` + `golang.org/x/oauth2` in the tech stack;
+  - task 1.16, its six tests and the Google e2e;
+  - the kickoff prompt now says 1.1–1.16;
+  - frontend track F1.
+  Kept from the current roadmap, which the update had lost: every tick and its evidence, the `[>]` marker, 1.15's deferral to 20.8, the staff-unlock note, and the `jwx/v3` pin (the update said `v2`, which 1.8 found deprecated). Phase 1's e2e gate line is reopened until 1.16's Google e2e is green. `docs/design/data-model.md` §3 and `system-design.md` §3 are synced from the design docs' 30 Oct edits (`identity.user_identities`, `sessions.auth_method`, Google sign-in text).
+- 2.1 `accounts` migration and sqlc queries. `migrations/accounts/20261030090000_init.sql` holds all 12 tables from data model §4, copied exactly, plus `outbox_events` and `idempotency_keys`. There's no `processed_events`: after decision Q1, accounts consumes no events yet. Standard RLS goes on the 7 tables with `tenant_id NOT NULL`; the 3 global tables (`services`, `service_country_rules`, `tier_caps`) have none.
+  - **Two policies data model §4 doesn't spell out, approved in the 2.1 plan:**
+    - `tenants` (no `tenant_id`; the row's `id` is the tenant): `id = cur OR parent_tenant_id = cur` for both USING and WITH CHECK. A reseller sees and creates its sub-accounts. Creating a tenant runs in `WithTenantTx(newID)`.
+    - `roles` (nullable `tenant_id`, NULL = built-in): USING `tenant_id IS NULL OR = cur`, WITH CHECK `= cur`. Built-ins are readable by every tenant and writable by none, so they must be seeded as the migration superuser (2.3).
+    - The cross-tenant "which accounts am I in?" query will need a narrow `WITH INHERIT FALSE` role in 2.3, the 1.8 pattern; under these policies a plain query can't do it.
+  - **sqlc:** second entry in `sqlc.yaml`. Starter queries are one create plus one lookup per table, in `internal/accounts/store/queries/`. Models are schema-prefixed (`AccountsTenant`, `AccountsTier`), like identity's.
+  - **Tests** (`internal/accounts/store/schema_integration_test.go`), run as a non-superuser role:
+    - a goose Down-to-0-then-Up round trip;
+    - `AssertRowLevelSecurity` over the 7 standard tables;
+    - the tenants and roles policies (including a tenant inserting or editing a built-in role, and a tenant inserting an unrelated tenant);
+    - every CHECK, and the unique keys later tasks rely on: memberships PK, `kyc_checks (provider, provider_ref)` with repeatable NULLs, one business profile per tenant but repeatable registration numbers;
+    - tier enum order;
+    - citext `billing_email`;
+    - one sqlc round trip under RLS.
+  - **Mutation-checked:** loosening the roles WITH CHECK and the tenants USING made 6 subtests fail, then I reverted.
+  - `make check` green, after one rerun: the first run hit the known container-startup flake (connection refused) in three identity/testkit packages, which passed alone.
+
+- 1.16 Sign in with Google (D-22), built at the start of Phase 2 because the 30 Oct roadmap update added it to Phase 1.
+  - **Shape.** Google proves the first factor only.
+    - A callback (`POST /v1/auth/google/sessions`) never returns a session. It returns either a challenge (finished by the existing TOTP verification, or a new Google passkey challenge) or an enrolment token, when the account has no second factor yet; the first session exists only once TOTP or a passkey is enrolled.
+    - Sessions record `auth_method` (`password`, `passkey`, `google`). The TOTP challenge token carries the first factor's method, so the session it completes records `google`.
+    - Google never sets `step_up_at`.
+    - 13 operations under `/v1/auth/google/…`.
+    - Five new codes: `AUTH-4018` failed flow or token, `AUTH-4019` SSO domain, `AUTH-4020` account exists so link first, `AUTH-4021` linked to someone else, `AUTH-4022` only way in. `AUTH-4017` stays reserved by ADR 0006.
+  - **Flow state** (state, nonce, PKCE verifier, intent, and the user for a link) lives in Redis for 10 minutes and is taken with GETDEL, so a state works once. Each nonce belongs to one state, so a replayed ID token fails too.
+  - **Matching** is on `sub` in the new `identity.user_identities` table. An unlinked Google account whose email belongs to an existing user gets AUTH-4020, and nothing is linked.
+  - **Linking** needs session + step-up, and the link callback must come from the same user who started it. This blocks an attacker's link flow being completed in a victim's session.
+  - **Unlinking** is refused when the user has no password and no passkey.
+  - **SSO domain check:** `sso_connections` has FORCE RLS, so the cross-tenant lookup uses a new NOLOGIN `identity_sso_domain_lookup` role (`WITH INHERIT FALSE`, used only through `WithRoleTx`), 1.8's pattern. This role is a deviation from data model §3. SSO itself is still deferred to 20.8, so a match is a refusal, not a redirect.
+  - **Migration** `20261030120000_add_google_sign_in.sql` adds `user_identities` (copied from data model §3), `sessions.auth_method`, and the role. Existing session rows were backfilled to `password` (approved; dev and test data only).
+  - **`auth_method`** is also in `listSessions`' `SessionSummary`: the e2e needs it, and users see how each session signed in.
+  - **Dependencies:** `coreos/go-oidc/v3 v3.21.0`, `golang.org/x/oauth2 v0.37.0` (already an indirect dependency at v0.36), and `go-jose/v4 v4.1.4` as an indirect dependency.
+  - **Config:** `IDENTITY_GOOGLE_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_ISSUER`. All optional: with no client ID, Google is off and its routes return VAL-4003. Google's discovery document is fetched lazily, so identity starts even if Google is unreachable.
+  - **`tools/fakes/oidc`** is a real HTTP OIDC provider: discovery, JWKS, a token endpoint that checks PKCE, and RS256 ID tokens with tamper options. The real go-oidc adapter runs unchanged against it.
+  - **Refactors, behaviour unchanged:** `finishPasskeyLogin`, `storeNewPasskey` and `confirmTOTPEnrollment` were split out of existing code for reuse.
+  - **Tests.**
+    - App level:
+      - tampered or foreign-key signature, expired token, wrong audience or issuer, foreign nonce, unknown or reused state, a link state used for sign-in, unverified email;
+      - Google + TOTP and Google + passkey both give `auth_method=google` and no step-up;
+      - an enrolment token is refused once a factor exists;
+      - a sign-in challenge is not an enrolment token;
+      - no silent linking, and a changed Google email still matches by sub;
+      - the link flow can't be completed by another user, and a sub linked elsewhere is refused;
+      - unlinking the only way in is refused;
+      - an enabled SSO domain is refused, a disabled one isn't;
+      - password and passkey sessions record their method.
+    - HTTP-level error codes.
+    - Store: constraints, and the SSO role only inside `WithRoleTx`.
+    - Gateway e2e `TestGateway_GoogleSignUpThroughTOTPSignIn_EndToEnd`, with a log grep for ID tokens, codes, states, the enrolment token, TOTP codes and recovery codes. The PKCE verifier isn't grepped: the test never sees it, because it stays in Redis.
+    - **Mutation-checked:** dropping the nonce comparison, ignoring the challenge's method, skipping the link-owner check, and letting an enrolment token ignore an existing factor each failed the intended assertion.
+  - **Order of work:** the use cases were written before their tests, not tests first; the mutation checks stand in for showing the tests fail first.
+  - **For frontend track F1:** the API is cookieless, so the dashboard must keep `state` from `createGoogleAuthorization` and check that the callback returns the same value before calling `createGoogleSession` (login CSRF). The link flow is already protected server-side.
+
+- 2.5 Tier state machine.
+  - **Rules** (agreed 30 Oct; `internal/accounts/domain/tier.go`, pure):
+    - every change needs a reason and evidence (a KYC check, a staff member, or both);
+    - a passed check promotes exactly one tier, and only to the tier its kind unlocks (`individual` → starter, `business` → business);
+    - staff promote any number of tiers, and only staff reach financial (existing clients with documents on file, the v3 import, top-tier services after review);
+    - demotions go any number of tiers down, backed by staff or a failed or expired check (re-verification);
+    - a suspended or archived tenant can only be demoted.
+  - **`app.Service.ChangeTier`** (`internal/accounts/app`, the service's first app code; not wired into any process until 2.2) does everything in one `WithTenantTx`:
+    1. locks the tenant (`GetTenantForUpdate`);
+    2. checks the KYC check is the tenant's own and its status fits: passed for a promotion, failed or expired for a demotion;
+    3. validates the change;
+    4. writes `tenants.tier`, the `tier_changes` row and `tenant.tier_changed` (new schema in `docs/events/`) together.
+    A refused change writes nothing. `ChangedBy` is trusted as staff for now; 2.9's API adds the staff-role check (decision Q4).
+  - **Database enforcement** (migration `20261030140000_enforce_tier_changes.sql`, an addition to data model §4, approved in the plan):
+    - a deferred constraint trigger refuses a `tenants.tier` change at commit unless a matching `tier_changes` row has `created_at = now()`, i.e. comes from the same transaction (so nothing may set `tier_changes.created_at` explicitly; noted on the query);
+    - a `BEFORE INSERT` trigger keeps every new tenant in sandbox, so the v3 import (2.11) must also go through `tier_changes`.
+  - **Tests:**
+    - a table test of named behaviours, plus an exhaustive invariant test over every from × to × evidence × status;
+    - store tests for the trigger: no row, wrong row, a row from an earlier transaction, either order, other column updates, inserting above sandbox;
+    - app tests for the write-together path, every refusal writing nothing, a demotion by re-verification, and event schema validation.
+    - All were shown failing first (168 domain assertions against a stub; the store and app tests before the trigger and the use case existed).
+    - **Mutation-checked:** dropping the trigger's `created_at = now()`, the one-step rule, and the check-status rule each failed the intended test.
+  - **`make check`:** the first run failed on `platform/testkit`'s `TestStartNATS_PublishAndConsumeRoundTrips` (`bus: connecting: EOF`) and passed on rerun. This is the second NATS container-startup flake today. `StartNATSURL` probably returns before the server accepts connections under load: worth a readiness wait in its own small task (done 2026-11-02, see "testkit readiness" below).
+
+- 2.2a Accounts service, gateway session auth, first gRPC, create account.
+  - **gRPC foundation:**
+    - `buf.yaml`/`buf.gen.yaml`; tools pinned and installed in CI: `buf` v1.74.0 (v1.75.0 was only 9 days old), `protoc-gen-go` v1.36.12 (= go.mod's protobuf), `protoc-gen-go-grpc` v1.6.2.
+    - `proto/identity/v1/identity.proto`: `IdentityService.ResolveSession`. Generated `*.pb.go` sits next to it, outside `internal/`.
+    - `make gen` runs `buf lint` then `buf generate`; `make gen-check` also diffs `**/*.pb.go` (ADR 0004 amended).
+    - Identity serves gRPC on `IDENTITY_GRPC_ADDR` (default `:9090`, plaintext; mTLS is Phase 17), wrapping `app.ResolveSession`: the same path as `requireSession`.
+  - **Gateway:**
+    - Backends are routed by prefix: `/v1/accounts/` goes to accounts, everything else to identity. Each is validated against its own spec, and the audit log reads route templates from both.
+    - Client-sent `X-Vaspro-User-Id`/`X-Vaspro-Session-Id` are stripped on every request.
+    - Accounts routes need a session (`ResolveSession` over gRPC; missing or invalid is 401 AUTH-4010 before accounts is called). The user and session are forwarded; the token isn't.
+    - New required config: `GATEWAY_IDENTITY_GRPC_ADDR`, `GATEWAY_ACCOUNTS_BASE_URL`; `New` takes a `SessionResolver`.
+  - **accounts service:**
+    - `internal/accounts/accounts.go` (written by hand: `make new-service` refuses an existing directory), `cmd/accounts`, and registered in `cmd/vaspro-all`.
+    - `docs/api/accounts.yaml`: `createTenant`, `getTenant`.
+    - `requireCaller` trusts the gateway's header. Accounts must be reachable only from the gateway, a deployment rule recorded in its Config doc for Phase 17's network policy.
+    - Idempotency keys are scoped by user, since no tenant exists yet at creation and a shared anonymous scope collides (1.12).
+    - `respondProblem` logs unexpected errors (Phase 1's carry-over, done for accounts; identity's is still open).
+  - **`app.CreateTenant`** (`domain.NormalizeNewTenant` for input):
+    - writes a direct sandbox account, the creator's active membership with the built-in **Admin** role (seeded by migration `20261030160000`, fixed ID, permissions `{*}`; 2.3 defines the matrix), and `tenant.created` (new schema), all in one `WithTenantTx`;
+    - takes currency, time zone and data region from the country's pack: `packs/schema.json` and `packs/ke/pack.yaml` gain required `timezone` and `data_region` (`ke`, a tag until OD-02 and 2.10);
+    - an unsupported country is VAL-4000.
+  - **`GetTenant`** needs an active membership; a missing account and someone else's are both 404.
+  - **Tests:**
+    - identity gRPC over bufconn: a live token resolves; empty, garbage, session-ID-as-token and revoked tokens are all UNAUTHENTICATED;
+    - gateway against fake backends: the user is forwarded without the token; a spoofed header is overwritten on accounts and stripped on identity; no or invalid session is 401 and accounts is never called; accounts' own spec validates; identity routes are unchanged;
+    - app: creation writes all three, schema-validated; non-member and unknown are not found; one user can own several accounts; rejected input writes nothing;
+    - API: no user header is 401; a replayed key gives the same account; another user's identical key is theirs; non-member 404; unknown country 400;
+    - e2e `TestGateway_CreateAccountThroughGateway_EndToEnd`: real identity + accounts subprocesses; sign in, create an account through the gateway, read it, another user gets 404, a garbage session is 401, and no session token in the gateway log;
+    - packs: KE has its defaults.
+    - **Mutation-checked:** removing the header stripping fails the identity spoof test (on accounts, session resolution overwrites the header anyway); dropping `GetTenant`'s membership check fails the non-member test.
+    - **Order of work:** the gateway tests were written before the code but first run after it; the mutation checks stand in for showing them fail.
+  - Three 2.1 store fixtures named a built-in role "Admin", which the seed now provides; renamed to "Fixture built-in" (a fixture clash, not a weakened test).
+  - **`make check`:** the first run hit another container-startup timeout (Redis in `identity/api`), which passed on rerun. That's three today (NATS twice, Redis once): `testkit`'s container start-up needs a readiness wait, as its own small task (done 2026-11-02, see below).
+
+- **testkit readiness** (2026-11-02, not a ROADMAP task). Three `make check` runs on 30 Oct failed on container start-up and passed on rerun. Each time, the container's wait strategy passed before a client on the host could use it:
+  - Postgres: `connection refused` in migrations. The log-line wait is inside the container, and Docker Desktop's port forward can still be down.
+  - NATS: `bus: connecting: EOF`. The module only waits for the port, which Docker Desktop's proxy opens before NATS is serving.
+  - Redis: the module's own port wait gives up after 10s, too short for a loaded Docker daemon.
+  - **Fix:** `testkit.waitUntilReady` (unit-tested: retries, per-attempt timeout, and an error naming the service and its last error). Every `Start*` helper now proves readiness the way its callers connect: a pgx ping, a NATS handshake and flush, a Redis ping, an AMQP dial, within 30s. Redis gets the 60s start-up budget Postgres has.
+  - **Verification:** three full `go test -tags=integration -count=1 ./...` runs in a row, all green (34 packages each), then `make check`. A flake can't be proved gone; if one recurs, the error now names the service and its last connection error.
+
+- 2.2b Reseller and sub-account tenant types. The design gives only the schema and "the Financial tier unlocks reseller accounts"; the rest was answered by you on 2 Nov and recorded as OQ-04.
+  - **Rules** (`internal/accounts/domain/reseller.go`, pure):
+    - `CanBecomeReseller`: only an active direct account on Financial, with a reason;
+    - `CanCreateSubAccount`: only an active reseller still on Financial.
+    - Two levels only: a sub-account never becomes a reseller.
+    - A reseller that drops below Financial, or is suspended or archived, keeps its sub-accounts but can't add new ones.
+  - **`app.MakeReseller`** (no route until 2.9's staff check, like `ChangeTier`): locks the tenant, checks the rules, writes the type and a new `tenant.type_changed` event together. `ChangedBy` is trusted as staff for now.
+  - **`app.CreateSubAccount`**, in the reseller's tenant transaction:
+    - requires an active membership in the reseller;
+    - locks the reseller's row so a demotion can't interleave;
+    - writes a sandbox sub-account with the reseller's country, currency, time zone and region, plus `tenant.created` with `parent_tenant_id`.
+    - It adds no membership: the tenants RLS policy (2.1) already lets the reseller's transaction insert and see its children.
+  - **Access:** `GetTenant` also lets an active member of a sub-account's reseller read it, through a second, read-only transaction in the parent (its memberships are only visible there). Any role grants this until 2.3's permission matrix. A sub-account's own members can't see the reseller or siblings.
+  - **`ListSubAccounts`**: members of the reseller only, oldest first. It returns the whole list, with no cursor yet, like Phase 1's lists. `.claude/rules/api.md` asks for cursors, so this needs adding once a reseller can have many.
+  - **Contract:**
+    - `POST`/`GET /v1/accounts/tenants/{id}/sub-accounts` (`createSubAccount` with an Idempotency-Key scoped by user, `listSubAccounts`);
+    - new code **KYC-4021** (403, not an active reseller); a reseller below Financial is the existing KYC-4020;
+    - `tenant.type_changed` schema; `tenant.created` now requires `parent_tenant_id` exactly when the type is `sub_account`.
+    - The gateway needed no change.
+  - **Migration** `20261102090000_tenant_type_parent.sql` (an addition to data model §4, approved in the plan): `CHECK ((type = 'sub_account') = (parent_tenant_id IS NOT NULL))`. Nothing is rewritten. The store fixture `insertTenant` now sets `sub_account` whenever it gives a parent, which the CHECK requires (a fixture fix, not a weakened test).
+  - **Tests:**
+    - domain: named cases plus every type × tier × status;
+    - store: the CHECK both ways; `ListSubAccounts` under RLS;
+    - app: `MakeReseller` writes the type and a schema-valid event, and each refusal writes nothing; `CreateSubAccount` writes a sandbox sub-account with no membership and a schema-valid event; every refusal (non-member, unknown, direct, sub-account, demoted, suspended, bad input) writes nothing; an access matrix of 8 cases; listing;
+    - API: create, replay, read through the parent, list, 404 for a non-member on all three operations, 400, 403 KYC-4021 and KYC-4020.
+    - No gateway e2e: making a reseller has no route until 2.9.
+    - **Order of work:** the domain and app tests were seen failing first against stubs. The API tests could only compile once the handlers existed.
+    - **Mutation-checked:** removing the parent route, the Financial check and the CHECK each failed its intended tests. **Not covered:** the row lock on the reseller during `CreateSubAccount`. No test races a demotion against a create, because that can't be made deterministic cheaply.
+
+- 2.2c A session selects its account; credentials belong to real accounts. This finishes ROADMAP 2.2.
+  - **accounts gRPC:** `proto/accounts/v1` `AccountsService.CheckTenantAccess(user_id, tenant_id)`.
+    - It returns OK when `app.GetTenant` would: an active member of the account, or of a sub-account's reseller.
+    - No access and no such account are NOT_FOUND alike; a malformed ID is INVALID_ARGUMENT.
+    - accounts serves it on `ACCOUNTS_GRPC_ADDR` (default `:9091`, plaintext; mTLS in Phase 17).
+  - **identity:**
+    - `adapters.TenantAccess` over gRPC, configured by the new required `IDENTITY_ACCOUNTS_GRPC_ADDR`. The connection is lazy, so identity starts while accounts is down. Fake: `tools/fakes/tenantaccess`.
+    - New `PUT /v1/auth/sessions/current/tenant` (`selectSessionTenant`) asks accounts, then sets `sessions.tenant_id` (in the schema since 1.1). An account the user can't reach is 404 VAL-4003.
+    - `listSessions` shows each session's `tenant_id`.
+  - **Credentials:**
+    - Every API client and SMPP account operation gets its account from `app.SessionTenant`, which reads the selection from Postgres (not the session cache) and **asks accounts again on every call**, so removing a member takes effect at once (decision Q2).
+    - No selection, or lost access, is the new **AUTH-4023** (403). Accounts being unreachable fails closed (SYS-9000).
+    - The check runs first in each handler, before input parsing, so it is the same answer for every operation.
+    - Any member of an account now sees and manages its credentials; 2.3's permissions will narrow this.
+    - The JWT's `tid` is now a real account ID, with no change to the token code.
+    - Credential security events record the account (`security_events.tenant_id`) and the acting user. Before this, rotate/revoke/suspend recorded the tenant ID as the user, which only worked while the two were the same placeholder.
+  - **Migration** `20261102120000_revoke_placeholder_credentials.sql` (rewrites data; approved as Q3):
+    - revokes every API client and secret, and suspends every SMPP account, created before it. All of them used the placeholder `tenant_id`.
+    - Both tables have FORCE RLS, which also binds a table owner that isn't a superuser: the updates would silently match nothing. So the migration lifts FORCE for its own transaction and restores it.
+    - Down is a no-op (the earlier state can't be recovered).
+  - **Tests:**
+    - accounts gRPC over bufconn: member, reseller member for a sub-account, removed member, stranger, unknown account, malformed IDs.
+    - identity app:
+      - selecting needs access, the caller's own active session, and not a revoked one;
+      - `SessionTenant` before selecting, after selecting, with accounts failing (fails closed), and after the member is removed (immediate).
+    - identity API:
+      - selection, 404 and `listSessions`;
+      - **spec-driven:** every API client and SMPP account operation without a selection is 403 AUTH-4023 (11 operations);
+      - two members of one account share its clients, and a member of another account gets 404.
+    - Existing credential tests now select an account first. The app tests use a fixed account ID per user (`tenantOf`). `TestExchangeClientCredentials_HappyPath` expected `tid` to be the user's ID, the placeholder; it now expects the account the client was created in.
+    - Migration test: runs 2.2c's migration as a non-superuser table owner and checks revoked, suspended, untouched and FORCE restored. **It failed without the FORCE handling.**
+    - Gateway:
+      - Phase 1's e2e now runs real accounts: it creates the account through the gateway and selects it before the API client, and the token's `tid` is the account;
+      - the account e2e checks that a non-member can't select the account;
+      - other gateway tests talk to an in-process allow-all accounts fake.
+    - **Mutation-checked:** skipping the per-call re-check failed the immediate-removal and fail-closed tests; falling back to the user's ID with no selection failed the spec-driven AUTH-4023 test.
+    - **Order of work:** the accounts gRPC and identity app tests were seen failing against stubs first. The API and gateway tests could only compile once the handlers existed.
+
+- 2.3a Roles, permissions and member management. Your answers of 2 Nov are recorded as OQ-05.
+  - **Rules** (`internal/accounts/domain/permissions.go`, pure):
+    - **Permission catalogue:** `account:read/manage`, `members:read/manage`, `credentials:read/manage`, and `billing:read/manage` (reserved, enforced by nothing yet).
+    - **Built-in roles** (fixed IDs):
+      - Admin `*`;
+      - Developer: credentials plus read;
+      - Finance: billing plus read;
+      - Viewer: read only.
+    - `Allows`: `*` covers only catalogue names, and a name outside the catalogue is never allowed (a typo fails closed).
+    - `CheckMembershipChange`: changing roles and removing others needs `members:manage`; anyone may leave; only built-in roles can be assigned; the last active Admin can't be demoted, removed or leave.
+  - **Enforcement:**
+    - accounts: `getTenant` and `listSubAccounts` need `account:read`, `createSubAccount` needs `account:manage`. For a sub-account the caller's role in the reseller applies (`app.authorize`, which replaces the plain membership check).
+    - A member without the permission gets the new **AUTH-4024** (403); a non-member is still 404.
+    - `CheckTenantAccess` gains `permission`: PERMISSION_DENIED when the role lacks it, INVALID_ARGUMENT for an unknown name.
+    - identity's credential reads need `credentials:read` and every write `credentials:manage`, through `SessionTenant`, so a Viewer can see but not create or rotate API clients.
+  - **Member management** (accounts API): `listRoles`, `listMembers`, `updateMember` (role), `removeMember` (also leaving), and `listMyMemberships`.
+    - Role changes and removals lock the account row, so two Admins can't demote each other at once.
+    - Demoting or removing the last Admin is the new **VAL-4004** (409).
+    - Events: `membership.removed` (data model) and `membership.role_changed` (an addition).
+    - Member listings show user IDs only; names and emails need identity's gRPC, which arrives with 2.3b.
+  - **"My accounts"** reads memberships across accounts as a new NOLOGIN role `accounts_membership_lookup`, granted `WITH INHERIT FALSE` and used only inside `WithRoleTx` with `app.user_id` set. Its policies show only that user's memberships and those accounts' rows.
+    - Migration `20261103090000_roles_and_membership_lookup.sql` seeds Developer, Finance and Viewer, and creates the role. It's a deviation from data model §4, flagged in 2.1. No data changes.
+    - **Deployment note:** the service's login role needs `GRANT accounts_membership_lookup TO <role> WITH INHERIT FALSE` wherever it isn't the role that runs migrations. The test harnesses do this.
+  - **Tests:**
+    - domain: the **role × permission matrix** (4 roles × 8 permissions, each written out; it fails if the catalogue or the roles grow without updating it), `Allows`, and the membership rules;
+    - store: the seeded roles equal `domain.BuiltinRoles`; the lookup role sees only the caller's memberships, nothing with no user set, and nothing outside `WithRoleTx`;
+    - app: list, change and remove members; last-Admin refusals; a Developer can't manage members; a Viewer can't create sub-accounts but reads them through the reseller; `CheckAccess` cases; my memberships across accounts without removed ones; schema-valid events;
+    - accounts gRPC: permission cases;
+    - accounts API: every new route's codes;
+    - identity: `SessionTenant` with a permission; **spec-driven:** with only `credentials:read`, the 4 read operations pass the role check and all 7 writes get AUTH-4024;
+    - gateway e2e: the creator is the only member and Admin, can't leave (409), and sees the account in "my accounts".
+    - **Order of work:** the domain, app and gRPC tests were seen failing first; the API tests compiled only once the handlers existed.
+    - **Mutation-checked:** removing the last-Admin check failed the domain and app tests; letting `*` allow names outside the catalogue failed `TestAllows` (`app.authorize` also rejects unknown names before `Allows`, so the gRPC and app tests stayed green); ignoring the permission in `SessionTenant` failed the app test and the spec-driven AUTH-4024 test.
+  - **`make check`:** the first run failed in three packages with `postgres not ready after 30s ... connection refused`. Three Postgres containers' port forwards never came up during a run that started about 300 containers on an 8 GB Docker VM. The readiness wait reported it clearly, but it can't fix a forward that never opens. The rerun was green. This looks like Docker running out of resources under the full parallel run. Limiting package parallelism for `test-int` (for example `go test -p 4`) is the likely fix, as its own small task.
+
+- 2.3b Invitations (OQ-05). This finishes ROADMAP 2.3.
+  - **identity gRPC** (`proto/identity/v1`), four new RPCs:
+    - `EnsureInvitee(email)` finds the user, or creates an unverified one with no name (with `user.registered`, as sign-up does), and returns a user ID either way, so nobody learns whether the address was registered;
+    - `SendInvitation(user, inviter, account)` sends the invitation email (new `EmailSender.SendInvitation`; the same text for everyone: sign in, or sign up with this address, then accept) and logs `user_invited` in the inviter's security events;
+    - `IsStepUpFresh(session, user)` is never fresh for someone else's session;
+    - `GetUsers(ids)` returns emails and names, leaving out unknown IDs.
+    - **Planned as one RPC, built as two:** a single `EnsureInvitee` that also emailed would have sent an invitation before accounts found the person already a member. So the email now goes only after accounts has recorded the invitation.
+  - **Sign-up:** an invited, unverified user who signs up gets the name they give (only while the stored one is empty).
+  - **accounts:**
+    - `adapters.Identity` over gRPC, configured by the new required `ACCOUNTS_IDENTITY_GRPC_ADDR` (dialled lazily); fake `tools/fakes/identityusers`. The API now reads the gateway's `X-Vaspro-Session-Id`.
+    - `POST /v1/accounts/tenants/{id}/invitations` (`createInvitation`) needs `members:manage` and a fresh step-up (AUTH-4012 otherwise; system design §3 "add users"). It writes an `invited` membership and `membership.invited`, then identity sends the email.
+      - Inviting again re-sends with the new role; a removed member can be invited again; an active member is the new **VAL-4005** (409).
+      - If the email fails after the membership is written, the call errors and inviting again sends it.
+    - `POST /v1/accounts/me/memberships/{tenantId}/acceptance` (`acceptInvitation`): only an invitation can be accepted (VAL-4003 otherwise); it writes `membership.joined`.
+    - **Declining is leaving:** someone leaving no longer needs to be an active member first, so an invitee can decline. Leaving an account that doesn't exist is 404 rather than a 500.
+    - An invited Admin doesn't count toward the last-Admin rule until they accept.
+    - Member lists and responses carry `email` and `full_name` from identity, left out if identity can't be reached.
+  - **Wiring:** identity and accounts dial each other lazily. The gateway e2es choose identity's gRPC port before starting either service; `startRealIdentityWithLogs` takes an `IDENTITY_GRPC_ADDR` override.
+  - **Tests:**
+    - identity app: existing user unchanged, new address becomes an unverified user, the same email in both cases, bad address, unknown invitee or inviter, the security log, an invited user signing up (name set) and signing in, `GetUsers`.
+    - identity gRPC: each RPC, including `IsStepUpFresh` refusing another user's session and `EnsureInvitee` sending no email.
+    - accounts app: invite, re-invite, a new address, refusals (no permission, stale step-up, stranger, active member, custom role, bad address) writing nothing, the invitee locked out until they accept, accept (only invitations, once), the last-Admin rule with an invited Admin, decline then re-invite, names and emails including identity down.
+    - accounts API: every code.
+    - **gateway e2e** `TestGateway_InviteThroughGateway_EndToEnd`, with real identity and accounts:
+      - no step-up is 401;
+      - ada invites bob (registered) and carol (not), and both emails name the account;
+      - bob sees the invitation, accepts, selects the account and creates an API client as a Developer;
+      - carol signs up with the invited address and accepts;
+      - ada's list shows all three, active, with emails;
+      - no session token appears in either log.
+    - **Order of work:** identity's app and gRPC tests and accounts' app tests were seen failing first against stubs; the API tests and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** skipping the step-up check failed the app and API tests; accepting from any status failed both; counting invited Admins failed the last-Admin test.
+
+- 2.4 Service catalogue, selection, and the minimum tier per country (OQ-06).
+  - **Catalogue** (migration `20261103120000_seed_services.sql`), the requirements' tier table:
+    - `sms`, `surveys`, `ussd` need starter;
+    - `whatsapp`, `rewards` need business;
+    - `payouts`, `collections` need financial.
+    - Sender IDs, shortcodes and dedicated USSD codes are Phase 12 applications on top of these. Every service works in the sandbox; "enabled" means live use.
+  - **Country rules:**
+    - `packs/schema.json` gains an optional `services` map (code → `min_tier`, `enabled`, defaulting to true), and `platform/packs.Pack.Services` carries it. `packs/ke` lists all seven.
+    - `app.SyncServiceRules`, called at the start of `Run`, upserts each pack's rules into `service_country_rules` and deletes rules the pack dropped. A code outside the catalogue stops startup.
+    - A service missing from a pack uses the catalogue default (`ListServicesForCountry`'s COALESCE).
+  - **Rules** (`domain/services.go`):
+    - `Unlocked`;
+    - `RequiredTier`: the lowest tier unlocking everything selected, the "verification stops there" of system design §2;
+    - `ServiceStatusFor`: selected ↔ enabled follows the tier; suspended is never touched.
+  - **App:**
+    - `ListServices` (`account:read`): the country's available services plus any selected ones, each with `min_tier`, `selected`, `status` and `locked`, plus `tier` and `required_tier`.
+    - `SelectService` (`account:manage`): enabled at once if the tier reaches the minimum, otherwise selected and locked; writes `service.selected` (+ `service.enabled`). Unknown or off in the country is VAL-4003; selecting again changes nothing.
+    - `DeselectService` (`account:manage`): writes `service.deselected`.
+    - `ChangeTier` re-evaluates the account's services in the same transaction, writing `service.enabled` or `service.locked` (enabled_at cleared).
+    - Select, deselect and tier changes all lock the tenant row.
+    - `service.locked` and `service.deselected` are additions to data model §4's events.
+  - **API:** `GET /v1/accounts/tenants/{id}/services`, `PUT` and `DELETE .../services/{code}`. The gateway needed no change.
+  - **Tests:**
+    - domain: every tier × min tier × status, and `RequiredTier`;
+    - packs: KE's seven rules, `enabled` defaulting to true, an unknown tier refused;
+    - app sync: the rules land, a removed rule is deleted, an unknown code is refused, a second run is idempotent;
+    - app selection: in the sandbox SMS and WhatsApp are locked needing starter and business (required business); a service off in the pack is neither listed nor selectable; starter enables SMS but not WhatsApp; a service selected at the tier is enabled at once; a demotion locks SMS again and leaves a suspended one alone; deselecting drops the required tier; a Viewer can list but not select or deselect;
+    - API: the codes and the catalogue's shape;
+    - **gateway e2e:** the real `accounts` process, synced from `packs/ke` at startup, has the account pick SMS and USSD; both are locked needing starter, with starter required. That's the first half of Phase 2's onboarding e2e; the KYC half comes with 2.6.
+    - Two 2.1 store fixtures inserted a service called `sms`, which the seed now provides (`make check` caught the duplicate key). They now use `fixture_service`: a fixture clash like 2.2a's "Admin", not a weakened test.
+    - A test helper changed: `assertEventValidWhere` picks an event by a data field. The harness clock doesn't move, so two `service.selected` events in one test share a timestamp, and "newest" was arbitrary.
+    - **Order of work:** packs, domain and app tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** dropping the re-evaluation in `ChangeTier`, making `RequiredTier` take the minimum, and dropping the sync's delete each failed the intended test.
+  - **Not in 2.4:** tier caps (`tier_caps`, OD-04, Phase 7) and refusing live traffic for a locked service (KYC-4020, from Phase 7's sending services).
+
+- 2.6 KYC adapter, fake vendor and webhooks (OQ-07; ADR 0008 formalises OD-03's default).
+  - **Interface** `adapters.KYCProvider`: `Name`, `StartCheck` (our check ID as the vendor's reference; returns the vendor reference and the hosted-flow URL), `ParseWebhook` (verifies before reading; `ErrBadWebhookSignature`), `FetchReport`.
+    - `FakeVendorProvider` speaks `tools/fakes/kycvendor`'s HTTP protocol: HMAC-SHA256 over `timestamp.body`, a 5-minute window, `platform/crypto.HMACVerify`.
+    - The fake is a real server; a test calls `Decide(ref, status)` to have it post a signed webhook, and `Webhook(...)` with `Tamper` options builds bad ones.
+    - Config: `ACCOUNTS_KYC_PROVIDER` (`fake`), `ACCOUNTS_KYC_FAKE_URL`, `ACCOUNTS_KYC_WEBHOOK_SECRET`. With no URL, KYC is off (VAL-4000).
+  - **Rules:** `domain.NextKYCStatus`: pending takes any result, review takes a decision, a decided check is final. That one rule makes webhooks idempotent and out-of-order results harmless, with no separate dedup store.
+  - **App:**
+    - `StartKYC` (`account:manage`; individual only until 2.7; the subject is the caller) calls the vendor, then writes a pending check and `kyc.check_started`.
+    - `ListKYCChecks` (`account:read`) holds no personal data.
+    - `HandleKYCWebhook`:
+      - verifies first; a bad signature is AUTH-4013 and writes nothing;
+      - finds the check by `(provider, provider_ref)` as a new narrow role `accounts_kyc_webhook` (migration `20261103150000`; SELECT on `kyc_checks` only, `WITH INHERIT FALSE`, `WithRoleTx` only);
+      - an unknown reference gets 200 and is ignored;
+      - then, in the account's transaction with the check locked, applies `NextKYCStatus` and writes `kyc.check_decided` (with `promoted`).
+    - **A passed individual check on an active sandbox account promotes it to starter in the same transaction.** `ChangeTier` was split into a wrapper and `changeTierTx` for this; the promotion writes `tier_changes`, `tenant.tier_changed`, and enables the starter services already selected (2.4).
+    - Failed and expired never change the tier, and a suspended account's pass is recorded without a promotion.
+  - **API:**
+    - `createKycCheck`, `listKycChecks`;
+    - `receiveKycWebhook` (`security: []`): accounts skips `requireCaller` and idempotency for the webhook path, and keeps the raw body for the signature, because the strict server decodes JSON before the handler (1.9's lesson).
+  - **Gateway:**
+    - `requireSessionUnlessPublic` skips the session only for an operation the backend's spec declares `security: []`; client identity headers are still stripped.
+    - The Idempotency-Key gate exempts the webhook prefix, like `/v1/oauth/token`.
+  - **Tests:**
+    - domain: every current × incoming status;
+    - adapter + fake (no database): start, verify, and refusals for a tampered body, another secret, a stale or future timestamp, no signature and an unknown status, plus the report;
+    - store: the webhook role finds a check only inside `WithRoleTx` and can't read `tenants`;
+    - app: start (event, subject, provider), Viewer and business refused; pass → starter + `tier_changes` + `tenant.tier_changed` + SMS enabled; the same webhook again changes nothing (one decision, one tier change); **failed after passed doesn't demote**; review then passed promotes; failed then passed stays failed; a bad signature changes nothing; another provider is not found; an unknown reference is acknowledged; a suspended account isn't promoted;
+    - API: codes, a webhook with no user header or Idempotency-Key, and the account reaching starter;
+    - gateway: the webhook passes with no session or key, the client's user header is stripped, and a non-public accounts write still needs a session.
+    - **Phase 2 onboarding e2e** `TestGateway_OnboardingThroughKYC_EndToEnd`:
+      - real identity and accounts, the fake vendor posting to the gateway;
+      - sign up → account → SMS and USSD locked → individual KYC → the vendor decides passed → starter, SMS and USSD enabled;
+      - `tenant.tier_changed` read off accounts' NATS stream.
+      - **This ticks Phase 2's first exit-gate box.**
+    - **Order of work:** domain, adapter, app and gateway tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:** making a pass not final failed the domain test and the out-of-order app test; skipping the signature check failed the adapter, app and API refusals; skipping the timestamp window failed the stale and future cases.
+  - **`make check`:** the first run failed on lint: two unchecked `Body.Close`, a gosec SSRF warning on the vendor call (its URL is operator configuration, now marked so) and a staticcheck struct conversion. All fixed; the second run was green. With `-tags=integration`, lint also reports two pre-existing findings in older tests (an unchecked `sqlDB.Close` in accounts' store test and a gosec G101 in the gateway backends test). `make check` doesn't lint with that tag, so they're noted here rather than fixed in this task.
+  - **Deployment note:** like 2.3a's lookup role, `accounts_kyc_webhook` needs a grant to the service's login role where that isn't the migration role.
+
+- 2.7 KYB: business profile, directors and owners, submission to staff review (OQ-08).
+  - **Registry:** there's no BRS, BRELA or URSB access here, so per your answer details are entered by the client and verified by staff. ROADMAP 2.7's registry lookup adapter is deferred until access exists, and OQ-08 keeps that open.
+  - **Pack:** `packs/schema.json` gains an optional `kyb` block (`registry`, `tax_id_label`), and KE has `BRS` / `KRA PIN`. The profile's registry comes from the pack, never from the client; a country without the block can't do KYB.
+  - **Rules** (`domain/kyb.go`):
+    - `NormalizeBusinessProfile`: trims the fields and upper-cases the number and tax ID; no format checks, since staff verify;
+    - `NormalizeOwner`: name; role director/owner/signatory; `ownership_pct` as a string from 0 to 100 with up to 2 places, held in hundredths with no float;
+    - `CanSubmitKYB`: needs Starter, a profile, at least one director, and no business check in review or passed;
+    - `BusinessProfileLocked`: true in review or after a pass.
+  - **App:**
+    - `SetBusinessProfile` (create or update the one profile), `GetBusinessProfile`, `AddOwner`, `RemoveOwner`: `account:manage` to edit, `account:read` to read; edits while locked are the new **VAL-4006** (409).
+    - `SubmitKYB` writes a `business` check with provider `manual`, subject = the profile, **status review**, and `kyc.check_started`.
+      - The result records `duplicate_registration` and `other_accounts`, counted across accounts by a new narrow role `accounts_registration_lookup` (migration `20261103170000`; SELECT on `business_profiles`; `WITH INHERIT FALSE`; `WithRoleTx` only).
+      - A duplicate is flagged, not refused (data model §4).
+      - The count runs in its own transaction before the locked insert; a stale count could only mis-flag, and the profile locks once the check exists.
+    - Below Starter is KYC-4020; no profile or no director is VAL-4000.
+    - The staff decision and the promotion to business are 2.9.
+  - **API:** `getBusinessProfile`, `setBusinessProfile`, `addBusinessOwner`, `removeBusinessOwner`, `submitKyb`. `createKycCheck` stays individual-only.
+  - **Tests:**
+    - domain: normalisation, 13 percentage edge cases, a `CanSubmitKYB` table, the lock;
+    - packs: KE's KYB block;
+    - store: the lookup role counts other accounts only inside `WithRoleTx`;
+    - app: profile create/update with the pack's registry; owners added (with and without a percentage) and removed; a Viewer reads but can't edit; bad input; another account's owner not found; submission refusals (sandbox, no profile, no director, Viewer) write nothing; a submission is a review check on the profile with its event and no promotion; **a duplicate registration number is flagged and still goes to review**; a unique one isn't flagged; locked while in review and after a pass; editable and resubmittable after a failure;
+    - API: codes and shapes;
+    - **gateway e2e:** the onboarding e2e continues past Starter: profile, director, KYB submission in review.
+    - **Order of work:** domain, packs and app tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **A test fix while writing it:** the refusals subtest first reused the main subtest's registration number, which made the duplicate count 2 instead of 1. It now has its own number.
+    - **Mutation-checked:** dropping the duplicate count, the lock, or the Starter requirement each failed the intended tests.
+  - **`make check`:** the first run failed only in `platform/testkit`'s `TestStartRabbitMQ_PublishAndConsumeRoundTrips`. The RabbitMQ module's own startup wait (a log line, 60s) timed out under the full parallel load; the rerun was green. That's the third container-startup failure since the readiness fix, all under the full run: limiting `test-int`'s package parallelism (noted in 2.3a) is now worth doing.
+  - **Deployment note:** like 2.3a's and 2.6's roles, `accounts_registration_lookup` needs a grant to the service's login role where that isn't the migration role. That's now three grants: worth scripting with the deployment work.
+
+- 2.8 Documents (OQ-09).
+  - **`platform/objectstore`:** an S3 client (`Put`/`Get`/`Delete`/`EnsureBucket`, `ErrNotFound`) on **`github.com/minio/minio-go/v7` v7.4.1**. The tech stack named no client; minio-go is the lighter of the two common ones, released 12 Oct.
+    - `testkit.StartObjectStorage` runs SeaweedFS **4.48**, now pinned in compose too (it was `:latest`). It has a local-only S3 identity, because without one SeaweedFS refuses signed uploads (found by the first test run), and it waits until a bucket can really be created.
+  - **ClamAV:**
+    - `adapters.ClamdScanner` speaks clamd's INSTREAM (1 MB chunks, length-prefixed, a zero terminator) and PING.
+    - `tools/fakes/clamd` speaks the same protocol, flags the EICAR test string (assembled at runtime so no file carries it whole), and counts scans.
+    - `testkit.StartClamAV` runs **`clamav/clamav:1.5.4-debian`**: the plain tag has no arm64 build, and this Mac is arm64. It waits for PING.
+    - **Only one test uses real ClamAV** (`TestClamdScanner_AgainstRealClamAV`, about 21 s here): clamd needs about 1 GB of memory. Everything else, the e2e included, uses the fake.
+    - Compose gains a `clamav` service.
+  - **Rules** (`domain/documents.go`):
+    - types: `national_id`, `passport`, `incorporation_cert`, `tax_certificate`, **`proof_of_address`** (added: the requirements list it, data model §4's comment doesn't), `authorisation_letter`;
+    - `CheckUpload`: a known type, 1 byte to 10 MB, and PDF/JPEG/PNG from `http.DetectContentType`, never the client's name or header;
+    - `MissingDocuments`: rejected and expired documents don't count.
+  - **App:**
+    - `UploadDocument` (`account:manage`), in order:
+      1. check;
+      2. sha256;
+      3. **the same hash in this account returns the existing document**, before any scan or storage;
+      4. ClamAV, where infected is the new **VAL-4009** and a scan error refuses;
+      5. seal with `Envelope` under a new documents key (`ACCOUNTS_DOCUMENTS_KMS_KEY`, LocalKMS);
+      6. put at `tenants/<t>/documents/<id>`;
+      7. record (`received`). If recording fails, the object is deleted.
+    - A new unique index `(tenant_id, sha256)` (migration `20261104090000`, an addition to data model §4) covers concurrent duplicates; the loser returns the winner.
+    - Duplicates are per account, never across accounts.
+    - `ListDocuments` (`account:read`, metadata) and `DownloadDocument` (**`account:manage`**: identity documents are sensitive) decrypt.
+    - There are no document events (none in the data model).
+  - **KYB:** `packs/ke` lists `required_documents` (incorporation certificate, tax certificate, proof of address). `SubmitKYB` refuses until each has a usable document (VAL-4000 naming the missing types) and records `document_ids` in the check's result for 2.9's reviewer. That's also how applications (Part 3) will reuse documents.
+  - **API:**
+    - `uploadDocument` (multipart: `type` and `file`; 201, or 200 for an existing duplicate), `listDocuments`, `getDocumentContent` (the real MIME type, `attachment`, `nosniff`);
+    - new codes **VAL-4007** (415 type), **VAL-4008** (413 size), **VAL-4009** (422 infected).
+  - **Body limits:**
+    - new `httpx.BodyLimitFunc` picks a limit per request: 1 MB everywhere, 10 MB + 1 MB of framing for the upload route, in both the gateway and accounts;
+    - an upload whose declared length is over that gets VAL-4008 before anything reads it. Without this the idempotency middleware's read reported a cut-off body as unreadable (found by the API test).
+  - **Config:** `ACCOUNTS_OBJECT_STORAGE_*`, `ACCOUNTS_DOCUMENTS_KMS_KEY`, `ACCOUNTS_CLAMAV_ADDR`.
+    - With no endpoint, documents are off (VAL-4000).
+    - With an endpoint, the key and clamd are required at startup, so nothing is ever stored unencrypted or unscanned.
+    - `Run` ensures the bucket.
+  - **Tests:**
+    - domain: types, sizes (exactly 10 MB OK, one byte more not), bytes, and `MissingDocuments`;
+    - objectstore: round trip, ErrNotFound, idempotent bucket;
+    - scanner: against the fake (clean, EICAR at the end of 3 MB across chunks, clamd down fails closed) and against **real ClamAV**;
+    - app (real SeaweedFS + fake clamd):
+      - the stored object contains neither the text nor `%PDF`, and a download returns the original;
+      - **the same file again is the same document, with no second scan and one row**;
+      - another account's copy is separate;
+      - a Viewer lists but can't upload or download;
+      - another account's document is not found;
+      - a wrong type, too large and infected store nothing;
+      - unconfigured is VAL-4000;
+      - KYB is refused while documents are missing, with a rejected one not counting, and the check lists the three IDs;
+    - API: codes, including over the route limit, and the download headers;
+    - gateway: a 5 MB upload passes, 12 MB is 413 VAL-4008 before accounts, and a 2 MB JSON body elsewhere is still refused;
+    - **e2e:** the real accounts process stores the three documents in SeaweedFS (fake clamd), and KYB is refused before them and accepted after.
+    - **Order of work:** domain, objectstore, scanner, app and gateway tests were seen failing first; the API test and the e2e compiled only once the handlers existed.
+    - **Mutation-checked:**
+      - skipping the duplicate lookup failed the "no second scan" check. Without that check the unique index's fallback would have hidden it, so I added the scan count after spotting this before running the mutation;
+      - ignoring the scan's verdict failed the infected test;
+      - trusting a fixed type failed the type table.
+  - **`make check`:** the first run failed only on `TestStartRabbitMQ_PublishAndConsumeRoundTrips` timing out at startup (the RabbitMQ module's 60s log wait), the same as 2.7's first run; the rerun was green. That's two `make check` runs in a row needing a rerun, so limiting `test-int`'s package parallelism is overdue.
+  - **Also fixed:** three example enrollment tokens in `docs/api/identity.yaml` (from 1.16) were gitleaks findings that CI would have failed on. Running gitleaks 8.30.1 locally through Docker found them. They're now marked `gitleaks:allow` like the other examples, and the tree scans clean.
+
+- **Integration-test parallelism** (2026-11-03, before 2.9, your request).
+  - **Change:** `make test-int` runs at most `INTEGRATION_PARALLELISM` packages at once (default 4, overridable). Go's default is one per CPU: 10 here, which with every package starting its own containers meant hundreds on an 8 GB Docker VM.
+  - **Change:** testkit's readiness probe now gives each attempt 5s and the whole wait 60s (from 2s and 30s). Under a full run a live Postgres took more than 2s to answer a connection it had accepted.
+  - **Measured, four fresh runs (`-count=1`):** about 6 minutes each, two green and two each failing on one container:
+    - a Postgres that answered too slowly, now covered by the longer timeouts;
+    - a Redis whose host port never became reachable in 60s (555 tries): Docker Desktop's port forward failing for that one container. Waiting longer can't fix that.
+  - **The first measurement was invalid:** two `make check` runs came back in 35s because Go's test cache answered every package. It's noted so cached `make check` times aren't mistaken for real runs.
+  - **`make check` for this change** also hit the Redis port-forward failure once (`TestStepUp_GatesTotpEnrollmentUntilSteppedUp`) and passed on rerun: 3 of the 6 full runs today hit a container fault.
+  - **Then, your choice: retry with a fresh container.**
+    - `testkit.startWithRetries` (untagged, unit-tested: a failed attempt's container is torn down, and the final error names the service and the number of attempts) runs each `Start*` helper's start-and-prove-ready up to 3 times.
+    - All six helpers (Postgres, NATS, Redis, RabbitMQ, object storage, ClamAV) go through it. Postgres's migrations run after, once, because a migration failure is a real error, not a container fault.
+    - Retries are logged through the standard log, so they show in a passing run's output too (`t.Logf` only prints for failures or `-v`).
+    - **Found while writing it:** RabbitMQ's first draft returned its connection before the dial had run (`return conn, ctr, waitUntilReady(...)` reads `conn` first). Fixed before any run.
+  - **After the retry:** three fresh full runs (`-p 4 -count=1`) were all green, at 391s, 423s and 415s. They printed no retries, but a retry would have been invisible then (the `t.Logf` point above), so they don't show whether any retry fired; the logging is fixed for later runs. Then `make check` (fresh: testkit changed) was green first time in 414s, with retries now visible and none needed.
+
+- 2.9 Staff review queue, staff decisions and unlock by staff (OQ-10). Two commits, like 2.3.
+  - **Your answers (3 Nov):** staff are a table in identity, granted only by an ops CLI and checked over gRPC on every call; all four extras (unlock, staff tier change, make reseller, staff document download); no step-up and no self-review rule for now.
+  - **2.9a identity:**
+    - Migration `20261105090000_staff_members.sql`: `identity.staff_members (user_id PK → users, granted_by, granted_at)`, global like `users` (no RLS). An addition to data model §3. `granted_by` is text, the operator's name from the CLI's `-by`, not a user ID as the plan said: the CLI has no signed-in user.
+    - `app.GrantStaff`/`RevokeStaff`/`IsStaff`, with `staff_granted`/`staff_revoked` security events. `vaspro identity grant-staff -by <operator> <email>` and `revoke-staff` are the only way in; there's no API.
+    - gRPC `IsStaff(user_id)`.
+    - **Unlock:** `POST /v1/auth/staff/unlocks {email}` (staff only, the new **AUTH-4025**; unknown email VAL-4003) writes `unlocked_by_staff`. The lockout now counts failures after the later of the window start and the latest unlock (`LatestStaffUnlockAt`), so new failures lock again.
+  - **2.9b accounts:**
+    - `adapters.Identity.IsStaff`; `app.requireStaff` asks identity on every call (revocation is immediate; identity down fails closed, SYS-9000). Staff act through the target account's own transaction, never as members.
+    - Migration `20261105100000_staff_review_role.sql`: NOLOGIN `accounts_staff_review`, `WITH INHERIT FALSE`, `WithRoleTx` only; SELECT on every `kyc_checks` row and on accounts that have a check. **Changed from the plan** (which said review rows only): a decision on a check someone already decided has to find it to answer VAL-4010 rather than 404. Fourth narrow role, same deployment-grant note.
+    - Six operations under `/v1/accounts/staff/`: `listKycReviews` (oldest first, a real `(created_at, id)` cursor, 1–100 per page, KYB duplicate flags), `getKycReview` (business: profile, owners and the check's documents; individual: the subject's email and name), `decideKycReview`, `createStaffTierChange`, `createStaffReseller`, `getStaffDocumentContent`.
+    - **Decisions** (`domain.ValidateStaffDecision`): passed or failed, always with a reason (shown to the client as `reason` on `listKycChecks`); only a failure may reject documents, and only the check's own. The check must still be in review, else the new **VAL-4010** (409), which also covers the vendor deciding first. A business pass verifies the profile, accepts its documents and moves an active starter account to business through `changeTierTx` with both the check and the reviewer; an individual pass moves sandbox to starter. A fail changes no tier and rejects the named documents, so KYB asks for them again. `kyc.check_decided` gains `reviewed_by`.
+    - Staff tier changes the rules refuse are the new **VAL-4011** (409); an unknown tier or no reason is VAL-4000; `MakeReseller` keeps KYC-4020/4021.
+  - **Tests:**
+    - identity: store (FK, repeat grant, revoke counts, the epoch default), app (grant/revoke/IsStaff and events; locked → unlocked → signs in → 5 new failures lock again; non-staff, unknown email and revoked staff refused and write nothing), gRPC IsStaff, API codes.
+    - accounts: the decision table; the role (reads across accounts only inside `WithRoleTx`, only accounts with checks, no writes, no memberships); app (every staff call refuses the account's own Admin, a stranger and revoked staff; identity down fails closed; the queue across accounts, oldest first, paged, flagged, decided checks gone; detail; business pass with `tier_changes`, reviewer, `verified_at`, accepted documents and schema-valid events; fail with rejected documents and resubmission; a second decision; the vendor and staff in either order; a pending check; financial → reseller → sub-account; document download); API (**spec-driven:** every `/v1/accounts/staff/` operation is 401 without a user and 403 AUTH-4025 for the account's own Admin, and nothing changes; plus each operation's codes).
+    - **Gateway e2e:** the onboarding e2e continues from KYB in review: an operator grants staff with the real `vaspro` binary; the client's Admin gets 403 on the queue; staff see the check, open the certificate, pass it; the account is on Business and `tenant.tier_changed` (starter → business) is on NATS; staff move it to Financial and make it a reseller; the client creates a sub-account; a user locked by 5 bad passwords is refused an unlock by the client and unlocked by staff.
+    - **Order of work:** identity's app tests and accounts' domain and app tests were seen failing first against stubs; the API tests and the e2e compiled only once the handlers existed.
+    - **A fixture fix while writing it:** the individual-review detail test first used a subject the identity fake didn't know, so it had no email; it now registers the user first.
+    - **Mutation-checked:** ignoring the unlock time in the lockout failed `TestUnlockByStaff`; skipping `requireStaff` failed the app and spec-driven API tests; dropping "must be in review" failed the second-decision, vendor-first and pending-check cases.
+  - **Not in 2.9:** step-up and a self-review rule (your call; revisit with the console, Phase 10); a separate audit table for staff opening documents (the gateway's audit log records the route and user; Phase 17).
+
+- 2.10 Data residency tag (OQ-11). The design gives only `tenants.region` ("data residency tag"); hosting is OD-02 and moving an account's data is 21.4. Per your answers (4 Nov) the tag is hardened and no data moves.
+  - **Already there** (2.2a/b): the region comes from the pack's `data_region`, a sub-account copies its reseller's, and `Tenant.region` is in the API.
+  - **Migration** `20261105110000_region_fixed.sql` (an addition to data model §4; no data changes):
+    - a `BEFORE UPDATE OF region` trigger refuses any change, so the tag can't claim data lives somewhere it doesn't;
+    - a `BEFORE INSERT` trigger refuses a sub-account whose region differs from its reseller's, or whose reseller it can't see under RLS (fails closed). `CreateSubAccount` already inserts in the reseller's transaction, where the parent is visible.
+    - Both raise `check_violation`; nothing in the app expects them, so they'd surface as SYS-9000.
+  - **Packs:** `packs/schema.json`'s `data_region` is now an enum of hosted regions (`ke`). Adding one is a hosting decision (OD-02). A pack naming another fails to load, so accounts won't start with it.
+  - **Event:** `tenant.created` carries a required `region`, so later services learn it from events. The API's `region` description says it's fixed.
+  - **Tests:**
+    - packs: `mars`, `KE` and empty are refused;
+    - store (non-superuser, inside `WithTenantTx`): a change is refused and the value is kept; the same value and other columns still update; a sub-account in its reseller's region is accepted; another region, or a reseller it can't see, is refused;
+    - app: both `tenant.created` events carry `ke` and validate against the schema;
+    - gateway e2e: the reseller's sub-account is in `ke`.
+    - **Order of work:** the packs, store and app tests were seen failing first.
+    - **Mutation-checked:** disabling the update trigger, the parent check, and the pack enum each failed its intended test.
+  - **Not in 2.10:** changing an account's region and moving its data (21.4, OD-02); no service routes storage by region yet.
+
+- 2.11 v3 accounts importer: **designed, not built** (OQ-12, ADR 0009). There's no v3 export or anonymised copy here (OQ-02), so per your answer (4 Nov) the importer is designed now and built when one exists, the way 1.14 handled OD-16.
+  - **Your answers:** imported clients go to Starter through `tier_changes`; an operator file maps `permission_acl` to built-in roles (unlisted values flagged, membership not imported; no Admin flagged, account imported); v3 users found in v4 by email through identity.
+  - **ADR 0009** sets out:
+    - the inputs, with the columns it assumes to be confirmed against the real export;
+    - the operator files (ACL → role, country ID → ISO);
+    - the mapping, in order: resellers, direct clients, sub-accounts, memberships;
+    - Starter via `changeTierTx` with a staff member as evidence;
+    - an import-only reseller path, a deliberate exception to 2.2b's Financial rule, to re-check when building;
+    - idempotency through a sketched `accounts.v3_client_map`;
+    - a `--clients` wave filter;
+    - a dry run sharing the planning step, with counts and every flag;
+    - what's out of scope (client services → 3.10, billing mode, leads, v3 tokens).
+  - No code or migration. Phase 2's dry-run exit-gate box stays open.
+
+**Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0
 - 0.1 Repository skeleton: `Makefile`, `.golangci.yml` (`gosec` + per-service `depguard` boundary), `.editorconfig`.
@@ -39,13 +560,14 @@
 - 1.15 OIDC single sign-on: **deferred to Phase 20 task 20.8, no code** (your call, the option ROADMAP's own wording allows). Data model §3 has the `identity.sso_connections` table but the design leaves open domain-ownership verification (an unverified, globally unique `domain` would let whoever registers it first take over sign-in for that domain), which tenant a connection binds to before task 2.2's real tenants exist, account linking/JIT provisioning and step-up, and how the IdP client secret is stored — recorded as OQ-03 rather than guessed. ROADMAP gains a `[>]` (deferred) marker for it.
 - **Phase 1 exit gate** (2026-10-25), all three boxes ticked in ROADMAP with test names; `make check` green (gen-check, lint 0 issues, 52 packages incl. integration; gitleaks not installed, so its scan was skipped). **Security fix found while preparing the gate, decided with you: session tokens.** A session's `id` had been its bearer credential since 1.3, yet `listSessions` returns every session's id and `deleteSession` takes one in its URL — one stolen session could read and use all the user's others, and a bearer landed in the gateway's audit log. Now sign-in returns a separate `session_token` (`sess_` + 32 random bytes, `domain.GenerateSessionToken`), stored only as SHA-256 in a new nullable, unique `identity.sessions.token_hash` (migration `20261025090000_add_session_token_hash.sql`, a data-model §3 deviation; old rows never authenticate, nothing rewritten); `requireSession` accepts only the token; the Redis cache is keyed by the token hash; `session_id` stays the public list/revoke handle. Recorded as ADR 0007, which also says why it stays `/v1` despite `.claude/rules/api.md`'s breaking-change rule (no consumer exists yet). **JWT audience:** tokens now carry `aud=vaspro-api` and the gateway's `requireJWT` rejects a wrong or missing one (`jwt.WithAudience`; the constant is duplicated like `oauthIssuer`). New test for a key rotated out but still in its overlap window (`TestRequireJWT_RotatedKeyInOverlapWindow`); the mechanism already worked, it just had no test. **Gateway audit logs the OpenAPI route template, never the raw path** (`routeTemplate`, kin-openapi `routers/gorillamux`), so the TOTP/passkey challenge tokens in their paths stay out of logs; `gateway.New` now takes a `*slog.Logger`. **E2E now follows the roadmap's scenario literally:** enrol TOTP → sign out everywhere → sign in through the TOTP challenge → step up with TOTP → API client → token → protected call → revoke. Its TOTP codes never reuse a time step (`totpCodes`), so it stays valid once replay protection exists. It also creates an SMPP account and greps both processes' logs for every secret handled. **Negative pass is spec-driven** (`api.LoadSpecOperations` over `docs/api/identity.yaml`): every `sessionBearer` operation × {no token, garbage, empty, revoked} → 401 AUTH-4010; every `{id}`/`{secretId}` operation with another user's IDs → 404 VAL-4003, the owner's resources then checked unchanged, and the test fails on any id-taking operation without a case; plus a no-DB parity test, spec `sessionBearer` ⇔ `requireSessionOperations` (the 1.3/1.6 bug class). **Unlock by staff deferred to Phase 2** (your call), noted on ROADMAP's test list. **Also found:** (1) the API tests' `newTestRouter` built `identity.Config` without `WebAuthnRPDisplayName` (the env loader's `VASPRO` default doesn't apply to a literal struct), so begin-passkey-registration 500'd at HTTP level — no earlier API test had registered a passkey successfully; fixture fixed, not a production bug. (2) `respondProblem` maps any unrecognised error to SYS-9000 without logging it — finding (1) needed a temporary print to diagnose; worth a proper error log (without secrets) in a later task.
 - **TOTP replay fix** (2026-10-27, decided with you: a DB column, not a Redis key, so a flush can't reopen the window). `domain.ValidateTOTPCode` accepted one code any number of times inside its ±1-step window (~90s), which RFC 6238 §5.2 forbids. Now `domain.MatchTOTPStep` returns the matched code's own time step (constant-time compare), and `app.acceptTOTPCode` claims it with `ClaimTOTPStep`: one conditional `UPDATE ... WHERE last_used_step IS NULL OR last_used_step < step`, so a repeated code, any code from an earlier step, and two concurrent uses of one code all fail except the first. New nullable `identity.user_totp.last_used_step bigint` (migration `20261026090000_add_user_totp_last_used_step.sql`, a data model §3 deviation, additive, nothing rewritten); re-enrolling clears it. Enrolment confirmation, the sign-in challenge and step-up share the one record, so a code is spent wherever it's first used; a replayed code counts as a failed attempt toward lockout like any wrong code. Tests: `TestMatchTOTPStep_ReturnsTheCodesOwnTimeStep` (replaces the old drift test, same cases plus the step), `TestClaimTOTPStep_OnlyMovesForward`, `TestCompleteTOTPChallenge_CodeUsedToConfirmEnrollment_IsRejected`, `TestVerifyStepUpTOTP_ReplayedOrOlderCode_IsRejected` (both shown failing before the fix). Four existing app tests reused the enrolment code at the same fake time — exactly the replay now refused — so they advance the clock one step between codes. The gateway e2e's `totpCodes` helper had a real bug: it handed out steps as now, now+1, now−1, so its third code was older than its second; it now issues strictly increasing steps, oldest-first.
+- **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Phase 2 (accounts, KYC and onboarding): paste the Phase 2 kickoff prompt from ROADMAP §11 in a new conversation. Also carried over: unlock by staff (deferred from Phase 1), `respondProblem` logging unknown errors, and folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3.
+1. Task 2.1, then the Phase 2 plan above in order.
 2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
-- (none)
+- 2.11's build and Phase 2's last exit-gate box (the importer dry run) need a v3 export or anonymised copy (OQ-02, OQ-12, ADR 0009).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
 - (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
@@ -27,6 +28,13 @@ var idempotencyExemptPaths = map[string]bool{
 // fast-fail at the edge (system design §8: "anything caught before
 // acceptance returns an error at once and costs nothing"), defense in
 // depth ahead of whatever backend receives the request.
+// kycWebhookPrefix is where KYC vendors post results to accounts (task
+// 2.6, ADR 0008). A vendor sends no Idempotency-Key; its signature
+// authenticates the call and accounts treats a repeated result as a
+// no-op. Duplicated from accounts' own exemption, which the gateway
+// can't import.
+const kycWebhookPrefix = "/v1/accounts/kyc/webhooks/"
+
 func requireIdempotencyKeyHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -34,7 +42,7 @@ func requireIdempotencyKeyHeader(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if idempotencyExemptPaths[r.URL.Path] {
+		if idempotencyExemptPaths[r.URL.Path] || strings.HasPrefix(r.URL.Path, kycWebhookPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}

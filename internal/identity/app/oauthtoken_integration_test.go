@@ -25,7 +25,7 @@ import (
 func createTestApiClient(t *testing.T, ctx context.Context, svc *app.Service, sender *email.Sender, emailAddr string, scopes []string) (*app.ApiClientWithSecret, uuid.UUID) {
 	t.Helper()
 	userID := signedInUserID(t, ctx, svc, sender, emailAddr)
-	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox", scopes, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "test client", "sandbox", scopes, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
@@ -40,12 +40,12 @@ func TestExchangeClientCredentials_HappyPath(t *testing.T) {
 	}
 
 	userID := signedInUserID(t, ctx, svc, sender, "oauth-happy@example.com")
-	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox",
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "test client", "sandbox",
 		[]string{"sms:send", "reports:read"}, []string{"203.0.113.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
-	tenantID := userID
+	tenantID := tenantOf(userID) // the account the client was created in (task 2.2c)
 
 	token, err := svc.ExchangeClientCredentials(ctx, client.ID.String(), client.Secret.Secret, "")
 	if err != nil {
@@ -185,11 +185,11 @@ func TestExchangeClientCredentials_RevokedClient(t *testing.T) {
 		t.Fatalf("EnsureActiveSigningKey: %v", err)
 	}
 	userID := signedInUserID(t, ctx, svc, sender, "oauth-revoked@example.com")
-	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "test client", "sandbox", []string{"sms:send"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
-	if err := svc.RevokeApiClient(ctx, userID, client.ID); err != nil {
+	if err := svc.RevokeApiClient(ctx, tenantOf(userID), userID, client.ID); err != nil {
 		t.Fatalf("RevokeApiClient: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestExchangeClientCredentials_ExpiredClient(t *testing.T) {
 	}
 	userID := signedInUserID(t, ctx, svc, sender, "oauth-expired@example.com")
 	expiresAt := clk.Now().Add(time.Hour)
-	client, err := svc.CreateApiClient(ctx, userID, "test client", "sandbox", []string{"sms:send"}, nil, &expiresAt, nil, nil)
+	client, err := svc.CreateApiClient(ctx, tenantOf(userID), userID, "test client", "sandbox", []string{"sms:send"}, nil, &expiresAt, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateApiClient: %v", err)
 	}
