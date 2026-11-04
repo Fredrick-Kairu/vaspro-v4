@@ -783,7 +783,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 2.8 Documents: upload to object storage, hash, type and size checks, virus-scan hook, reuse across applications. *Done 2026-11-03 (OQ-09): envelope-encrypted in SeaweedFS (`platform/objectstore`), PDF/JPEG/PNG from the bytes, 10 MB, scanned by ClamAV, the same file stored once per account, KYB needs the pack's documents and records their IDs (`TestUploadDocument_*`, `TestDocumentsAPI`).*
 - [x] 2.9 Staff review queue for KYC and KYB decisions marked "review". *Done 2026-11-03 in two commits (OQ-10). 2.9a: staff are users in `identity.staff_members`, granted only by the ops CLI (`vaspro identity grant-staff`); unlock by staff (`TestUnlockByStaff`). 2.9b: the cross-account queue, staff decisions that promote or reject, staff tier changes, making a reseller and opening documents, all staff-only (`TestStaffAPI_EveryStaffOperationIsStaffOnly`, `TestDecideKYCReview_*`); the onboarding e2e continues through staff review to Business, Financial, a reseller and its first sub-account.*
 - [x] 2.10 Data residency tag per tenant. *Done 2026-11-04 (OQ-11): the tag comes from the pack, is fixed for the account's life and a sub-account shares its reseller's, both enforced by the database (`TestTenantRegion_FixedAndSharedWithTheParent`); packs may only name a hosted region (`TestParse_DataRegion_OnlyAHostedRegion`); `tenant.created` carries it. Moving an account's data stays with 21.4 (OD-02).*
-- [ ] 2.11 v3 importers: clients, user-client links, permissions to roles, resellers to parent tenants.
+- [>] 2.11 v3 importers: clients, user-client links, permissions to roles, resellers to parent tenants. **Designed, not built** (2026-11-04, OQ-12): ADR 0009 is the design; it is built when a v3 export or anonymised copy exists, since none is available here (OQ-02).
 
 **Tests specific to this phase**
 
@@ -797,7 +797,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 **Exit gate**
 
 - [x] The onboarding e2e is green. *`TestGateway_OnboardingThroughKYC_EndToEnd` (2026-11-02): sign up → pick SMS and USSD → individual KYC through the fake vendor, whose signed webhook goes through the gateway → starter, SMS and USSD enabled → `tenant.tier_changed` read off accounts' NATS stream.*
-- [ ] The v3 client importer dry run on an anonymised copy reports counts that match v3, and lists every flagged record.
+- [ ] The v3 client importer dry run on an anonymised copy reports counts that match v3, and lists every flagged record. *Open: waits for 2.11's build (ADR 0009) and an anonymised copy.*
 
 **Kickoff prompt**
 

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 2.10 done (2026-11-04). Next: 2.11 v3 importers. Also done: 2.1–2.9 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
+**Current task:** Phase 2's tasks are done except 2.11's build, which is designed (ADR 0009) and waits for a v3 export (2026-11-04). Next: Phase 2's PR to `main` (needs your go-ahead), then Phase 3. Done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
 **Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Phase 2 plan (agreed 2026-10-30)
@@ -510,6 +510,20 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - **Mutation-checked:** disabling the update trigger, the parent check, and the pack enum each failed its intended test.
   - **Not in 2.10:** changing an account's region and moving its data (21.4, OD-02); no service routes storage by region yet.
 
+- 2.11 v3 accounts importer: **designed, not built** (OQ-12, ADR 0009). There's no v3 export or anonymised copy here (OQ-02), so per your answer (4 Nov) the importer is designed now and built when one exists, the way 1.14 handled OD-16.
+  - **Your answers:** imported clients go to Starter through `tier_changes`; an operator file maps `permission_acl` to built-in roles (unlisted values flagged, membership not imported; no Admin flagged, account imported); v3 users found in v4 by email through identity.
+  - **ADR 0009** sets out:
+    - the inputs, with the columns it assumes to be confirmed against the real export;
+    - the operator files (ACL → role, country ID → ISO);
+    - the mapping, in order: resellers, direct clients, sub-accounts, memberships;
+    - Starter via `changeTierTx` with a staff member as evidence;
+    - an import-only reseller path, a deliberate exception to 2.2b's Financial rule, to re-check when building;
+    - idempotency through a sketched `accounts.v3_client_map`;
+    - a `--clients` wave filter;
+    - a dry run sharing the planning step, with counts and every flag;
+    - what's out of scope (client services → 3.10, billing mode, leads, v3 tokens).
+  - No code or migration. Phase 2's dry-run exit-gate box stays open.
+
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0
@@ -553,7 +567,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
-- (none)
+- 2.11's build and Phase 2's last exit-gate box (the importer dry run) need a v3 export or anonymised copy (OQ-02, OQ-12, ADR 0009).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
 - (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)
