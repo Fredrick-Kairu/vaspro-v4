@@ -56,6 +56,50 @@ func (q *Queries) CreateUsageBatch(ctx context.Context, arg CreateUsageBatchPara
 	return i, err
 }
 
+const createUsageBatchIfNew = `-- name: CreateUsageBatchIfNew :one
+INSERT INTO ledger.usage_batches
+  (id, tenant_id, account_id, window_start, window_end, events, tokens)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (account_id, window_start) DO NOTHING
+RETURNING id, tenant_id, account_id, window_start, window_end, events, tokens, transaction_id
+`
+
+type CreateUsageBatchIfNewParams struct {
+	ID          uuid.UUID      `json:"id"`
+	TenantID    uuid.UUID      `json:"tenant_id"`
+	AccountID   uuid.UUID      `json:"account_id"`
+	WindowStart time.Time      `json:"window_start"`
+	WindowEnd   time.Time      `json:"window_end"`
+	Events      int64          `json:"events"`
+	Tokens      pgtype.Numeric `json:"tokens"`
+}
+
+// One batch per wallet per window: a rerun of the window, or another
+// replica's run, finds the batch already there and gets no row.
+func (q *Queries) CreateUsageBatchIfNew(ctx context.Context, arg CreateUsageBatchIfNewParams) (LedgerUsageBatch, error) {
+	row := q.db.QueryRow(ctx, createUsageBatchIfNew,
+		arg.ID,
+		arg.TenantID,
+		arg.AccountID,
+		arg.WindowStart,
+		arg.WindowEnd,
+		arg.Events,
+		arg.Tokens,
+	)
+	var i LedgerUsageBatch
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.AccountID,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.Events,
+		&i.Tokens,
+		&i.TransactionID,
+	)
+	return i, err
+}
+
 const getUsageBatch = `-- name: GetUsageBatch :one
 SELECT id, tenant_id, account_id, window_start, window_end, events, tokens, transaction_id FROM ledger.usage_batches WHERE id = $1
 `
@@ -74,4 +118,18 @@ func (q *Queries) GetUsageBatch(ctx context.Context, id uuid.UUID) (LedgerUsageB
 		&i.TransactionID,
 	)
 	return i, err
+}
+
+const setUsageBatchTransaction = `-- name: SetUsageBatchTransaction :exec
+UPDATE ledger.usage_batches SET transaction_id = $2 WHERE id = $1
+`
+
+type SetUsageBatchTransactionParams struct {
+	ID            uuid.UUID   `json:"id"`
+	TransactionID pgtype.UUID `json:"transaction_id"`
+}
+
+func (q *Queries) SetUsageBatchTransaction(ctx context.Context, arg SetUsageBatchTransactionParams) error {
+	_, err := q.db.Exec(ctx, setUsageBatchTransaction, arg.ID, arg.TransactionID)
+	return err
 }

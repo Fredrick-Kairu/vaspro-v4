@@ -1,0 +1,27 @@
+# A test-only country pack whose prices exclude VAT (task 3.5's
+# tax-exclusive variant, data model §5 step 4: 304.00 + 48.64). TZS is
+# the only other currency the ledger seeds; this isn't Tanzania's pack.
+version: "test"
+country_code: TZ
+timezone: Africa/Dar_es_Salaam
+data_region: ke
+
+currency:
+  code: TZS
+  exponent: 2
+
+numbering:
+  country_code: "255"
+  trunk_prefix: "0"
+  national_significant_number_length: 9
+
+tax:
+  vat_rate_basis_points: 1600
+  vat_inclusive_by_default: false
+  vat_effective_from: "2026-01-01"
+
+send_windows:
+  promotional:
+    start: "08:00"
+    end: "20:00"
+    timezone: Africa/Dar_es_Salaam

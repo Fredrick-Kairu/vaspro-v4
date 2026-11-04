@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/usage.posted.schema.json",
+  "title": "usage.posted",
+  "description": "Published by the ledger when it settles a service wallet's usage for one settlement window (data model §5's Events table, task 3.5): one batch, one usage posting that drew the captured tokens from the lots, oldest first, and split the value into revenue and VAT. holds names every hold the batch settled, so services can tag their per-message rows with batch_id. Money is in minor units; tokens are a decimal string. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "account_id", "batch_id", "transaction_id", "service_code", "currency", "window_start", "window_end",
+               "events", "tokens", "value_minor", "revenue_minor", "vat_minor", "vat_inclusive", "vat_from_main_minor", "vat_to_receivable_minor", "holds"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "account_id": {"type": "string", "format": "uuid", "description": "The service wallet settled."},
+    "batch_id": {"type": "string", "format": "uuid"},
+    "transaction_id": {"type": "string", "format": "uuid"},
+    "service_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "window_start": {"type": "string", "format": "date-time"},
+    "window_end": {"type": "string", "format": "date-time"},
+    "events": {"type": "integer", "minimum": 0, "description": "Billable events (delivered messages) the captures covered."},
+    "tokens": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,6})?$"},
+    "value_minor": {"type": "integer", "minimum": 1, "description": "What the tokens cost, from the lots they were drawn from."},
+    "revenue_minor": {"type": "integer", "minimum": 0},
+    "vat_minor": {"type": "integer", "minimum": 0},
+    "vat_inclusive": {"type": "boolean", "description": "True: revenue + VAT = value. False: VAT was added on top of value."},
+    "vat_from_main_minor": {"type": "integer", "minimum": 0, "description": "VAT-exclusive only: the part taken from the main wallet."},
+    "vat_to_receivable_minor": {"type": "integer", "minimum": 0, "description": "VAT-exclusive only: the part the main wallet couldn't cover, recorded as a debt."},
+    "holds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reference_type", "reference_id"],
+        "properties": {
+          "reference_type": {"type": "string"},
+          "reference_id": {"type": "string", "format": "uuid"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

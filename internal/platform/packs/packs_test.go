@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/money"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
@@ -212,5 +213,34 @@ func TestLoadPinned_WrongVersion_FailsWithBothVersionsNamed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "99") || !strings.Contains(err.Error(), "0") {
 		t.Fatalf("expected the error to name both the wanted (99) and actual (0) versions, got: %v", err)
+	}
+}
+
+// TestParse_VATEffectiveFrom covers task 3.5 (OQ-16): the VAT rate
+// carries the date it applies from, so the ledger's tax_rates hold its
+// history; a pack without one, or with a malformed one, is refused.
+func TestParse_VATEffectiveFrom(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	ke := string(readFile(t, realKEPackPath))
+	p, err := packs.Parse(schema, []byte(ke))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC); !p.Tax.VATEffectiveFrom.Equal(want) {
+		t.Errorf("VATEffectiveFrom = %s, want %s", p.Tax.VATEffectiveFrom, want)
+	}
+	const line = "\n  vat_effective_from: \"2026-01-01\"\n"
+	if !strings.Contains(ke, line) {
+		t.Fatal("the KE pack no longer has the line this test replaces")
+	}
+	for name, replacement := range map[string]string{
+		"missing":       "\n",
+		"not a date":    "\n  vat_effective_from: \"soon\"\n",
+		"a date-time":   "\n  vat_effective_from: \"2026-01-01T00:00:00Z\"\n",
+		"an impossible": "\n  vat_effective_from: \"2026-02-30\"\n",
+	} {
+		if _, err := packs.Parse(schema, []byte(strings.Replace(ke, line, replacement, 1))); err == nil {
+			t.Errorf("%s vat_effective_from was accepted", name)
+		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	gogrpc "google.golang.org/grpc"
@@ -21,6 +22,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/httpx"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/outbox"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/server"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
@@ -54,6 +56,12 @@ type Config struct {
 	// ledger starts while identity is down; staff actions then fail
 	// closed.
 	IdentityGRPCAddr string `env:"LEDGER_IDENTITY_GRPC_ADDR,required"`
+	// SettlementWindow is how often usage settles (task 3.5, OD-07's
+	// default); every replica settles the same grid of windows.
+	SettlementWindow time.Duration `env:"LEDGER_SETTLEMENT_WINDOW" envDefault:"5m"`
+	// PacksDir holds schema.json and one <cc>/pack.yaml per country: the
+	// VAT rates settlement uses.
+	PacksDir string `env:"LEDGER_PACKS_DIR" envDefault:"packs"`
 }
 
 // Service wires the ledger's dependencies together and runs them.
@@ -65,9 +73,13 @@ type Service struct {
 	rtr  http.Handler
 }
 
-// New builds a Service from already-connected dependencies.
-func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity) *Service {
-	a := app.New(app.Deps{Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity})
+// New builds a Service from already-connected dependencies and the
+// loaded country packs, by country code.
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity, loaded map[string]*packs.Pack) *Service {
+	a := app.New(app.Deps{
+		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity,
+		Packs: loaded, SettlementWindow: cfg.SettlementWindow,
+	})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 	}, idempotency.NewPostgresStore(pool))
@@ -90,7 +102,28 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ledger: %w", err)
 	}
-	return New(cfg, pool, b, identity), nil
+	loaded, err := loadPacks(cfg.PacksDir)
+	if err != nil {
+		return nil, err
+	}
+	return New(cfg, pool, b, identity, loaded), nil
+}
+
+// loadPacks loads every <dir>/<cc>/pack.yaml against <dir>/schema.json.
+func loadPacks(dir string) (map[string]*packs.Pack, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "pack.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: finding packs: %w", err)
+	}
+	out := make(map[string]*packs.Pack, len(paths))
+	for _, path := range paths {
+		p, err := packs.Load(filepath.Join(dir, "schema.json"), path)
+		if err != nil {
+			return nil, fmt.Errorf("ledger: %w", err)
+		}
+		out[p.CountryCode] = p
+	}
+	return out, nil
 }
 
 func relaySubject(eventType string) string { return "ledger." + eventType }
@@ -98,9 +131,19 @@ func relaySubject(eventType string) string { return "ledger." + eventType }
 // Run starts the gRPC and HTTP servers and the outbox relay, and
 // blocks until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
+	// The packs are the source of VAT rates (task 3.5); a rate changed
+	// without a new date, or two packs sharing a currency, stops startup.
+	if err := s.app.SyncTaxRates(ctx); err != nil {
+		return fmt.Errorf("ledger: syncing tax rates from the packs: %w", err)
+	}
 	if err := s.bus.EnsureStream(ctx, "LEDGER_EVENTS", []string{"ledger.>"}); err != nil {
 		return fmt.Errorf("ledger: ensuring stream: %w", err)
 	}
+	settleDone := make(chan struct{})
+	go func() {
+		defer close(settleDone)
+		s.settleEachWindow(ctx)
+	}()
 
 	relay := outbox.NewRelay(s.pool, s.bus, relaySubject)
 	relayDone := make(chan struct{})
@@ -140,5 +183,34 @@ func (s *Service) Run(ctx context.Context) error {
 	grpcSrv.GracefulStop()
 	<-grpcDone
 	<-relayDone
+	<-settleDone
 	return err
+}
+
+// settleEachWindow wakes just after each window boundary and settles
+// the window that ended (task 3.5). A run that fails is logged; its
+// holds are picked up by the next window's run.
+func (s *Service) settleEachWindow(ctx context.Context) {
+	window := s.cfg.SettlementWindow
+	if window <= 0 {
+		window = app.DefaultSettlementWindow
+	}
+	clk := clock.Real{}
+	for {
+		next := clk.Now().UTC().Truncate(window).Add(window)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(next.Sub(clk.Now()) + 100*time.Millisecond):
+		}
+		sum, err := s.app.SettleUsage(ctx, clk.Now())
+		if err != nil {
+			slog.ErrorContext(ctx, "ledger: settlement run failed", "error", err)
+			continue
+		}
+		if len(sum.Batches) > 0 || sum.Failed > 0 {
+			slog.InfoContext(ctx, "ledger: settled usage", "window_end", sum.WindowEnd,
+				"batches", len(sum.Batches), "skipped", sum.Skipped, "failed", sum.Failed)
+		}
+	}
 }

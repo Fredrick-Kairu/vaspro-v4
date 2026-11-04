@@ -25,6 +25,11 @@ func c(k domain.AccountKey, amount int64) domain.Line {
 	return domain.Line{Account: k, Direction: domain.Credit, AmountMinor: amount}
 }
 
+func withTax(l domain.Line, code string) domain.Line {
+	l.TaxCode = code
+	return l
+}
+
 func withTokens(l domain.Line, tokens string) domain.Line {
 	l.Tokens = tokens
 	return l
@@ -88,6 +93,9 @@ func TestValidatePosting(t *testing.T) {
 		{"tokens on a service wallet line", domain.Posting{Type: domain.TxnTokenPurchase, Internal: true, Lines: []domain.Line{d(mainKES, 800000), withTokens(c(smsKES, 800000), "10000")}}, nil},
 		{"tokens on a main wallet line", domain.Posting{Type: domain.TxnTopup, Lines: []domain.Line{d(mpesaKES, 1), withTokens(c(mainKES, 1), "1")}}, domain.ErrInvalidPosting},
 		{"malformed tokens", domain.Posting{Type: domain.TxnTokenPurchase, Internal: true, Lines: []domain.Line{d(mainKES, 1), withTokens(c(smsKES, 1), "1e3")}}, domain.ErrInvalidPosting},
+		{"a tax code on a tax line", domain.Posting{Type: domain.TxnUsage, Lines: []domain.Line{d(mainKES, 100), c(revenueKES, 86), withTax(c(vatKES, 14), "VAT")}}, nil},
+		{"a tax code on a revenue line", domain.Posting{Type: domain.TxnUsage, Lines: []domain.Line{d(mainKES, 100), withTax(c(revenueKES, 100), "VAT")}}, domain.ErrInvalidPosting},
+		{"a malformed tax code", domain.Posting{Type: domain.TxnUsage, Lines: []domain.Line{d(mainKES, 100), withTax(c(vatKES, 100), "vat 16%")}}, domain.ErrInvalidPosting},
 		{"allocation is final: service wallet back to main", domain.Posting{Type: domain.TxnRefund, Internal: true, Lines: []domain.Line{d(smsKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
 		{"allocation is final: bonus to main", domain.Posting{Type: domain.TxnAdjustment, Lines: []domain.Line{d(bonusKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},
 		{"allocation is final even through a third account", domain.Posting{Type: domain.TxnAdjustment, Internal: true, Lines: []domain.Line{d(smsKES, 100), c(suspenseKES, 100), d(suspenseKES, 100), c(mainKES, 100)}}, domain.ErrAllocationFinal},

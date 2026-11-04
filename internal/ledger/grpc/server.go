@@ -137,7 +137,7 @@ func (s *Server) CaptureHold(ctx context.Context, req *ledgerv1.CaptureHoldReque
 	}
 	capture := app.CaptureRequest{
 		TenantID: tenant, ReferenceType: req.GetReferenceType(), ReferenceID: ref,
-		CapturedMinor: req.GetCapturedMinor(), CapturedTokens: capturedTokens,
+		CapturedMinor: req.GetCapturedMinor(), CapturedTokens: capturedTokens, Events: req.GetEvents(),
 	}
 	if req.GetPosting() != nil {
 		p, err := postRequest(&tenant, req.GetPosting())

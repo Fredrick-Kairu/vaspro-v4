@@ -693,6 +693,7 @@ type CaptureHoldRequest struct {
 	CapturedMinor  int64                  `protobuf:"varint,4,opt,name=captured_minor,json=capturedMinor,proto3" json:"captured_minor,omitempty"`   // a money hold: 1 to the hold's amount
 	Posting        *Posting               `protobuf:"bytes,5,opt,name=posting,proto3" json:"posting,omitempty"`                                     // optional, money holds only; see CaptureHold
 	CapturedTokens string                 `protobuf:"bytes,6,opt,name=captured_tokens,json=capturedTokens,proto3" json:"captured_tokens,omitempty"` // a token hold: decimal, up to the hold's tokens
+	Events         int64                  `protobuf:"varint,7,opt,name=events,proto3" json:"events,omitempty"`                                      // a token hold: delivered events the capture covers; 0 means 1
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -767,6 +768,13 @@ func (x *CaptureHoldRequest) GetCapturedTokens() string {
 		return x.CapturedTokens
 	}
 	return ""
+}
+
+func (x *CaptureHoldRequest) GetEvents() int64 {
+	if x != nil {
+		return x.Events
+	}
+	return 0
 }
 
 type ReleaseHoldRequest struct {
@@ -1366,14 +1374,15 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\freference_id\x18\x04 \x01(\tR\vreferenceId\x12!\n" +
 	"\famount_minor\x18\x05 \x01(\x03R\vamountMinor\x12&\n" +
 	"\x0fexpires_at_unix\x18\x06 \x01(\x03R\rexpiresAtUnix\x12\x16\n" +
-	"\x06tokens\x18\a \x01(\tR\x06tokens\"\xf9\x01\n" +
+	"\x06tokens\x18\a \x01(\tR\x06tokens\"\x91\x02\n" +
 	"\x12CaptureHoldRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12%\n" +
 	"\x0ereference_type\x18\x02 \x01(\tR\rreferenceType\x12!\n" +
 	"\freference_id\x18\x03 \x01(\tR\vreferenceId\x12%\n" +
 	"\x0ecaptured_minor\x18\x04 \x01(\x03R\rcapturedMinor\x12,\n" +
 	"\aposting\x18\x05 \x01(\v2\x12.ledger.v1.PostingR\aposting\x12'\n" +
-	"\x0fcaptured_tokens\x18\x06 \x01(\tR\x0ecapturedTokens\"{\n" +
+	"\x0fcaptured_tokens\x18\x06 \x01(\tR\x0ecapturedTokens\x12\x16\n" +
+	"\x06events\x18\a \x01(\x03R\x06events\"{\n" +
 	"\x12ReleaseHoldRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12%\n" +
 	"\x0ereference_type\x18\x02 \x01(\tR\rreferenceType\x12!\n" +

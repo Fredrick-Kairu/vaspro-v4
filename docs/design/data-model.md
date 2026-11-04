@@ -715,6 +715,17 @@ CREATE TABLE ledger.reversals (
 > - **`token_lots` CHECKs:** bought > 0, remaining ≤ bought, price > 0.
 > - **Service wallets:** money moves only through lots, so the generic posting API can't touch them.
 
+> **Built in task 3.5 (4 Nov 2026, OQ-16).**
+> - **The batch:** settlement runs once per window (OD-07). Per service wallet, one `usage_batches` row and one `usage` posting cover every token hold captured and unsettled when it runs.
+> - **The posting:** it draws the captured tokens FIFO and splits the value drawn into revenue and VAT (the pack's rate in force, VAT-inclusive by the pack's default).
+> - **VAT excluded:** the VAT comes from the main wallet, and what it can't cover goes to the receivable.
+> - **New columns:**
+>   - `holds.captured_events` (the delivered events a token capture covers);
+>   - `holds.usage_batch_id`.
+> - **New CHECKs on batches:** the window runs forward, events ≥ 0, tokens > 0.
+> - **Money holds** are captured only with their posting.
+> - **Packs** carry `tax.vat_effective_from`.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

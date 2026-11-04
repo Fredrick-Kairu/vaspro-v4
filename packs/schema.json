@@ -83,7 +83,7 @@
     },
     "tax": {
       "type": "object",
-      "required": ["vat_rate_basis_points", "vat_inclusive_by_default"],
+      "required": ["vat_rate_basis_points", "vat_inclusive_by_default", "vat_effective_from"],
       "additionalProperties": false,
       "properties": {
         "vat_rate_basis_points": {
@@ -91,7 +91,12 @@
           "minimum": 0,
           "description": "1600 = 16.00% (platform/money.VATRateBasisPoints)."
         },
-        "vat_inclusive_by_default": { "type": "boolean" }
+        "vat_inclusive_by_default": { "type": "boolean" },
+        "vat_effective_from": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "The date (YYYY-MM-DD) this rate applies from (task 3.5, OQ-16). The ledger keeps every rate it has seen in tax_rates; a new rate needs a new date."
+        }
       }
     },
     "send_windows": {

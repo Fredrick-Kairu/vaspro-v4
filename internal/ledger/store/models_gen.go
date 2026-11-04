@@ -176,6 +176,8 @@ type LedgerHold struct {
 	SettledAt      pgtype.Timestamptz `json:"settled_at"`
 	CapturedMinor  pgtype.Int8        `json:"captured_minor"`
 	CapturedTokens pgtype.Numeric     `json:"captured_tokens"`
+	CapturedEvents pgtype.Int8        `json:"captured_events"`
+	UsageBatchID   pgtype.UUID        `json:"usage_batch_id"`
 }
 
 type LedgerIdempotencyKey struct {

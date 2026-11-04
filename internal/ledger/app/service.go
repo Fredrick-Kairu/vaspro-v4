@@ -14,6 +14,7 @@ import (
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/clock"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
@@ -60,6 +61,11 @@ type Service struct {
 	// identity answers staff and step-up checks (task 3.4b); nil makes
 	// every staff action fail closed.
 	identity adapters.Identity
+	// packs are the country packs by country code: their VAT rates and
+	// whether prices include VAT (task 3.5). A wallet's country is the
+	// one pack with its currency.
+	packs  map[string]*packs.Pack
+	window time.Duration
 }
 
 // Deps is everything New needs. Pool must connect as a role granted
@@ -70,7 +76,15 @@ type Deps struct {
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	Identity adapters.Identity
+	// Packs are every loaded country pack, by country code.
+	Packs map[string]*packs.Pack
+	// SettlementWindow is OD-07's settlement window; 0 is the default,
+	// 5 minutes.
+	SettlementWindow time.Duration
 }
+
+// DefaultSettlementWindow is OD-07's default.
+const DefaultSettlementWindow = 5 * time.Minute
 
 // New builds a Service.
 func New(d Deps) *Service {
@@ -78,7 +92,11 @@ func New(d Deps) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{pool: d.Pool, clk: d.Clock, log: log, identity: d.Identity}
+	window := d.SettlementWindow
+	if window == 0 {
+		window = DefaultSettlementWindow
+	}
+	return &Service{pool: d.Pool, clk: d.Clock, log: log, identity: d.Identity, packs: d.Packs, window: window}
 }
 
 // PostRequest asks for one balanced transaction. TenantID nil is a
@@ -130,12 +148,18 @@ type HoldRequest struct {
 //
 // A token hold is captured in CapturedTokens and can't carry a posting
 // yet: its usage posting, with VAT, comes with settlement (3.5).
+//
+// A money hold is captured only with its posting: a plain money capture
+// would have nothing to settle into (OQ-16). Events, for a token hold,
+// is how many billable events (delivered messages) the capture covers;
+// 0 means 1. Settlement sums them into its batch.
 type CaptureRequest struct {
 	TenantID       uuid.UUID
 	ReferenceType  string
 	ReferenceID    uuid.UUID
 	CapturedMinor  int64
 	CapturedTokens decimal.Decimal
+	Events         int64
 	Posting        *PostRequest
 }
 
@@ -230,4 +254,17 @@ type PriceFilter struct {
 type TokenPricePage struct {
 	Prices     []TokenPrice
 	NextCursor string
+}
+
+// SettlementSummary is what one settlement run did, for its window.
+type SettlementSummary struct {
+	WindowStart time.Time
+	WindowEnd   time.Time
+	// Batches are the usage batches posted, one per wallet settled.
+	Batches []uuid.UUID
+	// Skipped wallets had a batch for the window already, or captured
+	// tokens worth less than one minor unit; Failed ones are logged and
+	// retried next window.
+	Skipped int
+	Failed  int
 }

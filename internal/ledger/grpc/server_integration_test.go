@@ -253,16 +253,30 @@ func TestLedgerService_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) { wantStatus(t, tc.call(), tc.code, tc.reason) })
 	}
 
-	t.Run("hold state and frozen accounts", func(t *testing.T) {
+	t.Run("hold state", func(t *testing.T) {
+		if _, err := client.PurchaseTokens(ctx, &ledgerv1.PurchaseTokensRequest{TenantId: tenant, IdempotencyKey: uuid.NewString(),
+			ServiceCode: "sms", Currency: "KES", Tokens: "10"}); err != nil {
+			t.Fatal(err)
+		}
+		ref := uuid.NewString()
+		if _, err := client.PlaceHold(ctx, &ledgerv1.PlaceHoldRequest{TenantId: tenant, Account: smsKES,
+			ReferenceType: "campaign", ReferenceId: ref, Tokens: "5", ExpiresAtUnix: future}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.ReleaseHold(ctx, &ledgerv1.ReleaseHoldRequest{TenantId: tenant, ReferenceType: "campaign", ReferenceId: ref}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := client.CaptureHold(ctx, &ledgerv1.CaptureHoldRequest{TenantId: tenant, ReferenceType: "campaign", ReferenceId: ref, CapturedTokens: "5"})
+		wantStatus(t, err, codes.FailedPrecondition, "BAL-4003")
+	})
+
+	t.Run("a money hold is captured with its posting", func(t *testing.T) {
 		ref := uuid.NewString()
 		if _, err := client.PlaceHold(ctx, &ledgerv1.PlaceHoldRequest{TenantId: tenant, Account: mainKES,
 			ReferenceType: "payout", ReferenceId: ref, AmountMinor: 10, ExpiresAtUnix: future}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := client.ReleaseHold(ctx, &ledgerv1.ReleaseHoldRequest{TenantId: tenant, ReferenceType: "payout", ReferenceId: ref}); err != nil {
-			t.Fatal(err)
-		}
 		_, err := client.CaptureHold(ctx, &ledgerv1.CaptureHoldRequest{TenantId: tenant, ReferenceType: "payout", ReferenceId: ref, CapturedMinor: 10})
-		wantStatus(t, err, codes.FailedPrecondition, "BAL-4003")
+		wantStatus(t, err, codes.InvalidArgument, "VAL-4000")
 	})
 }

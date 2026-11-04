@@ -33,11 +33,11 @@ service LedgerService {
   // nothing: tokens in a service wallet, money in a main or bonus wallet.
   rpc PlaceHold(PlaceHoldRequest) returns (PlaceHoldResponse);
   // CaptureHold records how much of an active hold was used and
-  // releases the rest at once. Without a posting the captured amount
-  // stays held until settlement (task 3.5) posts it. With a posting the
-  // hold is settled and the posting made in the same transaction; the
-  // posting must take exactly captured_minor, net, from the held
-  // account.
+  // releases the rest at once. A token hold is captured in tokens, with
+  // the events it covers, and stays held until the window's settlement
+  // (task 3.5) posts its usage. A money hold is captured only with its
+  // posting, made in the same transaction, which must take exactly
+  // captured_minor, net, from the held account.
   rpc CaptureHold(CaptureHoldRequest) returns (CaptureHoldResponse);
   // ReleaseHold gives an active hold's whole amount back.
   rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
@@ -127,6 +127,7 @@ message CaptureHoldRequest {
   int64 captured_minor = 4;   // a money hold: 1 to the hold's amount
   Posting posting = 5;        // optional, money holds only; see CaptureHold
   string captured_tokens = 6; // a token hold: decimal, up to the hold's tokens
+  int64 events = 7;           // a token hold: delivered events the capture covers; 0 means 1
 }
 
 message ReleaseHoldRequest {

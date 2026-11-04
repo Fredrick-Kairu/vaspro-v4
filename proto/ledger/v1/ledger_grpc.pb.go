@@ -60,11 +60,11 @@ type LedgerServiceClient interface {
 	// nothing: tokens in a service wallet, money in a main or bonus wallet.
 	PlaceHold(ctx context.Context, in *PlaceHoldRequest, opts ...grpc.CallOption) (*PlaceHoldResponse, error)
 	// CaptureHold records how much of an active hold was used and
-	// releases the rest at once. Without a posting the captured amount
-	// stays held until settlement (task 3.5) posts it. With a posting the
-	// hold is settled and the posting made in the same transaction; the
-	// posting must take exactly captured_minor, net, from the held
-	// account.
+	// releases the rest at once. A token hold is captured in tokens, with
+	// the events it covers, and stays held until the window's settlement
+	// (task 3.5) posts its usage. A money hold is captured only with its
+	// posting, made in the same transaction, which must take exactly
+	// captured_minor, net, from the held account.
 	CaptureHold(ctx context.Context, in *CaptureHoldRequest, opts ...grpc.CallOption) (*CaptureHoldResponse, error)
 	// ReleaseHold gives an active hold's whole amount back.
 	ReleaseHold(ctx context.Context, in *ReleaseHoldRequest, opts ...grpc.CallOption) (*ReleaseHoldResponse, error)
@@ -175,11 +175,11 @@ type LedgerServiceServer interface {
 	// nothing: tokens in a service wallet, money in a main or bonus wallet.
 	PlaceHold(context.Context, *PlaceHoldRequest) (*PlaceHoldResponse, error)
 	// CaptureHold records how much of an active hold was used and
-	// releases the rest at once. Without a posting the captured amount
-	// stays held until settlement (task 3.5) posts it. With a posting the
-	// hold is settled and the posting made in the same transaction; the
-	// posting must take exactly captured_minor, net, from the held
-	// account.
+	// releases the rest at once. A token hold is captured in tokens, with
+	// the events it covers, and stays held until the window's settlement
+	// (task 3.5) posts its usage. A money hold is captured only with its
+	// posting, made in the same transaction, which must take exactly
+	// captured_minor, net, from the held account.
 	CaptureHold(context.Context, *CaptureHoldRequest) (*CaptureHoldResponse, error)
 	// ReleaseHold gives an active hold's whole amount back.
 	ReleaseHold(context.Context, *ReleaseHoldRequest) (*ReleaseHoldResponse, error)

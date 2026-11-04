@@ -118,7 +118,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 
 		var op string
 		var err error
-		switch rng.IntN(9) {
+		switch rng.IntN(10) {
 		case 0, 1:
 			op = "top-up"
 			amount *= 10
@@ -140,7 +140,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			ref := uuid.New()
 			_, err = h.svc.PlaceHold(ctx, app.HoldRequest{
 				TenantID: tenant, Account: sms, ReferenceType: "campaign", ReferenceID: ref,
-				Tokens: tokens, ExpiresAt: testNow.Add(time.Hour),
+				Tokens: tokens, ExpiresAt: h.clk.Now().Add(time.Hour),
 			})
 			if err == nil {
 				active = append(active, openHold{tenant: tenant, ref: ref, tokens: tokens, wallet: sms})
@@ -150,11 +150,21 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			ref := uuid.New()
 			_, err = h.svc.PlaceHold(ctx, app.HoldRequest{
 				TenantID: tenant, Account: main, ReferenceType: "payout", ReferenceID: ref,
-				AmountMinor: amount, ExpiresAt: testNow.Add(time.Hour),
+				AmountMinor: amount, ExpiresAt: h.clk.Now().Add(time.Hour),
 			})
 			if err == nil {
 				active = append(active, openHold{tenant: tenant, ref: ref, amount: amount, wallet: main})
 			}
+		case 9:
+			op = "settlement"
+			_, end := domain.WindowFor(h.clk.Now(), app.DefaultSettlementWindow)
+			end = end.Add(app.DefaultSettlementWindow)
+			var sum app.SettlementSummary
+			sum, err = h.svc.SettleUsage(ctx, end)
+			if err == nil && sum.Failed > 0 {
+				err = fmt.Errorf("%d wallets failed to settle", sum.Failed)
+			}
+			h.clk.Set(end.Add(time.Second))
 		default:
 			if len(active) == 0 {
 				continue
@@ -174,10 +184,6 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 				op = "token capture"
 				used := decimal.New(rng.Int64N(hd.tokens.Shift(2).IntPart())+1, -2)
 				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: refType, ReferenceID: hd.ref, CapturedTokens: used})
-			case choice == 1:
-				op = "money capture"
-				used := rng.Int64N(hd.amount) + 1
-				_, err = h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: hd.tenant, ReferenceType: refType, ReferenceID: hd.ref, CapturedMinor: used})
 			default:
 				op = "money capture with posting"
 				used := rng.Int64N(hd.amount) + 1
@@ -198,9 +204,13 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			t.Fatalf("seed %d step %d after %s: %s", seed, step, op, msg)
 		}
 	}
-	t.Logf("succeeded %v; refused for balance %v", succeeded, refused)
+	batches := count(t, h, `SELECT count(*) FROM usage_batches WHERE transaction_id IS NOT NULL`)
+	t.Logf("succeeded %v; refused for balance %v; %d usage batches posted", succeeded, refused, batches)
+	if batches == 0 {
+		t.Error("no settlement posted a usage batch: the sequence isn't exercising it")
+	}
 	for _, op := range []string{"top-up", "token purchase", "main-wallet charge", "token hold", "money hold",
-		"release", "token capture", "money capture", "money capture with posting"} {
+		"release", "token capture", "money capture with posting", "settlement"} {
 		if succeeded[op] == 0 {
 			t.Errorf("no %s succeeded in %d steps: the sequence isn't exercising it", op, steps)
 		}

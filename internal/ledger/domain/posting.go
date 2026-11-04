@@ -49,12 +49,14 @@ type AccountKey struct {
 
 // Line is one line of a posting. Tokens, a canonical decimal string or
 // empty, is set only on a service wallet line, by the token use cases
-// (data model §5's entries.tokens).
+// (data model §5's entries.tokens). TaxCode (e.g. VAT) is set only on a
+// tax payable line (entries.tax_code).
 type Line struct {
 	Account     AccountKey
 	Direction   Side
 	AmountMinor int64
 	Tokens      string
+	TaxCode     string
 }
 
 // Posting is a transaction as a caller asks for it. System postings
@@ -71,6 +73,7 @@ type Posting struct {
 
 var (
 	codePattern     = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	taxCodePattern  = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
 )
 
@@ -129,6 +132,9 @@ func ValidatePosting(p Posting) error {
 			if _, err := ParseTokens(l.Tokens); err != nil {
 				return fmt.Errorf("%w: line %d: %v", ErrInvalidPosting, i, err)
 			}
+		}
+		if l.TaxCode != "" && (l.Account.Type != TaxPayable || !taxCodePattern.MatchString(l.TaxCode)) {
+			return fmt.Errorf("%w: line %d: a tax code (e.g. VAT) belongs on a tax payable line", ErrInvalidPosting, i)
 		}
 		if p.System && IsClientOwned(l.Account.Type) {
 			return fmt.Errorf("%w: line %d: a system posting can't use a client's %s", ErrInvalidPosting, i, l.Account.Type)

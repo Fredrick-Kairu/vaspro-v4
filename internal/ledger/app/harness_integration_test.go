@@ -18,6 +18,7 @@ import (
 
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	platformevents "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/events"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
@@ -59,7 +60,10 @@ func newHarness(t testing.TB) harness {
 	t.Cleanup(appPool.Close)
 	clk := testkit.NewClock(testNow)
 	staff := staffcheck.New()
-	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk, Identity: staff}), clk: clk, staff: staff}
+	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk, Identity: staff, Packs: testPacks(t)}), clk: clk, staff: staff}
+	if err := h.svc.SyncTaxRates(ctx); err != nil {
+		t.Fatalf("syncing tax rates: %v", err)
+	}
 	// List prices every test can buy at: SMS at KES 0.80 and UGX 12.5.
 	seedPrice(t, h, nil, "sms", "KES", "0", "80", jan1, nil)
 	seedPrice(t, h, nil, "sms", "UGX", "0", "12.5", jan1, nil)
@@ -67,6 +71,22 @@ func newHarness(t testing.TB) harness {
 }
 
 var jan1 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// testPacks are the real KE pack (VAT included), a test-only TZS pack
+// whose prices exclude VAT (testdata/vat-exclusive.yaml) and a
+// test-only UGX pack (testdata/ugx-inclusive.yaml).
+func testPacks(t testing.TB) map[string]*packs.Pack {
+	t.Helper()
+	out := map[string]*packs.Pack{}
+	for _, path := range []string{"../../../packs/ke/pack.yaml", "testdata/vat-exclusive.yaml", "testdata/ugx-inclusive.yaml"} {
+		p, err := packs.Load("../../../packs/schema.json", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[p.CountryCode] = p
+	}
+	return out
+}
 
 // seedPrice inserts an approved, active token price as the superuser
 // (staff entry and approval are 3.4b's API). tenant nil is a list

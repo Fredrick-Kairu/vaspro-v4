@@ -278,19 +278,6 @@ func TestHolds_MoneyHoldCaptureWithPosting(t *testing.T) {
 		}
 	})
 
-	t.Run("a plain capture later sent with a posting doesn't post", func(t *testing.T) {
-		plain := app.HoldRequest{TenantID: tenant, Account: mainKES, ReferenceType: "payout", ReferenceID: uuid.New(), AmountMinor: 100, ExpiresAt: testNow.Add(time.Hour)}
-		if _, err := h.svc.PlaceHold(ctx, plain); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: tenant, ReferenceType: plain.ReferenceType, ReferenceID: plain.ReferenceID, CapturedMinor: 100}); err != nil {
-			t.Fatal(err)
-		}
-		late := post(tenant, domain.TxnUsage, d(mainKES, 100), c(payments, 100))
-		_, err := h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: tenant, ReferenceType: plain.ReferenceType, ReferenceID: plain.ReferenceID, CapturedMinor: 100, Posting: &late})
-		wantErr(t, err, domain.ErrHoldState)
-	})
-
 	t.Run("a posting key already used elsewhere is a conflict, and nothing is un-held", func(t *testing.T) {
 		other := app.HoldRequest{TenantID: tenant, Account: mainKES, ReferenceType: "payout", ReferenceID: uuid.New(), AmountMinor: 200, ExpiresAt: testNow.Add(time.Hour)}
 		if _, err := h.svc.PlaceHold(ctx, other); err != nil {
@@ -300,8 +287,8 @@ func TestHolds_MoneyHoldCaptureWithPosting(t *testing.T) {
 		reused.Lines = []domain.Line{d(mainKES, 200), c(payments, 200)}
 		_, err := h.svc.CaptureHold(ctx, app.CaptureRequest{TenantID: tenant, ReferenceType: other.ReferenceType, ReferenceID: other.ReferenceID, CapturedMinor: 200, Posting: &reused})
 		wantErr(t, err, app.ErrIdempotencyConflict)
-		if b := balanceOf(t, h, tenant, mainKES); b.HeldMinor != 300 {
-			t.Fatalf("held %d, want 300 (100 captured unsettled + 200 active)", b.HeldMinor)
+		if b := balanceOf(t, h, tenant, mainKES); b.HeldMinor != 200 {
+			t.Fatalf("held %d, want the 200 still active", b.HeldMinor)
 		}
 	})
 }

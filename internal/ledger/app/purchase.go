@@ -200,12 +200,11 @@ func optionalID(u pgtype.UUID) *uuid.UUID {
 
 // drawLots takes tokens from the wallet's open lots, oldest first
 // (domain.DrawFIFO), in the caller's tenant transaction: settlement
-// (3.5) calls it with the captured tokens it settles as releaseHeld,
+// calls it with the captured tokens it settles as releaseHeld,
 // which leave held_tokens. Other tokens a hold reserves are never
 // drawn. The caller posts the returned value from the wallet and then
 // records the draws against that posting (recordDraws).
-func (s *Service) drawLots( //nolint:unused // settlement (3.5) calls it; fifo_internal_integration_test.go drives it now
-	ctx context.Context, q *store.Queries, wallet store.LedgerAccount, tokens, releaseHeld decimal.Decimal) ([]domain.Draw, int64, error) {
+func (s *Service) drawLots(ctx context.Context, q *store.Queries, wallet store.LedgerAccount, tokens, releaseHeld decimal.Decimal) ([]domain.Draw, int64, error) {
 	locked, err := lockBalances(ctx, q, []uuid.UUID{wallet.ID})
 	if err != nil {
 		return nil, 0, err
@@ -237,8 +236,7 @@ func (s *Service) drawLots( //nolint:unused // settlement (3.5) calls it; fifo_i
 }
 
 // recordDraws writes the lot consumptions behind a usage posting.
-func recordDraws( //nolint:unused // with drawLots
-	ctx context.Context, q *store.Queries, draws []domain.Draw, txnID uuid.UUID) error {
+func recordDraws(ctx context.Context, q *store.Queries, draws []domain.Draw, txnID uuid.UUID) error {
 	for _, d := range draws {
 		if _, err := q.CreateLotConsumption(ctx, store.CreateLotConsumptionParams{
 			LotID: d.LotID, TransactionID: txnID, Tokens: toNumeric(d.Tokens), ValueMinor: d.ValueMinor,

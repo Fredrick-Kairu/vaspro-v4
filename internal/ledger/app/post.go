@@ -68,6 +68,12 @@ func validatePostRequest(req PostRequest) error {
 // postInTx posts req in the caller's transaction, or answers it as a
 // replay. CaptureHold reuses it for a capture's posting.
 func (s *Service) postInTx(ctx context.Context, tx pgx.Tx, req PostRequest) (PostResult, error) {
+	// Post validates before its transaction; the ledger's own postings
+	// (purchase, settlement) come straight here, so every posting is
+	// checked once more, the database's guards behind it.
+	if err := validatePostRequest(req); err != nil {
+		return PostResult{}, err
+	}
 	q := store.New(tx)
 
 	existing, err := transactionByKey(ctx, q, req.TenantID, req.IdempotencyKey)
@@ -138,6 +144,7 @@ func (s *Service) postInTx(ctx context.Context, tx pgx.Tx, req PostRequest) (Pos
 		if p.Line.Tokens != "" {
 			params.Tokens = toNumeric(decimal.RequireFromString(p.Line.Tokens)) // validated by ValidatePosting
 		}
+		params.TaxCode = text(p.Line.TaxCode)
 		if _, err := q.CreateEntry(ctx, params); err != nil {
 			return PostResult{}, fmt.Errorf("app: writing a line: %w", err)
 		}
@@ -167,6 +174,7 @@ func replayPosting(ctx context.Context, q *store.Queries, existing store.LedgerT
 		if r.Tokens.Valid {
 			l.Tokens = toDecimal(r.Tokens).String()
 		}
+		l.TaxCode = r.TaxCode.String
 		posted[i] = PostedLine{AccountID: r.AccountID, Line: l}
 		stored[l]++
 	}

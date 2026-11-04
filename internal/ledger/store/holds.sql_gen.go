@@ -17,7 +17,7 @@ const createHold = `-- name: CreateHold :one
 INSERT INTO ledger.holds
   (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens
+RETURNING id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id
 `
 
 type CreateHoldParams struct {
@@ -59,12 +59,14 @@ func (q *Queries) CreateHold(ctx context.Context, arg CreateHoldParams) (LedgerH
 		&i.SettledAt,
 		&i.CapturedMinor,
 		&i.CapturedTokens,
+		&i.CapturedEvents,
+		&i.UsageBatchID,
 	)
 	return i, err
 }
 
 const getHoldByReference = `-- name: GetHoldByReference :one
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2
 `
 
 type GetHoldByReferenceParams struct {
@@ -89,12 +91,14 @@ func (q *Queries) GetHoldByReference(ctx context.Context, arg GetHoldByReference
 		&i.SettledAt,
 		&i.CapturedMinor,
 		&i.CapturedTokens,
+		&i.CapturedEvents,
+		&i.UsageBatchID,
 	)
 	return i, err
 }
 
 const listHoldsByAccount = `-- name: ListHoldsByAccount :many
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id FROM ledger.holds WHERE account_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) ([]LedgerHold, error) {
@@ -120,6 +124,86 @@ func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) (
 			&i.SettledAt,
 			&i.CapturedMinor,
 			&i.CapturedTokens,
+			&i.CapturedEvents,
+			&i.UsageBatchID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSettleableWallets = `-- name: ListSettleableWallets :many
+SELECT DISTINCT tenant_id, account_id FROM ledger.holds
+WHERE status = 'captured' AND settled_at IS NULL AND tokens IS NOT NULL
+ORDER BY tenant_id, account_id
+`
+
+type ListSettleableWalletsRow struct {
+	TenantID  uuid.UUID `json:"tenant_id"`
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// Settlement's work list across clients (task 3.5), run as
+// ledger_settlement: every wallet with captured, unsettled token holds.
+func (q *Queries) ListSettleableWallets(ctx context.Context) ([]ListSettleableWalletsRow, error) {
+	rows, err := q.db.Query(ctx, listSettleableWallets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSettleableWalletsRow
+	for rows.Next() {
+		var i ListSettleableWalletsRow
+		if err := rows.Scan(&i.TenantID, &i.AccountID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockCapturedHolds = `-- name: LockCapturedHolds :many
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id FROM ledger.holds
+WHERE account_id = $1 AND status = 'captured' AND settled_at IS NULL AND tokens IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+// A wallet's captured, unsettled token holds, locked by id: a capture
+// locks its hold before its balance, and so does settlement.
+func (q *Queries) LockCapturedHolds(ctx context.Context, accountID uuid.UUID) ([]LedgerHold, error) {
+	rows, err := q.db.Query(ctx, lockCapturedHolds, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerHold
+	for rows.Next() {
+		var i LedgerHold
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.AccountID,
+			&i.ReferenceType,
+			&i.ReferenceID,
+			&i.AmountMinor,
+			&i.Tokens,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.SettledAt,
+			&i.CapturedMinor,
+			&i.CapturedTokens,
+			&i.CapturedEvents,
+			&i.UsageBatchID,
 		); err != nil {
 			return nil, err
 		}
@@ -132,7 +216,7 @@ func (q *Queries) ListHoldsByAccount(ctx context.Context, accountID uuid.UUID) (
 }
 
 const lockHoldByReference = `-- name: LockHoldByReference :one
-SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2 FOR UPDATE
+SELECT id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, created_at, expires_at, settled_at, captured_minor, captured_tokens, captured_events, usage_batch_id FROM ledger.holds WHERE reference_type = $1 AND reference_id = $2 FOR UPDATE
 `
 
 type LockHoldByReferenceParams struct {
@@ -157,13 +241,30 @@ func (q *Queries) LockHoldByReference(ctx context.Context, arg LockHoldByReferen
 		&i.SettledAt,
 		&i.CapturedMinor,
 		&i.CapturedTokens,
+		&i.CapturedEvents,
+		&i.UsageBatchID,
 	)
 	return i, err
 }
 
+const settleHolds = `-- name: SettleHolds :exec
+UPDATE ledger.holds SET settled_at = $1, usage_batch_id = $2 WHERE id = ANY($3::uuid[])
+`
+
+type SettleHoldsParams struct {
+	SettledAt    pgtype.Timestamptz `json:"settled_at"`
+	UsageBatchID pgtype.UUID        `json:"usage_batch_id"`
+	Ids          []uuid.UUID        `json:"ids"`
+}
+
+func (q *Queries) SettleHolds(ctx context.Context, arg SettleHoldsParams) error {
+	_, err := q.db.Exec(ctx, settleHolds, arg.SettledAt, arg.UsageBatchID, arg.Ids)
+	return err
+}
+
 const updateHoldState = `-- name: UpdateHoldState :exec
 UPDATE ledger.holds
-SET status = $2, captured_minor = $3, captured_tokens = $4, settled_at = $5
+SET status = $2, captured_minor = $3, captured_tokens = $4, captured_events = $5, settled_at = $6
 WHERE id = $1
 `
 
@@ -172,6 +273,7 @@ type UpdateHoldStateParams struct {
 	Status         string             `json:"status"`
 	CapturedMinor  pgtype.Int8        `json:"captured_minor"`
 	CapturedTokens pgtype.Numeric     `json:"captured_tokens"`
+	CapturedEvents pgtype.Int8        `json:"captured_events"`
 	SettledAt      pgtype.Timestamptz `json:"settled_at"`
 }
 
@@ -181,6 +283,7 @@ func (q *Queries) UpdateHoldState(ctx context.Context, arg UpdateHoldStateParams
 		arg.Status,
 		arg.CapturedMinor,
 		arg.CapturedTokens,
+		arg.CapturedEvents,
 		arg.SettledAt,
 	)
 	return err

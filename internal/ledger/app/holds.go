@@ -207,13 +207,22 @@ func (s *Service) captureInTx(ctx context.Context, tx pgx.Tx, req CaptureRequest
 	}
 	tokenHold := hold.Tokens.Valid
 	used := req.CapturedMinor
+	events := req.Events
 	switch {
 	case tokenHold && posting != nil:
 		return HoldResult{}, fmt.Errorf("%w: a token hold's usage is posted by settlement, not with its capture", ErrValidation)
+	case !tokenHold && posting == nil:
+		// A plain money capture would have nothing to settle into (OQ-16).
+		return HoldResult{}, fmt.Errorf("%w: a money hold is captured with its posting", ErrValidation)
 	case tokenHold && req.CapturedMinor != 0, !tokenHold && !req.CapturedTokens.IsZero():
 		return HoldResult{}, fmt.Errorf("%w: capture a token hold in tokens and a money hold in money", ErrValidation)
+	case !tokenHold && events != 0, events < 0:
+		return HoldResult{}, fmt.Errorf("%w: events count a token capture's delivered events", ErrValidation)
 	case tokenHold:
 		used = domain.MicroTokens(req.CapturedTokens)
+		if events == 0 {
+			events = 1
+		}
 	}
 	change, err := domain.CaptureHold(domainHold(hold), used, posting != nil)
 	if errors.Is(err, domain.ErrInvalidHold) {
@@ -225,6 +234,9 @@ func (s *Service) captureInTx(ctx context.Context, tx pgx.Tx, req CaptureRequest
 
 	if change.Replay {
 		view := holdView(hold)
+		if tokenHold && hold.CapturedEvents.Int64 != events {
+			return HoldResult{}, fmt.Errorf("%w: already captured for %d events", domain.ErrHoldState, hold.CapturedEvents.Int64)
+		}
 		if posting == nil {
 			return HoldResult{Hold: view, Replayed: true}, nil
 		}
@@ -271,6 +283,9 @@ func (s *Service) captureInTx(ctx context.Context, tx pgx.Tx, req CaptureRequest
 	}
 	if _, err := lockBalances(ctx, q, toLock); err != nil {
 		return HoldResult{}, err
+	}
+	if tokenHold {
+		hold.CapturedEvents = pgtype.Int8{Int64: events, Valid: true}
 	}
 	hold, err = applyHoldChange(ctx, q, hold, change, s.clk.Now())
 	if err != nil {
@@ -360,8 +375,12 @@ func applyHoldChange(ctx context.Context, q *store.Queries, hold store.LedgerHol
 		}
 	}
 	hold.Status = string(change.Status)
-	hold.CapturedMinor, hold.CapturedTokens = pgtype.Int8{}, pgtype.Numeric{}
+	events := hold.CapturedEvents // set by the caller for a token capture
+	hold.CapturedMinor, hold.CapturedTokens, hold.CapturedEvents = pgtype.Int8{}, pgtype.Numeric{}, pgtype.Int8{}
 	if change.Status == domain.HoldCaptured {
+		if tokenHold {
+			hold.CapturedEvents = events
+		}
 		if tokenHold {
 			captured := domain.TokensFromMicro(change.Captured)
 			hold.CapturedTokens = toNumeric(captured)
@@ -375,7 +394,7 @@ func applyHoldChange(ctx context.Context, q *store.Queries, hold store.LedgerHol
 	hold.SettledAt = pgtype.Timestamptz{Time: now, Valid: change.Settle}
 	err := q.UpdateHoldState(ctx, store.UpdateHoldStateParams{
 		ID: hold.ID, Status: hold.Status, CapturedMinor: hold.CapturedMinor,
-		CapturedTokens: hold.CapturedTokens, SettledAt: hold.SettledAt,
+		CapturedTokens: hold.CapturedTokens, CapturedEvents: hold.CapturedEvents, SettledAt: hold.SettledAt,
 	})
 	return hold, err
 }

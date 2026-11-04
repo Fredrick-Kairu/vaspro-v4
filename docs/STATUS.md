@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.4 done (2026-11-04). Next: 3.5, usage settlement.
+**Current task:** 3.1–3.5 done (2026-11-04). Next: 3.6, hold expiry and auto-buy.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -265,6 +265,65 @@
     - the ledger needs `LEDGER_IDENTITY_GRPC_ADDR`;
     - the ledger's login role reaches `ledger_price_review` through `ledger_service` (granted in the migration, `WITH INHERIT FALSE`).
   - **Not in 3.4:** the dashboard's read of a client's own prices (3.9); auto-buy (3.6); settlement drawing the lots (3.5); who withdrew a price isn't recorded (no column; the gateway's audit log has the route and user).
+
+- 3.5 Usage settlement (OQ-16).
+  - **Packs:** `tax.vat_effective_from`, a required date (`platform/packs.Tax.VATEffectiveFrom`, parsed strictly). KE has `2026-01-01`, the earliest date v4 settles usage; Kenya's 16% is older.
+  - **Migration** `20261106140000_settlement.sql`:
+    - `holds.captured_events`, with two CHECKs;
+    - `holds.usage_batch_id`;
+    - three `usage_batches` CHECKs;
+    - NOLOGIN **`ledger_settlement`**, which sees only captured, unsettled token holds, only in `WithRoleTx`;
+    - INSERT on `tax_rates` for `ledger_system`.
+  - **Rules** (`domain/settlement.go`):
+    - **`SplitUsage`:** inclusive through `money.SplitVATInclusive`; exclusive through `AddVATExclusive`, with the VAT from the main wallet up to its available balance and the rest to the receivable;
+    - `WindowFor` (a UTC grid every replica shares).
+    - `domain.Line` gains `TaxCode`, allowed only on tax-payable lines; replays compare it.
+  - **App:**
+    - **`SyncTaxRates`:** packs → `tax_rates` as `ledger_system`; the same date with a new rate is refused; a shared currency is refused.
+    - **`SettleUsage(at)`:** finds wallets as `ledger_settlement`, then per wallet in its tenant's transaction:
+      1. lock captured holds (before balances, like a capture);
+      2. lock the client balances in order;
+      3. insert the batch (`ON CONFLICT` skips a window already done);
+      4. `drawLots` releasing the captured tokens;
+      5. split;
+      6. post `usage` (internal, key `usage:<batch>`, VAT line `tax_code` `VAT`);
+      7. record consumptions, set the batch's transaction, settle the holds;
+      8. write `usage.posted` (new schema, with the holds' references for per-message tagging).
+      A wallet worth under one minor unit is skipped and waits; one wallet's failure is logged without stopping the others.
+    - **`CaptureHold`:** `Events` for token captures (default 1; a replay with other events is BAL-4003); **a money hold without its posting is now VAL-4000.**
+    - **Changed from the plan: `postInTx` now validates every posting.** The "no VAT line" mutation showed the ledger's own postings (purchase, settlement) bypassed the domain check, which only the public `Post` ran. Only the database guard caught it, at commit. Now an internal bug is a clean error first.
+  - **Service:**
+    - `LEDGER_SETTLEMENT_WINDOW` (5m) and `LEDGER_PACKS_DIR` (`packs`);
+    - `Run` syncs tax rates, then a loop wakes just after each window boundary and settles the window that ended.
+    - **Deployment note:** UGX (and any currency without a pack) can't settle until its country's pack exists. Such wallets are logged as failed each window and their holds stay held.
+  - **gRPC:** `CaptureHoldRequest.events`.
+  - **Tests:**
+    - **domain:** `SplitUsage` (the worked example both ways, a shortfall, an empty main wallet, 1 minor unit, UGX) and `WindowFor`.
+    - **packs:** the date is required and must be a real date (`2026-02-30` refused).
+    - **app:**
+      - **Phase 3's golden worked example, end to end:** deal 0.80, top-up 13,000.00, buy 10,000 (8,000.00), hold 400, capture 380 → the SMS wallet pays 304.00 (380 tokens), revenue 262.07, VAT 41.93 (`tax_code` VAT), 20 released, batch events and tokens 380, the hold settled with the batch, 9,620 left, `usage.posted` valid. Then the 0.50 deal: 10,000 for 5,000.00; 9,620 settle at 769,600 from lot A, then 100 at 5,000 from lot B.
+      - **The tax-exclusive variant** (a test TZS pack): 304.00 from the SMS wallet and 48.64 from the main wallet; with only 10.00 in the main wallet, 38.64 goes to the receivable.
+      - Windows: one run settles every client; a rerun skips; a later capture waits; two concurrent runs make one batch per wallet; a sub-cent capture waits until it is worth a minor unit.
+      - Captures: events default to 1; a money capture without posting and events on a money hold are refused.
+      - `SyncTaxRates`: idempotent, a changed rate refused, a new date added, a shared currency refused.
+    - **Property test:** a settlement step (about 13 batches a run) with every invariant after each step. It first found that a UGX wallet can't settle without a UGX pack, which is a test-fixture gap; a test-only UGX pack fixed it.
+    - **store:** the CHECKs; `ledger_settlement` sees one captured, unsettled hold per client and nothing settled or active, only inside `WithRoleTx`, and can't write.
+    - **service:** `Run` with a 1-second window settles 380 of 400 on its own, and `usage.posted` (304.00 = 262.07 + 41.93) arrives on NATS.
+    - **Earlier tests changed to the agreed model, not weakened:**
+      - the "plain capture later sent with a posting" case is gone, because plain money captures are refused now;
+      - the property test lost its plain money capture op;
+      - a gRPC case moved to a token hold;
+      - a store fixture sets `captured_events`;
+      - `tokenWallet` uses its own price tier, so a second wallet doesn't hit the overlap constraint.
+    - **Order of work:** domain, packs and app tests were seen failing against stubs first; the store and service tests came after the code, covered by the mutations below.
+    - **Mutation-checked:**
+      - held tokens not released (golden);
+      - no VAT line (golden; first caught only by the database guard, then by the app);
+      - no `ON CONFLICT` skip (windows);
+      - exclusive VAT always from the main wallet (exclusive shortfall);
+      - settlement seeing every hold (store).
+  - **`make check`** (after staging): green first time. Lint 0 issues; 15 packages fresh (`accounts/app` 205s, because accounts loads the changed packs; `ledger/app` 138s; `ledger/store` 134s), 54 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.5:** rate-card VAT overrides per service and operator (Phase 7); hold expiry (3.6); per-message rows tagged with the batch (messaging, Phase 7).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -826,7 +885,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.5: usage settlement per wallet per window (OD-07's default, 5 minutes), splitting revenue and VAT from the lots drawn (`drawLots`), and settling captured token holds; `tax_rates` synced from the packs.
+1. Task 3.6: hold expiry job and auto-buy rules.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).

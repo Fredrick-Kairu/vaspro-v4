@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"sigs.k8s.io/yaml"
@@ -59,6 +60,9 @@ type Numbering struct {
 type Tax struct {
 	VATRateBasisPoints    money.VATRateBasisPoints
 	VATInclusiveByDefault bool
+	// VATEffectiveFrom is the date the rate applies from (task 3.5),
+	// midnight UTC.
+	VATEffectiveFrom time.Time
 }
 
 type SendWindow struct {
@@ -89,8 +93,9 @@ type jsonPack struct {
 		NationalSignificantNumberLength int    `json:"national_significant_number_length"`
 	} `json:"numbering"`
 	Tax struct {
-		VATRateBasisPoints    int64 `json:"vat_rate_basis_points"`
-		VATInclusiveByDefault bool  `json:"vat_inclusive_by_default"`
+		VATRateBasisPoints    int64  `json:"vat_rate_basis_points"`
+		VATInclusiveByDefault bool   `json:"vat_inclusive_by_default"`
+		VATEffectiveFrom      string `json:"vat_effective_from"`
 	} `json:"tax"`
 	SendWindows struct {
 		Promotional struct {
@@ -150,6 +155,11 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		services[code] = ServiceRule{MinTier: r.MinTier, Enabled: r.Enabled == nil || *r.Enabled}
 	}
 
+	vatFrom, err := time.Parse(time.DateOnly, jp.Tax.VATEffectiveFrom)
+	if err != nil {
+		return nil, fmt.Errorf("packs: tax.vat_effective_from %q is not a date: %w", jp.Tax.VATEffectiveFrom, err)
+	}
+
 	var kyb *KYB
 	if jp.KYB != nil {
 		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel, RequiredDocuments: jp.KYB.RequiredDocuments}
@@ -171,6 +181,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		Tax: Tax{
 			VATRateBasisPoints:    money.VATRateBasisPoints(jp.Tax.VATRateBasisPoints),
 			VATInclusiveByDefault: jp.Tax.VATInclusiveByDefault,
+			VATEffectiveFrom:      vatFrom,
 		},
 		SendWindows: SendWindows{
 			Promotional: SendWindow{

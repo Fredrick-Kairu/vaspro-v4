@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,7 +17,9 @@ func tokenWallet(t *testing.T, db ledgerDB, tokens string) (tenant, wallet, lot 
 	t.Helper()
 	ctx := context.Background()
 	tenant, lot = uuid.New(), uuid.New()
-	price := listPrice(t, db, "0")
+	// Each call's own tier, so a second wallet's list price doesn't
+	// overlap the first's (the EXCLUDE refuses that, rightly).
+	price := listPrice(t, db, strconv.FormatUint(uint64(uuid.New().ID()), 10))
 	if err := inSuperTx(ctx, db, func(tx pgx.Tx) error {
 		var txn uuid.UUID
 		var err error
@@ -96,14 +99,17 @@ func TestTokens_Constraints(t *testing.T) {
 
 	insertHold := func(status string, tokens, captured any) error {
 		return inSuperTx(ctx, db, func(tx pgx.Tx) error {
-			capturedMinor := any(nil)
+			capturedMinor, capturedEvents := any(nil), any(nil)
 			if status == "captured" {
 				capturedMinor = 1
+				if tokens != nil {
+					capturedEvents = 1 // 3.5's CHECK: a captured token hold records its events
+				}
 			}
 			_, err := tx.Exec(ctx, `
-				INSERT INTO holds (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at, captured_minor, captured_tokens)
-				VALUES ($1, $2, $3, 'campaign', $4, 100, $5, $6, now(), $7, $8)`,
-				uuid.New(), tenant, wallet, uuid.New(), tokens, status, capturedMinor, captured)
+				INSERT INTO holds (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at, captured_minor, captured_tokens, captured_events)
+				VALUES ($1, $2, $3, 'campaign', $4, 100, $5, $6, now(), $7, $8, $9)`,
+				uuid.New(), tenant, wallet, uuid.New(), tokens, status, capturedMinor, captured, capturedEvents)
 			return err
 		})
 	}
@@ -181,6 +187,104 @@ func TestPriceReviewRole(t *testing.T) {
 
 	err = db.app.WithRoleTx(ctx, "ledger_price_review", func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `UPDATE token_prices SET status = 'withdrawn'`)
+		return err
+	})
+	wantCode(t, err, "42501")
+}
+
+// TestSettlement_ConstraintsAndRole covers migration 20261106140000:
+// captured_events goes with a captured token hold; a usage batch's
+// window runs forward and holds tokens; ledger_settlement sees captured,
+// unsettled token holds across clients and nothing else, only inside
+// WithRoleTx.
+func TestSettlement_ConstraintsAndRole(t *testing.T) {
+	ctx := context.Background()
+	db := newLedgerDB(t)
+	tenant, wallet, _ := tokenWallet(t, db, "1000")
+
+	hold := func(status string, tokens, capturedTokens, events, settled any) error {
+		return inSuperTx(ctx, db, func(tx pgx.Tx) error {
+			capturedMinor := any(nil)
+			if status == "captured" {
+				capturedMinor = 1
+			}
+			_, err := tx.Exec(ctx, `
+				INSERT INTO holds (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status,
+				                   expires_at, captured_minor, captured_tokens, captured_events, settled_at)
+				VALUES ($1, $2, $3, 'campaign', $4, 100, $5, $6, now(), $7, $8, $9, $10)`,
+				uuid.New(), tenant, wallet, uuid.New(), tokens, status, capturedMinor, capturedTokens, events, settled)
+			return err
+		})
+	}
+	batch := func(start, end string, tokens string) error {
+		return inSuperTx(ctx, db, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO usage_batches (id, tenant_id, account_id, window_start, window_end, events, tokens)
+				VALUES ($1, $2, $3, $4, $5, 0, $6)`, uuid.New(), tenant, wallet, start, end, tokens)
+			return err
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		ok   bool
+	}{
+		{"a captured token hold with its events", hold("captured", "10", "9", 9, nil), true},
+		{"a captured token hold without events", hold("captured", "10", "9", nil, nil), false},
+		{"an active token hold with events", hold("active", "10", nil, 1, nil), false},
+		{"zero events", hold("captured", "10", "9", 0, nil), false},
+		{"a window that runs backwards", batch("2026-11-04 09:05Z", "2026-11-04 09:00Z", "1"), false},
+		{"a batch of no tokens", batch("2026-11-04 09:00Z", "2026-11-04 09:05Z", "0"), false},
+		{"a batch", batch("2026-11-04 09:00Z", "2026-11-04 09:05Z", "1"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.ok && tc.err != nil {
+				t.Fatal(tc.err)
+			}
+			if !tc.ok {
+				wantCode(t, tc.err, "23514")
+			}
+		})
+	}
+
+	// One more client's unsettled capture, a settled one and an active one.
+	other, otherWallet, _ := tokenWallet(t, db, "1000")
+	if err := inSuperTx(ctx, db, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO holds (id, tenant_id, account_id, reference_type, reference_id, amount_minor, tokens, status, expires_at, captured_minor, captured_tokens, captured_events)
+			VALUES ($1, $2, $3, 'campaign', $4, 100, 5, 'captured', now(), 1, 5, 5)`, uuid.New(), other, otherWallet, uuid.New())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := hold("captured", "10", "9", 9, "2026-11-04 09:05Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hold("active", "10", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var seen int
+	if err := db.app.WithRoleTx(ctx, "ledger_settlement", func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		seen, err = count(ctx, tx, `SELECT count(*) FROM holds`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen != 2 {
+		t.Fatalf("settlement sees %d holds, want the 2 captured and unsettled (one per client)", seen)
+	}
+	outside, err := count(ctx, db.app, `SELECT count(*) FROM holds`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outside != 0 {
+		t.Fatalf("outside WithRoleTx: %d holds visible, want 0", outside)
+	}
+	err = db.app.WithRoleTx(ctx, "ledger_settlement", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE holds SET settled_at = now()`)
 		return err
 	})
 	wantCode(t, err, "42501")
