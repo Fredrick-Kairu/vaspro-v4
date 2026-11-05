@@ -59,11 +59,13 @@ gen:
 	else echo "gen: no OpenAPI specs yet, skipping oapi-codegen"; fi
 	@if [ -f docs/errors/catalogue.yaml ] && [ -d tools/errcodes ]; then go run ./tools/errcodes; \
 	else echo "gen: no error catalogue or generator yet, skipping"; fi
+	@go run ./tools/apidocs
 
 # protoc plugins can't name their output *_gen, so their *.pb.go files
-# are checked too (ADR 0004, amended in task 2.2a).
+# are checked too (ADR 0004, amended in task 2.2a), and so is the API
+# reference tools/apidocs writes.
 gen-check: gen
-	@git diff --exit-code -- ':(glob)**/*_gen.*' ':(glob)**/*.pb.go' || \
+	@git diff --exit-code -- ':(glob)**/*_gen.*' ':(glob)**/*.pb.go' docs/api/API.md || \
 		(echo "gen-check: generated code is out of date; run make gen and commit the result" && exit 1)
 
 migrate:

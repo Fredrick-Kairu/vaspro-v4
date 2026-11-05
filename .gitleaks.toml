@@ -1,0 +1,7 @@
+# gitleaks configuration: the default rules, plus one generated file.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated from docs/api/*.yaml, which are scanned themselves; their example tokens carry gitleaks:allow there"
+paths = ['''(^|/)docs/api/API\.md$''']

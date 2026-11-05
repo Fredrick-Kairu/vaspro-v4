@@ -966,9 +966,11 @@ paths:
         Requires Authorization: Bearer <session_token> and step-up MFA
         proved within the last 5 minutes (task 1.6; AUTH-4012 if not)
         — creating a credential is on system design §3's step-up
-        list. Scopes, IP allowlist, expiry and spend cap are stored
-        as configuration; nothing in Phase 1 enforces them yet (no
-        gateway, no billing). The secret is returned exactly once.
+        list. Scopes, IP allowlist and expiry are carried in the
+        client's tokens, and the gateway enforces them on routes that
+        take a token (no current route does). The spend cap is stored
+        for billing, which isn't built yet. The secret is returned
+        exactly once.
       security:
         - sessionBearer: []
       parameters:
@@ -1176,11 +1178,10 @@ paths:
       operationId: listSecurityEvents
       summary: List the signed-in account's security events
       description: >
-        system design §3: "every credential event ... is logged and
-        shown to the tenant admin" — this phase's placeholder for
-        "tenant admin" is the account's own owner, same reasoning
-        every other Phase 1 list endpoint already uses. Newest first,
-        bounded at 100 rows (not true cursor pagination yet).
+        The signed-in user's own security log: sign-ins (and sign-ins
+        from a new IP), failed sign-ins, and credential events (API
+        clients and SMPP accounts created, rotated, revoked).
+        Newest first, at most 100 rows; there's no cursor yet.
       security:
         - sessionBearer: []
       responses:
@@ -1419,21 +1420,15 @@ paths:
       operationId: createOAuthToken
       summary: Exchange an API client's credentials for a JWT (RFC 6749 client-credentials grant)
       description: >
-        No Authorization header and no Idempotency-Key — a deliberate,
-        narrow exception to this API's usual conventions (api.md),
-        so that an off-the-shelf OAuth2 client library can call this
-        endpoint unmodified. Request and error shapes follow RFC 6749
-        exactly (form-encoded request, {"error": "..."} on failure),
-        not this API's usual JSON/problem+json conventions. Looks up
-        the client via a narrow, SELECT-only role
-        (identity_token_exchange, migration 20261022223744), since
-        there is no session/tenant context yet to check ownership
-        against. Does not enforce scopes, IP allowlist or spend cap —
-        nothing in Phase 1 does (same boundary task 1.7 already
-        documented); only validates the credentials, that the client
-        isn't revoked/expired, and that any requested scope is one the
-        client actually has. Revoking a client or secret does not
-        recall an already-issued token before its own 1-hour expiry.
+        No Authorization header and no Idempotency-Key, so that an
+        off-the-shelf OAuth2 client library can call this endpoint
+        unmodified. Request and error shapes follow RFC 6749 exactly
+        (form-encoded request, {"error": "...", "error_description":
+        "..."} on failure), not this API's usual JSON and
+        problem+json. Checks the credentials, that the client and
+        secret aren't revoked or expired, and that any requested
+        scope is one the client has. Tokens last 1 hour; revoking a
+        client or secret doesn't recall a token already issued.
       requestBody:
         required: true
         content:
@@ -1488,9 +1483,8 @@ components:
       type: http
       scheme: bearer
       description: >
-        identity's own temporary session-bearer check, not a real JWT
-        — Authorization: Bearer <session_token>. Replaced by the real
-        gateway/JWT auth in tasks 1.8/1.11.
+        The dashboard session: Authorization: Bearer <session_token>,
+        as returned by sign-in. Not a JWT.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
