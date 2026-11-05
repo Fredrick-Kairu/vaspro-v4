@@ -441,6 +441,27 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
     - a 12 MiB body got 413 from Caddy, while 5 MiB reached the gateway.
   - **`make check`** (dev stack down): green first time. Lint 0 issues; the gateway packages fresh, the rest cached. gitleaks 8.30.1 through Docker found no leaks.
   - **Not verified here:** a public Let's Encrypt certificate, which needs real DNS and open ports on the dev host.
+- **Caddy replaced by the host's nginx (5 Nov, your request; third commit).** The dev host already runs nginx on 80/443 for another project.
+  - **Removed:** the caddy service, the `Caddyfile`, Caddy's volumes and fixed address, `DEV_IP_RANGE`, and the Mailpit basic-auth hash (from compose, `env.example` and `dev-secrets.sh`, which no longer needs Docker).
+  - **Kept:** `GATEWAY_TRUSTED_PROXIES` (no service code changed in this step).
+  - **Published:** only the gateway on `127.0.0.1:${GATEWAY_HOST_PORT:-18080}` and Mailpit's UI on `127.0.0.1:${MAILPIT_HOST_PORT:-18025}`.
+  - **The address the gateway sees through the loopback port** is the subnet's first address, `10.213.0.1`. It was measured both from the Mac and from Docker's VM namespace, which stands in for a Linux host. That's now the documented `GATEWAY_TRUSTED_PROXIES` default.
+  - **`deploy/nginx/vaspro-dev.conf.template`:**
+    - the API server block: `client_max_body_size 11m`, `Host`, `X-Forwarded-For $remote_addr` (replaced, never appended), `X-Forwarded-Proto`;
+    - the mail server block: `auth_basic` with `/etc/nginx/.htpasswd-vaspro-mail` and WebSocket upgrade headers through a map named `$vaspro_connection_upgrade`, so it can't clash with a common map name the other project may define;
+    - `deploy/nginx/render.sh` fills in the two domains and the ports, and refuses bad names.
+  - **Runbook rewritten** for the shared nginx: render, install, htpasswd, `nginx -t` then reload (never restart), `certbot --nginx`, then the stack. It also covers re-rendering after certbot and removal.
+  - **Verified from a clean copy:**
+    - only the two loopback ports are published;
+    - the sign-up → KYC → Starter → staff → document flow works through `127.0.0.1:18080`, with codes from `127.0.0.1:18025`;
+    - a spoofed `X-Forwarded-For` from an untrusted peer (the kyc-vendor container, `10.213.0.3`) was ignored, and the gateway logged `10.213.0.3`.
+    - **A note on that last check:** from the Mac itself, requests through the loopback port arrive from the trusted `10.213.0.1`, so the host is inside the trust boundary by design. The runbook says so.
+  - **The nginx site was checked against `nginx:alpine` in Docker's VM network namespace** (rendered template, an apr1 htpasswd):
+    - `nginx -t` and a reload passed;
+    - the API answered, and a client's fake `X-Forwarded-For` was replaced by its real address;
+    - Mailpit gave 401 without or with a wrong password and 200 with the right one, and the WebSocket upgraded (101);
+    - a 12 MiB body got 413.
+  - **Not verified here:** certbot and the real host's nginx.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1002,7 +1023,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-0. Deploy the dev environment on its host (DNS for `API_DOMAIN`/`MAIL_DOMAIN`, ports 80/443), then back to Phase 3.
+0. Deploy the dev environment on its host behind the shared nginx (docs/runbooks/dev-environment.md), then back to Phase 3.
 1. Task 3.7: reversals with maker-checker (system design §4.3).
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).

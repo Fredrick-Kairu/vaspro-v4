@@ -1,8 +1,22 @@
 # Dev environment
 
-A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts** and the **ledger** behind the **gateway**, with a fake KYC vendor, on a private Docker network. Caddy is the only way in: it serves the API at `https://$API_DOMAIN` and Mailpit (behind basic auth) at `https://$MAIL_DOMAIN`, with TLS certificates it obtains and renews itself.
+A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts** and the **ledger** behind the **gateway**, with a fake KYC vendor, on a private Docker network.
 
-It isn't staging (ROADMAP §5, OD-02): there are no real rails, no SMS engine and no real KYC vendor, and every secret is a development value.
+Only two ports are published, both on the host's loopback:
+
+- the gateway on `127.0.0.1:18080`;
+- Mailpit's web UI on `127.0.0.1:18025`.
+
+The host's own nginx serves them as `https://<API_DOMAIN>` and `https://<MAIL_DOMAIN>`, with Let's Encrypt certificates from certbot.
+
+**The host's nginx is shared with another project.** Treat it with care:
+
+- add one site file and one htpasswd file, both named `vaspro`;
+- always run `nginx -t` before `systemctl reload nginx`;
+- **never restart nginx**, which would drop the other project's connections;
+- never edit the other project's files.
+
+This isn't staging (ROADMAP §5, OD-02): there are no real rails, no SMS engine and no real KYC vendor, and every secret is a development value.
 
 Files:
 
@@ -11,36 +25,98 @@ Files:
 | `deploy/compose/docker-compose.dev.yml` | The stack (project `vaspro-dev`) |
 | `deploy/compose/env.example` | Every variable, with dev defaults and empty secrets |
 | `deploy/compose/dev-secrets.sh` | Creates `deploy/compose/.env` with fresh secrets |
-| `deploy/compose/Caddyfile` | The front door: TLS, routing, the API's body limit, Mailpit's basic auth |
 | `deploy/compose/db-setup.sh` | Roles, migrations and grants (the `db-setup` one-shot) |
 | `deploy/docker/*.Dockerfile` | One image per binary, built from the repository root |
+| `deploy/nginx/vaspro-dev.conf.template` | The two nginx server blocks |
+| `deploy/nginx/render.sh` | Fills the template with the two domains and the ports |
 
-`deploy/compose/docker-compose.yml` is the separate local stack for running services on your machine with `make run`. It publishes every infrastructure port, and nothing here changes it.
+`deploy/compose/docker-compose.yml` is the separate local stack for running services on your machine with `make run`. Nothing here changes it.
 
-## First time
+## First-time set-up on the dev host
 
-1. Point two DNS names at the host, for example `api.dev.example.com` and `mail.dev.example.com`. The host must accept ports 80 and 443 from the internet, so Caddy can obtain Let's Encrypt certificates (it answers the challenge on 80, then redirects all HTTP to HTTPS).
-2. Create `.env` and set the names:
+You need Docker with the Compose plugin, `openssl`, `htpasswd` (`apache2-utils`), certbot with its nginx plugin, and sudo for nginx. The examples use `api.dev.example.com` and `mail.dev.example.com`.
 
-   ```sh
-   deploy/compose/dev-secrets.sh   # writes deploy/compose/.env; refuses to overwrite one
-   ```
+**1. DNS.** Point both names at the host. Ports 80 and 443 are already open for the other project.
 
-   It prints Mailpit's basic-auth password **once**; only its hash is stored. Share the password with the testers. Then edit `.env`:
-   - `API_DOMAIN` and `MAIL_DOMAIN`;
-   - `GATEWAY_CORS_ALLOWED_ORIGINS`;
-   - `IDENTITY_WEBAUTHN_*` (see below).
-3. Start it:
+**2. Secrets and settings.** From the repository:
 
-   ```sh
-   make dev-up                     # builds the images and waits until everything is healthy
-   ```
+```sh
+deploy/compose/dev-secrets.sh   # writes deploy/compose/.env; refuses to overwrite one
+```
 
-The first `make dev-up` takes several minutes: the images build, and ClamAV loads its signatures (allow about 1 GB of memory for it). Later starts are quick.
+Then edit `deploy/compose/.env`:
 
-Then check it: `curl https://$API_DOMAIN/readyz` should print `ok`.
+- `GATEWAY_CORS_ALLOWED_ORIGINS`: the frontend team's dev-server origins (see "CORS").
+- `IDENTITY_WEBAUTHN_RP_ID` and `IDENTITY_WEBAUTHN_ORIGINS`: the dashboard's domain and its exact origins.
+- `GATEWAY_HOST_PORT` / `MAILPIT_HOST_PORT`: only if 18080 or 18025 is taken on the host.
+- `DEV_SUBNET`: only if `10.213.0.0/24` clashes with a network on the host. Then also set `GATEWAY_TRUSTED_PROXIES` to the new subnet's first address (see "Client addresses").
 
-**On one machine,** the defaults `api.localhost` and `mail.localhost` work with no DNS. Caddy then uses its own local CA instead of Let's Encrypt. Trust its root certificate (`$DC exec caddy cat /data/caddy/pki/authorities/local/root.crt`), or pass it to curl with `--cacert`.
+**3. Start the stack:**
+
+```sh
+make dev-up      # builds the images and waits until everything is healthy
+curl http://127.0.0.1:18080/readyz   # ready
+```
+
+The first `make dev-up` takes several minutes: the images build, and ClamAV loads its signatures (allow about 1 GB of memory for it). Later starts are quick. The site can't serve anything until this is up, so start it before nginx.
+
+**4. The site file.** Render it with the two names; set the ports first if you changed them in `.env`. Then install and enable it the way this host's nginx already does it:
+
+```sh
+deploy/nginx/render.sh api.dev.example.com mail.dev.example.com > /tmp/vaspro-dev.conf
+sudo install -m 644 /tmp/vaspro-dev.conf /etc/nginx/sites-available/vaspro-dev.conf
+sudo ln -s /etc/nginx/sites-available/vaspro-dev.conf /etc/nginx/sites-enabled/vaspro-dev.conf
+```
+
+If the host's nginx uses `conf.d/` instead, copy the file to `/etc/nginx/conf.d/vaspro-dev.conf`. Check `ls /etc/nginx/sites-enabled /etc/nginx/conf.d`.
+
+**5. Mailpit's password.** It lives in its own htpasswd file:
+
+```sh
+sudo htpasswd -c /etc/nginx/.htpasswd-vaspro-mail tester    # prompts for the password
+sudo chown root:www-data /etc/nginx/.htpasswd-vaspro-mail     # nginx's worker group: www-data on Debian/Ubuntu, nginx on RHEL
+sudo chmod 640 /etc/nginx/.htpasswd-vaspro-mail
+```
+
+- `-c` creates the file. Use it only the first time, because it overwrites.
+- Without `htpasswd`, write the line yourself: `printf 'tester:%s\n' "$(openssl passwd -apr1)"`.
+- Share the password with the testers. Nothing in the repository stores it.
+
+**6. Check, then reload. Never restart.**
+
+```sh
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+If `nginx -t` fails, fix or remove `vaspro-dev.conf` before anything else. Nginx keeps serving the other project with its old configuration until a reload succeeds.
+
+**7. Certificates:**
+
+```sh
+sudo certbot --nginx -d api.dev.example.com -d mail.dev.example.com
+```
+
+Certbot adds the 443 listeners, the certificate and the HTTP-to-HTTPS redirect to `vaspro-dev.conf`, then reloads nginx itself. Its renewal timer covers these names along with the other project's.
+
+**8. Check from outside:**
+
+```sh
+curl https://api.dev.example.com/readyz                       # ready
+curl -u tester https://mail.dev.example.com/api/v1/messages   # Mailpit, after the password
+```
+
+### Changing the site file later
+
+Re-rendering replaces certbot's 443 blocks. After installing a new render, run `nginx -t`, then `sudo certbot --nginx -d … -d …` again. Certbot reuses the existing certificate and reinstalls it, then reloads. Small changes can also be made by hand in the installed file, followed by `nginx -t` and a reload.
+
+### Removing it
+
+1. Delete the symlink and the site file, then the htpasswd file.
+2. Run `sudo nginx -t && sudo systemctl reload nginx`.
+3. Run `sudo certbot delete --cert-name api.dev.example.com`.
+4. Run `make dev-down` (`$DC down -v` also deletes the data).
+
+## Everyday commands
 
 | Command | Does |
 |---|---|
@@ -51,17 +127,21 @@ Then check it: `curl https://$API_DOMAIN/readyz` should print `ok`.
 | `make dev-kyc` / `make dev-kyc ID=… STATUS=…` | Lists the fake vendor's checks / decides one |
 | `make dev-staff EMAIL=… BY=…` | Makes a user staff |
 
-To deploy a new version, pull the branch and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart.
+To deploy a new version, pull the branch and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart. Nginx needs nothing. It returns 502 for the few seconds the gateway is restarting.
+
+Below, `$DC` stands for `docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env`.
 
 ## Ports
 
-Only Caddy publishes ports: 80 (certificate challenges, then a redirect to HTTPS) and 443 (TCP, and UDP for HTTP/3). Its certificates and state live in the `caddy-data` and `caddy-config` volumes, so they survive restarts. `make dev-reset` wipes them too, and Caddy obtains new certificates. Let's Encrypt issues at most 5 certificates a week for the same names, so on a public host avoid repeated resets; `$DC down` plus removing just the volumes you need is gentler.
+| Published (loopback only) | Service | Served by nginx as |
+|---|---|---|
+| `127.0.0.1:${GATEWAY_HOST_PORT}` (18080) | gateway | `https://<API_DOMAIN>`, with an 11 MB body limit |
+| `127.0.0.1:${MAILPIT_HOST_PORT}` (18025) | Mailpit web UI and API | `https://<MAIL_DOMAIN>`, with basic auth |
 
-Everything else is reachable only on the `vaspro-dev` network (`10.213.0.0/24`, set by `DEV_SUBNET`):
+Nothing else is published. Everything else is reachable only on the `vaspro-dev` network (`10.213.0.0/24`, `DEV_SUBNET`):
 
 | Service | Address on the network | Purpose |
 |---|---|---|
-| caddy | `10.213.0.10` (`CADDY_IP`, fixed) | Routes `API_DOMAIN` to the gateway and `MAIL_DOMAIN` to Mailpit |
 | gateway | `gateway:8081` | The API (`/v1/...`), `/healthz`, `/readyz` |
 | identity | `identity:8080` HTTP, `identity:9090` gRPC | |
 | accounts | `accounts:8082` HTTP, `accounts:9091` gRPC | |
@@ -78,6 +158,19 @@ The gRPC ports are plaintext and trust the caller (mTLS is Phase 17), so never p
 
 Every service has `/healthz` (the process is up; use it as a liveness probe) and `/readyz` (its dependencies are reachable). Compose's health checks use `/readyz`.
 
+## Client addresses
+
+The gateway rate-limits (1,200 requests a minute per IP), checks API clients' IP allowlists and logs requests by the caller's address. Behind nginx, the connection comes from Docker, not the client:
+
+- **What the gateway sees:** a request through a published loopback port arrives from the network's first address, **`10.213.0.1`**. On a Linux host, Docker's port proxy, or its NAT when the proxy is off, forwards it from the bridge's address. Docker never gives that address to a container. This was confirmed on Docker Desktop's Linux VM (5 Nov), both from the Mac and from the VM's own network namespace: every request through `127.0.0.1:18080` logged `ip=10.213.0.1`. Check it once on the dev host, as described at the end of this section.
+- **What it trusts:** `GATEWAY_TRUSTED_PROXIES=10.213.0.1`. Only from that address does the gateway believe `X-Forwarded-For`, and it reads the header from the right, skipping trusted hops.
+- **What nginx sends:** `X-Forwarded-For $remote_addr`. That replaces any header the client sent, so a client can't choose its own address.
+- **From inside the network,** containers such as the fake vendor connect directly from their own addresses. Any `X-Forwarded-For` they send is ignored.
+- **The one gap:** anything running on the host can reach `127.0.0.1:18080` and set `X-Forwarded-For`, because it arrives from the trusted address too. The loopback binding keeps this to the host itself.
+- **If `DEV_SUBNET` changes,** set `GATEWAY_TRUSTED_PROXIES` to the new first address. To check, make a request through `127.0.0.1:${GATEWAY_HOST_PORT}`, then run `make dev-logs SVC=gateway` and read the `ip=` of a request with no `X-Forwarded-For`.
+
+Identity still records the gateway's own address for sign-ins and new-IP login alerts. It never reads the forwarded address.
+
 ## Start order
 
 Compose enforces it with `depends_on`:
@@ -85,10 +178,9 @@ Compose enforces it with `depends_on`:
 1. postgres, redis, nats, object-storage, clamav, mailpit become healthy;
 2. `db-setup` runs once and must exit 0;
 3. identity, accounts and ledger start; each waits for its own infrastructure and reports ready;
-4. the gateway starts once all three are ready, and the kyc-vendor starts alongside it;
-5. Caddy starts once the gateway and Mailpit are healthy.
+4. the gateway starts once all three are ready, and the kyc-vendor starts alongside it.
 
-Identity and accounts dial each other's gRPC lazily, so neither waits for the other.
+Identity and accounts dial each other's gRPC lazily, so neither waits for the other. The host's nginx is independent and only needs the two loopback ports.
 
 ## Database
 
@@ -109,7 +201,7 @@ Grants made after the migrations:
 
   The ledger's `ledger_system`, `ledger_price_review` and `ledger_settlement` reach `ledger_app` through `ledger_service`.
 
-To look at the data: `docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env exec postgres psql -U vaspro`. Below, `$DC` stands for that `docker compose -f … --env-file …` prefix.
+To look at the data: `$DC exec postgres psql -U vaspro`.
 
 ## Variables
 
@@ -117,10 +209,9 @@ All of them are in `deploy/compose/env.example`, grouped by service with what ea
 
 | Variable | Default | Notes |
 |---|---|---|
-| `API_DOMAIN` | `api.localhost` | The API's host name |
-| `MAIL_DOMAIN` | `mail.localhost` | Mailpit's host name |
-| `MAIL_BASIC_AUTH_USER` / `MAIL_BASIC_AUTH_HASH` | `tester` / generated | Mailpit's login (see "Rotating") |
-| `CADDY_IP`, `DEV_SUBNET`, `DEV_IP_RANGE` | `10.213.0.10`, `10.213.0.0/24`, `10.213.0.128/25` | Change these only if the subnet clashes with a network on the host. `CADDY_IP` must be inside the subnet and outside the range |
+| `GATEWAY_HOST_PORT` / `MAILPIT_HOST_PORT` | `18080` / `18025` | The loopback ports. Render the nginx site with the same values |
+| `DEV_SUBNET` | `10.213.0.0/24` | The private network |
+| `GATEWAY_TRUSTED_PROXIES` | `10.213.0.1` | The first address of `DEV_SUBNET` (see "Client addresses") |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | See below |
 | `IDENTITY_WEBAUTHN_RP_ID` | `localhost` | The dashboard's domain. Passkeys only work on it or its subdomains |
 | `IDENTITY_WEBAUTHN_ORIGINS` | the two localhost origins | The dashboard's exact origins, comma-separated |
@@ -128,7 +219,7 @@ All of them are in `deploy/compose/env.example`, grouped by service with what ea
 | `LEDGER_SETTLEMENT_WINDOW` | `5m` | How often usage settles |
 | `KYCVENDOR_PUBLIC_URL` | `http://kyc-vendor:8090` | Base of the "hosted flow" link `createKycCheck` returns |
 
-The database URLs aren't in `.env`: compose builds them from the `*_DB_PASSWORD` values. Likewise, `GATEWAY_TRUSTED_PROXIES` is set to `CADDY_IP`. Keep those passwords URL-safe (`dev-secrets.sh` uses hex).
+The database URLs aren't in `.env`: compose builds them from the `*_DB_PASSWORD` values. Keep those passwords URL-safe (`dev-secrets.sh` uses hex).
 
 Secrets in `.env`, all generated by `dev-secrets.sh`:
 
@@ -137,7 +228,7 @@ Secrets in `.env`, all generated by `dev-secrets.sh`:
 - `ACCOUNTS_DOCUMENTS_KMS_KEY`;
 - `ACCOUNTS_KYC_WEBHOOK_SECRET`, which the fake vendor shares.
 
-The keys are base64 of 32 random bytes. `.env` is gitignored: never commit it, and don't reuse its values anywhere else.
+The keys are base64 of 32 random bytes. `.env` is gitignored: never commit it, and don't reuse its values anywhere else. Mailpit's password isn't in `.env`; it's in nginx's htpasswd file.
 
 ### CORS
 
@@ -147,18 +238,20 @@ The keys are base64 of 32 random bytes. `.env` is gitignored: never commit it, a
 - headers `Authorization`, `Content-Type`, `Idempotency-Key` and `X-Request-Id`;
 - a 10-minute max age.
 
-Any other origin gets no CORS headers, so the browser blocks it. When the variable is empty, the gateway adds no CORS headers at all, and an OPTIONS request is refused by request validation (400) as before.
+Any other origin gets no CORS headers, so the browser blocks it. When the variable is empty, the gateway adds no CORS headers at all, and an OPTIONS request is refused by request validation (400) as before. The gateway handles CORS itself, so the nginx site adds no CORS headers.
 
 Add the frontend team's dev-server origins, then run `make dev-up` to restart the gateway. The API is cookieless (sessions are bearer tokens), so there are no credentialed CORS requests.
 
 ## Testing the flows
 
-**Email.** Sign-up, password set and reset, and email step-up send 6-digit codes. Mailpit catches every message: open `https://$MAIL_DOMAIN` and sign in with the basic-auth user and password. Scripts can use its API with the same login:
+**Email.** Sign-up, password set and reset, and email step-up send 6-digit codes. Mailpit catches every message: open `https://<MAIL_DOMAIN>` and sign in as `tester`. Scripts can use its API with the same login:
 
 ```sh
-curl -u tester:<password> "https://$MAIL_DOMAIN/api/v1/search?query=to:someone@example.com"  # newest first
-curl -u tester:<password> "https://$MAIL_DOMAIN/api/v1/message/<ID>"
+curl -u tester:<password> "https://<MAIL_DOMAIN>/api/v1/search?query=to:someone@example.com"  # newest first
+curl -u tester:<password> "https://<MAIL_DOMAIN>/api/v1/message/<ID>"
 ```
+
+On the host itself, `http://127.0.0.1:18025` reaches Mailpit without the password.
 
 **Sign-up to an account:**
 
@@ -187,20 +280,21 @@ $DC run --rm vaspro identity revoke-staff -by <your name> <email>
 
 Staff can then use `/v1/accounts/staff/...` (the KYB review queue, tier changes, resellers) and `/v1/ledger/staff/token-prices`. Approving a token price needs a second staff member (maker-checker) and a fresh step-up.
 
-**Documents** (KYB) are scanned by ClamAV, encrypted, and stored in SeaweedFS. Uploads are capped at 10 MB, as PDF, JPEG or PNG. Caddy refuses any request body over 11 MiB, the gateway's own largest limit, with a plain 413 rather than the API's problem+json. The gateway answers anything smaller itself (VAL-4008 for a file over 10 MB).
+**Documents** (KYB) are scanned by ClamAV, encrypted, and stored in SeaweedFS. Uploads are capped at 10 MB, as PDF, JPEG or PNG. Nginx refuses any request body over 11 MB (`client_max_body_size 11m`, the gateway's own largest limit) with its plain 413 page, not the API's problem+json. The gateway answers anything smaller itself (VAL-4008 for a file over 10 MB).
 
 ## Rotating keys and passwords
 
 - **JWT signing key:** `$DC run --rm vaspro identity rotate-signing-key`. The new key signs from then on. The old one stays in `/.well-known/jwks.json` for its 24-hour overlap, so issued tokens keep working. Nothing restarts.
 - **Database passwords:** change the value in `.env`, then run `make dev-up`. `db-setup` sets the new password and the services restart with the new URL.
 - **`IDENTITY_CHALLENGE_SIGNING_KEY`:** change it and run `make dev-up`. Only in-flight sign-in challenges (5 minutes) are lost.
-- **Mailpit's password:** run `docker run --rm -it caddy:2 caddy hash-password`, then put the result in `.env` as `MAIL_BASIC_AUTH_HASH='…'`. Keep the single quotes: compose reads `$` as a variable. Then run `make dev-up`.
+- **Mailpit's password:** `sudo htpasswd /etc/nginx/.htpasswd-vaspro-mail tester` (without `-c`). Nginx reads the file on each request, so no reload is needed.
 - **`ACCOUNTS_KYC_WEBHOOK_SECRET`:** change it and run `make dev-up`. The fake vendor picks it up too.
 - **LocalKMS keys** (`IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY`, `ACCOUNTS_DOCUMENTS_KMS_KEY`): data sealed under the old key becomes unreadable (TOTP secrets, signing keys, documents), and there's no re-encryption tool. In this environment, rotating one means `make dev-reset`.
+- **TLS certificates:** certbot renews them on its own timer and reloads nginx.
 
 ## Known limits
 
-- **Identity sees the gateway's IP.** The gateway takes the caller's address from `X-Forwarded-For`, but only when the request comes from Caddy (`GATEWAY_TRUSTED_PROXIES`). Its rate limits (1,200 requests a minute per IP), API clients' IP allowlists and its request log all use that address, and a client can't set its own, because Caddy replaces any `X-Forwarded-For` it receives. Identity still records the gateway's address for sign-ins and new-IP login alerts, as it always has.
+- **Identity sees the gateway's IP** for sign-ins and login alerts (see "Client addresses").
 - **Unreachable fake-vendor link.** The KYC "hosted flow" URL points into the private network, and the fake serves no page there. Testers decide checks with `make dev-kyc`.
 - **Unused infrastructure.** RabbitMQ, ClickHouse and Grafana aren't in this stack, because nothing built uses them yet.
 - **UGX wallets don't settle.** Only Kenya has a pack, so the ledger logs a settlement failure for such wallets each window (see STATUS 3.5).
