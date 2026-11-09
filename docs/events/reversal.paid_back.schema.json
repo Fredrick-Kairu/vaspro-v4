@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/reversal.paid_back.schema.json",
+  "title": "reversal.paid_back",
+  "description": "Published by the ledger when the rail reports a reversal's pay-back succeeded (task 3.7; Payments reports it from Phase 13). The pay-back posting moves the money from reversal clearing to the rail's provider clearing. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": [
+    "tenant_id",
+    "reversal_id",
+    "original_transaction_id",
+    "kind",
+    "currency",
+    "amount_minor",
+    "payback_transaction_id",
+    "attempts"
+  ],
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reversal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "original_transaction_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "payback",
+        "chargeback",
+        "operator"
+      ]
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "amount_minor": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payback_transaction_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payback_reference": {
+      "type": "string"
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

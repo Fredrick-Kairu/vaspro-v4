@@ -36,6 +36,15 @@ type Pack struct {
 	// KYB is business verification here (task 2.7); nil when the
 	// country can't do KYB yet.
 	KYB *KYB
+	// Ledger is the ledger's country rules (task 3.7).
+	Ledger Ledger
+}
+
+// Ledger is a country's ledger rules.
+type Ledger struct {
+	// ReversalFinanceLeadMinor: a reversal of at least this many minor
+	// units needs a finance lead (OQ-18); nil means every reversal does.
+	ReversalFinanceLeadMinor *int64
 }
 
 // KYB is a country's business verification rule.
@@ -109,6 +118,9 @@ type jsonPack struct {
 		TaxIDLabel        string   `json:"tax_id_label"`
 		RequiredDocuments []string `json:"required_documents"`
 	} `json:"kyb"`
+	Ledger struct {
+		ReversalFinanceLeadMinor *int64 `json:"reversal_finance_lead_minor"`
+	} `json:"ledger"`
 	Services map[string]struct {
 		MinTier string `json:"min_tier"`
 		Enabled *bool  `json:"enabled"`
@@ -166,6 +178,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 	}
 
 	return &Pack{
+		Ledger:      Ledger{ReversalFinanceLeadMinor: jp.Ledger.ReversalFinanceLeadMinor},
 		KYB:         kyb,
 		Services:    services,
 		Version:     jp.Version,

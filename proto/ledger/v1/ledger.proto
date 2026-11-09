@@ -48,6 +48,13 @@ service LedgerService {
   rpc SetAutoBuyRule(SetAutoBuyRuleRequest) returns (SetAutoBuyRuleResponse);
   // ListAutoBuyRules lists the tenant's auto-buy rules.
   rpc ListAutoBuyRules(ListAutoBuyRulesRequest) returns (ListAutoBuyRulesResponse);
+  // RecordPayback reports the rail's outcome for a reversal's pay-back
+  // (task 3.7; Payments calls it from Phase 13). succeeded posts the
+  // pay-back from reversal clearing to the rail's provider clearing, and
+  // a repeat of it is a replay; a failure is recorded and the money stays
+  // in clearing for the retry. Only a pay-back reversal awaiting its
+  // pay-back can record one (VAL-4016).
+  rpc RecordPayback(RecordPaybackRequest) returns (RecordPaybackResponse);
   // GetBalances lists a tenant's accounts with their balances, or, with
   // no tenant, VASPRO's accounts with balances summed from the journal
   // (ADR 0010).
@@ -221,4 +228,22 @@ message ListAutoBuyRulesRequest {
 
 message ListAutoBuyRulesResponse {
   repeated AutoBuyRule rules = 1;
+}
+
+message RecordPaybackRequest {
+  string tenant_id = 1;
+  string reversal_id = 2;
+  bool succeeded = 3;
+  // The rail's reference for the pay-back (an M-Pesa receipt, a refund ID).
+  string reference = 4;
+  // Why it failed, when it did.
+  string error = 5;
+}
+
+message RecordPaybackResponse {
+  // payback_pending or paid_back.
+  string status = 1;
+  // The pay-back posting, once paid back.
+  string payback_transaction_id = 2;
+  int32 payback_attempts = 3;
 }

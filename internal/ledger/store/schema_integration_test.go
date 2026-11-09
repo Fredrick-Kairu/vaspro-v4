@@ -188,8 +188,8 @@ func TestRowLevelSecurity_TenantOwnedTables(t *testing.T) {
 				return err
 			}
 			_, err = tx.Exec(ctx, `
-				INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by)
-				VALUES ($1, $2, $3, 80000, 'chargeback', 'requested', $4)`, uuid.New(), tenant, txn, uuid.New())
+				INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, kind, currency)
+				VALUES ($1, $2, $3, 80000, 'chargeback', 'requested', $4, 'chargeback', 'KES')`, uuid.New(), tenant, txn, uuid.New())
 			return err
 		}},
 	}

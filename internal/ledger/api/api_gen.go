@@ -16,6 +16,75 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ReversalKind.
+const (
+	ReversalKindChargeback ReversalKind = "chargeback"
+	ReversalKindOperator   ReversalKind = "operator"
+	ReversalKindPayback    ReversalKind = "payback"
+)
+
+// Valid indicates whether the value is a known member of the ReversalKind enum.
+func (e ReversalKind) Valid() bool {
+	switch e {
+	case ReversalKindChargeback:
+		return true
+	case ReversalKindOperator:
+		return true
+	case ReversalKindPayback:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReversalCreateRequestKind.
+const (
+	ReversalCreateRequestKindChargeback ReversalCreateRequestKind = "chargeback"
+	ReversalCreateRequestKindOperator   ReversalCreateRequestKind = "operator"
+	ReversalCreateRequestKindPayback    ReversalCreateRequestKind = "payback"
+)
+
+// Valid indicates whether the value is a known member of the ReversalCreateRequestKind enum.
+func (e ReversalCreateRequestKind) Valid() bool {
+	switch e {
+	case ReversalCreateRequestKindChargeback:
+		return true
+	case ReversalCreateRequestKindOperator:
+		return true
+	case ReversalCreateRequestKindPayback:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReversalStatus.
+const (
+	PaidBack       ReversalStatus = "paid_back"
+	PaybackPending ReversalStatus = "payback_pending"
+	Posted         ReversalStatus = "posted"
+	Rejected       ReversalStatus = "rejected"
+	Requested      ReversalStatus = "requested"
+)
+
+// Valid indicates whether the value is a known member of the ReversalStatus enum.
+func (e ReversalStatus) Valid() bool {
+	switch e {
+	case PaidBack:
+		return true
+	case PaybackPending:
+		return true
+	case Posted:
+		return true
+	case Rejected:
+		return true
+	case Requested:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TokenPriceStatus.
 const (
 	TokenPriceStatusActive          TokenPriceStatus = "active"
@@ -68,6 +137,93 @@ type Problem struct {
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
 }
+
+// Reversal defines model for Reversal.
+type Reversal struct {
+	AmountMinor           int64            `json:"amount_minor"`
+	ApprovedBy            *string          `json:"approved_by,omitempty"`
+	ClawbackServices      []string         `json:"clawback_services"`
+	CreatedAt             time.Time        `json:"created_at"`
+	Currency              string           `json:"currency"`
+	DecidedAt             *time.Time       `json:"decided_at,omitempty"`
+	EvidenceDocumentId    *string          `json:"evidence_document_id,omitempty"`
+	Id                    string           `json:"id"`
+	Kind                  ReversalKind     `json:"kind"`
+	LastPaybackError      *string          `json:"last_payback_error,omitempty"`
+	OriginalTransactionId string           `json:"original_transaction_id"`
+	PaybackAttempts       int              `json:"payback_attempts"`
+	PaybackReference      *string          `json:"payback_reference,omitempty"`
+	PaybackTransactionId  *string          `json:"payback_transaction_id,omitempty"`
+	Preview               *ReversalPreview `json:"preview,omitempty"`
+	Reason                string           `json:"reason"`
+	RejectedBy            *string          `json:"rejected_by,omitempty"`
+	RejectionReason       *string          `json:"rejection_reason,omitempty"`
+	RequestedBy           string           `json:"requested_by"`
+	ReversalTransactionId *string          `json:"reversal_transaction_id,omitempty"`
+	Status                ReversalStatus   `json:"status"`
+	TenantId              string           `json:"tenant_id"`
+}
+
+// ReversalKind defines model for Reversal.Kind.
+type ReversalKind string
+
+// ReversalClawback defines model for ReversalClawback.
+type ReversalClawback struct {
+	// ClawableMinor The wallet's unused, unheld tokens' value.
+	ClawableMinor int64  `json:"clawable_minor"`
+	ServiceCode   string `json:"service_code"`
+
+	// Tokens Tokens the reversal would take back, a decimal with up to 6 places.
+	Tokens string `json:"tokens"`
+
+	// ValueMinor Their value at their lots' prices.
+	ValueMinor int64 `json:"value_minor"`
+}
+
+// ReversalCreateRequest defines model for ReversalCreateRequest.
+type ReversalCreateRequest struct {
+	// AmountMinor Minor units of the top-up's currency.
+	AmountMinor int64 `json:"amount_minor"`
+
+	// ClawbackServices Service wallets to claw unused tokens back from, in order.
+	ClawbackServices *[]string `json:"clawback_services,omitempty"`
+
+	// EvidenceDocumentId A document the client uploaded (accounts' documents), stored as given.
+	EvidenceDocumentId *string                   `json:"evidence_document_id,omitempty"`
+	Kind               ReversalCreateRequestKind `json:"kind"`
+
+	// OriginalTransactionId The client's top-up being reversed.
+	OriginalTransactionId string `json:"original_transaction_id"`
+	Reason                string `json:"reason"`
+	TenantId              string `json:"tenant_id"`
+}
+
+// ReversalCreateRequestKind defines model for ReversalCreateRequest.Kind.
+type ReversalCreateRequestKind string
+
+// ReversalList defines model for ReversalList.
+type ReversalList struct {
+	NextCursor *string    `json:"next_cursor,omitempty"`
+	Reversals  []Reversal `json:"reversals"`
+}
+
+// ReversalPreview defines model for ReversalPreview.
+type ReversalPreview struct {
+	Clawback []ReversalClawback `json:"clawback"`
+	Covered  bool               `json:"covered"`
+
+	// FromMainMinor What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back.
+	FromMainMinor      int64 `json:"from_main_minor"`
+	MainAvailableMinor int64 `json:"main_available_minor"`
+}
+
+// ReversalRejectRequest defines model for ReversalRejectRequest.
+type ReversalRejectRequest struct {
+	Reason string `json:"reason"`
+}
+
+// ReversalStatus defines model for ReversalStatus.
+type ReversalStatus string
 
 // TokenPrice defines model for TokenPrice.
 type TokenPrice struct {
@@ -123,6 +279,35 @@ type IdempotencyKey = string
 // PriceID defines model for PriceID.
 type PriceID = string
 
+// ReversalID defines model for ReversalID.
+type ReversalID = string
+
+// ListReversalsParams defines parameters for ListReversals.
+type ListReversalsParams struct {
+	TenantId *string         `form:"tenant_id,omitempty" json:"tenant_id,omitempty"`
+	Status   *ReversalStatus `form:"status,omitempty" json:"status,omitempty"`
+	Cursor   *string         `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit    *int            `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateReversalParams defines parameters for CreateReversal.
+type CreateReversalParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ApproveReversalParams defines parameters for ApproveReversal.
+type ApproveReversalParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RejectReversalParams defines parameters for RejectReversal.
+type RejectReversalParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListTokenPricesParams defines parameters for ListTokenPrices.
 type ListTokenPricesParams struct {
 	TenantId    *string                      `form:"tenant_id,omitempty" json:"tenant_id,omitempty"`
@@ -153,11 +338,32 @@ type WithdrawTokenPriceParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateReversalJSONRequestBody defines body for CreateReversal for application/json ContentType.
+type CreateReversalJSONRequestBody = ReversalCreateRequest
+
+// RejectReversalJSONRequestBody defines body for RejectReversal for application/json ContentType.
+type RejectReversalJSONRequestBody = ReversalRejectRequest
+
 // CreateTokenPriceJSONRequestBody defines body for CreateTokenPrice for application/json ContentType.
 type CreateTokenPriceJSONRequestBody = TokenPriceCreateRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListReversals Reversals across clients (staff only)
+	// (GET /v1/ledger/staff/reversals)
+	ListReversals(w http.ResponseWriter, r *http.Request, params ListReversalsParams)
+	// CreateReversal Raise a reversal of a client's top-up (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals)
+	CreateReversal(w http.ResponseWriter, r *http.Request, params CreateReversalParams)
+	// GetReversal One reversal, with a live preview while it's requested (staff only)
+	// (GET /v1/ledger/staff/reversals/{reversalId})
+	GetReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID)
+	// ApproveReversal Approve and post a requested reversal (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals/{reversalId}/approval)
+	ApproveReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params ApproveReversalParams)
+	// RejectReversal Reject a requested reversal (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals/{reversalId}/rejection)
+	RejectReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params RejectReversalParams)
 	// ListTokenPrices Token prices across clients (staff only)
 	// (GET /v1/ledger/staff/token-prices)
 	ListTokenPrices(w http.ResponseWriter, r *http.Request, params ListTokenPricesParams)
@@ -175,6 +381,36 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ListReversals Reversals across clients (staff only)
+// (GET /v1/ledger/staff/reversals)
+func (_ Unimplemented) ListReversals(w http.ResponseWriter, r *http.Request, params ListReversalsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateReversal Raise a reversal of a client's top-up (staff only, step-up)
+// (POST /v1/ledger/staff/reversals)
+func (_ Unimplemented) CreateReversal(w http.ResponseWriter, r *http.Request, params CreateReversalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetReversal One reversal, with a live preview while it's requested (staff only)
+// (GET /v1/ledger/staff/reversals/{reversalId})
+func (_ Unimplemented) GetReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ApproveReversal Approve and post a requested reversal (staff only, step-up)
+// (POST /v1/ledger/staff/reversals/{reversalId}/approval)
+func (_ Unimplemented) ApproveReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params ApproveReversalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RejectReversal Reject a requested reversal (staff only, step-up)
+// (POST /v1/ledger/staff/reversals/{reversalId}/rejection)
+func (_ Unimplemented) RejectReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params RejectReversalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // ListTokenPrices Token prices across clients (staff only)
 // (GET /v1/ledger/staff/token-prices)
@@ -208,6 +444,257 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListReversals operation middleware
+func (siw *ServerInterfaceWrapper) ListReversals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReversalsParams
+
+	// ------------- Optional query parameter "tenant_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tenant_id", r.URL.Query(), &params.TenantId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tenant_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenant_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReversals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateReversal operation middleware
+func (siw *ServerInterfaceWrapper) CreateReversal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateReversalParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateReversal(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReversal operation middleware
+func (siw *ServerInterfaceWrapper) GetReversal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reversalId" -------------
+	var reversalId ReversalID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reversalId", chi.URLParam(r, "reversalId"), &reversalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reversalId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReversal(w, r, reversalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveReversal operation middleware
+func (siw *ServerInterfaceWrapper) ApproveReversal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reversalId" -------------
+	var reversalId ReversalID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reversalId", chi.URLParam(r, "reversalId"), &reversalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reversalId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApproveReversalParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveReversal(w, r, reversalId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectReversal operation middleware
+func (siw *ServerInterfaceWrapper) RejectReversal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reversalId" -------------
+	var reversalId ReversalID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reversalId", chi.URLParam(r, "reversalId"), &reversalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reversalId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RejectReversalParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectReversal(w, r, reversalId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListTokenPrices operation middleware
 func (siw *ServerInterfaceWrapper) ListTokenPrices(w http.ResponseWriter, r *http.Request) {
@@ -572,11 +1059,515 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/ledger/staff/token-prices/{priceId}/withdrawal", wrapper.WithdrawTokenPrice)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/staff/reversals", wrapper.ListReversals)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledger/staff/reversals", wrapper.CreateReversal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/staff/reversals/{reversalId}", wrapper.GetReversal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledger/staff/reversals/{reversalId}/approval", wrapper.ApproveReversal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledger/staff/reversals/{reversalId}/rejection", wrapper.RejectReversal)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ListReversalsRequestObject struct {
+	Params ListReversalsParams
+}
+
+type ListReversalsResponseObject interface {
+	VisitListReversalsResponse(w http.ResponseWriter) error
+}
+
+type ListReversals200JSONResponse ReversalList
+
+func (response ListReversals200JSONResponse) VisitListReversalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReversals400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListReversals400ApplicationProblemPlusJSONResponse) VisitListReversalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReversals401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListReversals401ApplicationProblemPlusJSONResponse) VisitListReversalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReversals403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListReversals403ApplicationProblemPlusJSONResponse) VisitListReversalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReversalsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListReversalsdefaultApplicationProblemPlusJSONResponse) VisitListReversalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversalRequestObject struct {
+	Params CreateReversalParams
+	Body   *CreateReversalJSONRequestBody
+}
+
+type CreateReversalResponseObject interface {
+	VisitCreateReversalResponse(w http.ResponseWriter) error
+}
+
+type CreateReversal201JSONResponse Reversal
+
+func (response CreateReversal201JSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversal400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateReversal400ApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversal401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateReversal401ApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversal403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateReversal403ApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversal404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateReversal404ApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversal409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateReversal409ApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReversaldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateReversaldefaultApplicationProblemPlusJSONResponse) VisitCreateReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReversalRequestObject struct {
+	ReversalId ReversalID `json:"reversalId"`
+}
+
+type GetReversalResponseObject interface {
+	VisitGetReversalResponse(w http.ResponseWriter) error
+}
+
+type GetReversal200JSONResponse Reversal
+
+func (response GetReversal200JSONResponse) VisitGetReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReversal401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetReversal401ApplicationProblemPlusJSONResponse) VisitGetReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReversal403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetReversal403ApplicationProblemPlusJSONResponse) VisitGetReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReversal404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetReversal404ApplicationProblemPlusJSONResponse) VisitGetReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReversaldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetReversaldefaultApplicationProblemPlusJSONResponse) VisitGetReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversalRequestObject struct {
+	ReversalId ReversalID `json:"reversalId"`
+	Params     ApproveReversalParams
+}
+
+type ApproveReversalResponseObject interface {
+	VisitApproveReversalResponse(w http.ResponseWriter) error
+}
+
+type ApproveReversal200JSONResponse Reversal
+
+func (response ApproveReversal200JSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversal401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveReversal401ApplicationProblemPlusJSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversal403ApplicationProblemPlusJSONResponse Problem
+
+func (response ApproveReversal403ApplicationProblemPlusJSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversal404ApplicationProblemPlusJSONResponse Problem
+
+func (response ApproveReversal404ApplicationProblemPlusJSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversal409ApplicationProblemPlusJSONResponse Problem
+
+func (response ApproveReversal409ApplicationProblemPlusJSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveReversaldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ApproveReversaldefaultApplicationProblemPlusJSONResponse) VisitApproveReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversalRequestObject struct {
+	ReversalId ReversalID `json:"reversalId"`
+	Params     RejectReversalParams
+	Body       *RejectReversalJSONRequestBody
+}
+
+type RejectReversalResponseObject interface {
+	VisitRejectReversalResponse(w http.ResponseWriter) error
+}
+
+type RejectReversal200JSONResponse Reversal
+
+func (response RejectReversal200JSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversal400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RejectReversal400ApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversal401ApplicationProblemPlusJSONResponse Problem
+
+func (response RejectReversal401ApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversal403ApplicationProblemPlusJSONResponse Problem
+
+func (response RejectReversal403ApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversal404ApplicationProblemPlusJSONResponse Problem
+
+func (response RejectReversal404ApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversal409ApplicationProblemPlusJSONResponse Problem
+
+func (response RejectReversal409ApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectReversaldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RejectReversaldefaultApplicationProblemPlusJSONResponse) VisitRejectReversalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListTokenPricesRequestObject struct {
 	Params ListTokenPricesParams
@@ -971,6 +1962,21 @@ func (response WithdrawTokenPricedefaultApplicationProblemPlusJSONResponse) Visi
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListReversals Reversals across clients (staff only)
+	// (GET /v1/ledger/staff/reversals)
+	ListReversals(ctx context.Context, request ListReversalsRequestObject) (ListReversalsResponseObject, error)
+	// CreateReversal Raise a reversal of a client's top-up (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals)
+	CreateReversal(ctx context.Context, request CreateReversalRequestObject) (CreateReversalResponseObject, error)
+	// GetReversal One reversal, with a live preview while it's requested (staff only)
+	// (GET /v1/ledger/staff/reversals/{reversalId})
+	GetReversal(ctx context.Context, request GetReversalRequestObject) (GetReversalResponseObject, error)
+	// ApproveReversal Approve and post a requested reversal (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals/{reversalId}/approval)
+	ApproveReversal(ctx context.Context, request ApproveReversalRequestObject) (ApproveReversalResponseObject, error)
+	// RejectReversal Reject a requested reversal (staff only, step-up)
+	// (POST /v1/ledger/staff/reversals/{reversalId}/rejection)
+	RejectReversal(ctx context.Context, request RejectReversalRequestObject) (RejectReversalResponseObject, error)
 	// ListTokenPrices Token prices across clients (staff only)
 	// (GET /v1/ledger/staff/token-prices)
 	ListTokenPrices(ctx context.Context, request ListTokenPricesRequestObject) (ListTokenPricesResponseObject, error)
@@ -1022,6 +2028,152 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListReversals operation middleware
+func (sh *strictHandler) ListReversals(w http.ResponseWriter, r *http.Request, params ListReversalsParams) {
+	var request ListReversalsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReversals(ctx, request.(ListReversalsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReversals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReversalsResponseObject); ok {
+		if err := validResponse.VisitListReversalsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateReversal operation middleware
+func (sh *strictHandler) CreateReversal(w http.ResponseWriter, r *http.Request, params CreateReversalParams) {
+	var request CreateReversalRequestObject
+
+	request.Params = params
+
+	var body CreateReversalJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateReversal(ctx, request.(CreateReversalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateReversal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateReversalResponseObject); ok {
+		if err := validResponse.VisitCreateReversalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetReversal operation middleware
+func (sh *strictHandler) GetReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID) {
+	var request GetReversalRequestObject
+
+	request.ReversalId = reversalId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReversal(ctx, request.(GetReversalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReversal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReversalResponseObject); ok {
+		if err := validResponse.VisitGetReversalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveReversal operation middleware
+func (sh *strictHandler) ApproveReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params ApproveReversalParams) {
+	var request ApproveReversalRequestObject
+
+	request.ReversalId = reversalId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveReversal(ctx, request.(ApproveReversalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveReversal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveReversalResponseObject); ok {
+		if err := validResponse.VisitApproveReversalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectReversal operation middleware
+func (sh *strictHandler) RejectReversal(w http.ResponseWriter, r *http.Request, reversalId ReversalID, params RejectReversalParams) {
+	var request RejectReversalRequestObject
+
+	request.ReversalId = reversalId
+	request.Params = params
+
+	var body RejectReversalJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectReversal(ctx, request.(RejectReversalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectReversal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectReversalResponseObject); ok {
+		if err := validResponse.VisitRejectReversalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListTokenPrices operation middleware

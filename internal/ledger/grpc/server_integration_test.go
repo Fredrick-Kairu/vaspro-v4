@@ -29,6 +29,14 @@ var now = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
 // backed by a real app.Service on real Postgres as ledger_app.
 func newClient(t *testing.T) ledgerv1.LedgerServiceClient {
 	t.Helper()
+	client, _ := newClientWithDB(t)
+	return client
+}
+
+// newClientWithDB is newClient, also returning the superuser pool for
+// arranging rows the API can't write without staff.
+func newClientWithDB(t *testing.T) (ledgerv1.LedgerServiceClient, *vasdb.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	pg := testkit.StartPostgres(t, testkit.WithMigrations("../../../migrations/ledger"))
 	if _, err := pg.Pool.Exec(ctx, `CREATE ROLE ledger_app LOGIN PASSWORD 'ledger_app'; GRANT ledger_service TO ledger_app;`); err != nil {
@@ -60,7 +68,7 @@ func newClient(t *testing.T) ledgerv1.LedgerServiceClient {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	return ledgerv1.NewLedgerServiceClient(conn)
+	return ledgerv1.NewLedgerServiceClient(conn), pg.Pool
 }
 
 // wantStatus checks the gRPC code and, when reason isn't empty, the
@@ -305,4 +313,48 @@ func TestLedgerService_Errors(t *testing.T) {
 		_, err := client.CaptureHold(ctx, &ledgerv1.CaptureHoldRequest{TenantId: tenant, ReferenceType: "payout", ReferenceId: ref, CapturedMinor: 10})
 		wantStatus(t, err, codes.InvalidArgument, "VAL-4000")
 	})
+}
+
+// TestLedgerService_RecordPayback: the rail reports a reversal's
+// pay-back (task 3.7). A failure keeps it pending; success pays it back
+// and posts the pay-back; a chargeback has none (VAL-4016).
+func TestLedgerService_RecordPayback(t *testing.T) {
+	ctx := context.Background()
+	client, super := newClientWithDB(t)
+	tenant := uuid.NewString()
+	top, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
+		Posting: posting("topup", line(mpesaKES, "D", 50_000), line(mainKES, "C", 50_000))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A reversal already approved and posted: staff do that over HTTP.
+	reversal := func(kind, status string) string {
+		t.Helper()
+		id := uuid.New()
+		if _, err := super.Exec(ctx, `
+			INSERT INTO ledger.reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by,
+			                              approved_by, reversal_transaction_id, decided_at, kind, currency)
+			VALUES ($1, $2, $3, 100, 'duplicate', $4, $5, $6, $3, now(), $7, 'KES')`,
+			id, tenant, top.GetTransactionId(), status, uuid.New(), uuid.New(), kind); err != nil {
+			t.Fatal(err)
+		}
+		return id.String()
+	}
+	pending := reversal("payback", "payback_pending")
+
+	failed, err := client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: tenant, ReversalId: pending, Error: "timeout"})
+	if err != nil || failed.GetStatus() != "payback_pending" || failed.GetPaybackAttempts() != 1 || failed.GetPaybackTransactionId() != "" {
+		t.Fatalf("failure: %v, %v", failed, err)
+	}
+	paid, err := client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: tenant, ReversalId: pending, Succeeded: true, Reference: "R1"})
+	if err != nil || paid.GetStatus() != "paid_back" || paid.GetPaybackTransactionId() == "" {
+		t.Fatalf("success: %v, %v", paid, err)
+	}
+
+	_, err = client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: tenant, ReversalId: reversal("chargeback", "posted"), Succeeded: true})
+	wantStatus(t, err, codes.FailedPrecondition, "VAL-4016")
+	_, err = client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: uuid.NewString(), ReversalId: pending, Succeeded: true})
+	wantStatus(t, err, codes.NotFound, "VAL-4003")
+	_, err = client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: tenant, ReversalId: "x"})
+	wantStatus(t, err, codes.InvalidArgument, "VAL-4000")
 }

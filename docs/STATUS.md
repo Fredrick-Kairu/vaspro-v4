@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.6 done (2026-11-04). Next: 3.7, reversals with maker-checker.
+**Current task:** 3.1–3.7 done (3.7 on 2026-11-09). Next: 3.8, the nightly balance rebuild with a P1 event.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -383,6 +383,109 @@
       - auto-buy buying when it won't help, and a disabled rule buying (caught by the domain tests; in the app a useless purchase rolls back with the refused hold, and the domain re-checks `Enabled`, so both are defended twice).
   - **`make check`** (after staging): green first time. Lint 0 issues; 26 packages fresh, 44 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.6:** the dashboard's rule routes (3.9); `tokens.low`/`tokens.depleted` alerts (monitoring, Phase 16).
+
+- 3.7 Reversals with maker-checker (OQ-18). Your answers of 9 Nov:
+  - a finance lead at or above a pack threshold (KES 2,000);
+  - pay-back reported over gRPC;
+  - clawback from the wallets the maker names;
+  - no debt (refuse what isn't covered);
+  - only top-ups, in parts up to the original;
+  - the token prices' rules for raising and deciding.
+  - **Contract:**
+    - **Migrations:** `migrations/ledger/20261106160000_reversals.sql` and `migrations/identity/20261109090000_finance_lead.sql`. Additions to data model §5 and §3:
+      - **`reversals` gains** `kind`, `currency`, `clawback_services`, `rejected_by`/`rejection_reason`, `payback_transaction_id`, `payback_attempts` and `last_payback_error`.
+      - **CHECKs** say which decision columns each status carries, and which statuses each kind can reach.
+      - **NOLOGIN `ledger_reversal_review`** reads the queue across clients (`WithRoleTx` only).
+      - **`identity.staff_members.finance_lead`** marks finance leads.
+    - **Packs:** an optional `ledger.reversal_finance_lead_minor`; KE has 200000. Without it, every reversal needs a finance lead (fails closed).
+    - **Codes:**
+      - **BAL-4007** not covered;
+      - **VAL-4015** over the original;
+      - **VAL-4016** not awaiting pay-back;
+      - **AUTH-4026** finance lead required.
+    - **HTTP:** `/v1/ledger/staff/reversals`: create, list, get with a live preview, approval, rejection.
+    - **gRPC:**
+      - ledger `RecordPayback`;
+      - identity's `IsStaffResponse.finance_lead`.
+    - **Events:** `reversal.requested`, `.approved`, `.posted` and `.paid_back`, plus **`reversal.rejected`** (an addition, so every decision is in the trail).
+    - **CLI:** `vaspro identity grant-finance-lead | revoke-finance-lead -by <operator> <email>` (staff only).
+  - **Rules** (`domain/reversals.go`):
+    - `ValidateNewReversal`, `CheckReversalCap`, `NeedsFinanceLead`, and the state machine (`CanDecideReversal`, `StatusAfterPosting`, `RecordPayback`).
+    - **`PlanReversal`:** the main wallet up to its available balance, then each named wallet's unheld tokens, newest lot first.
+      - Held tokens are reserved from the oldest lots, which settlement draws first.
+      - Each draw is valued by the lot's cumulative rounding, so a lot used and clawed back still sums to its cost.
+      - It takes the fewest tokens covering what's left. At half-up rounding, 2,500 at 0.50 is 49.99 tokens.
+      - A one-step overshoot comes back off the main wallet's line (a credit if it must; a reversal is exempt from "allocation is final").
+      - Tokens worth under a minor unit stay put, since no line can be zero.
+  - **App** (`app/reversals.go`):
+    - **`RequestReversal`:** staff and step-up; the tenant's own top-up only (anything else VAL-4003); the cap is checked under the main wallet's balance lock, the serialisation point, because the service can't lock the append-only transaction.
+    - **`ApproveReversal`:**
+      - not the maker (VAL-4013); a finance lead at or above the threshold;
+      - in the tenant's transaction: lock the reversal, re-check the cap, lock the balances and then the lots;
+      - plan, then post (type `reversal`, `reverses_id` the top-up, key `reversal:<id>`);
+      - draw the lots into `lot_consumptions`, set the status, and write the events.
+      - A shortfall writes nothing and the reversal stays requested.
+    - **`RejectReversal`** (a reason is required), **`GetReversal`** (an unlocked preview while requested) and **`ListReversals`**.
+    - **`RecordPayback`:** success posts the pay-back (Dr reversal clearing, Cr the top-up's provider clearing; key `payback:<id>`); a repeat is a replay; a failure records the attempt and the money stays in clearing.
+    - `PostRequest` gained an internal `reverses` for `transactions.reverses_id`.
+  - **Tests:**
+    - **domain:**
+      - validation, the cap, the threshold;
+      - `PlanReversal`: main only, newest lot first with the fewest tokens, spilling across lots and then wallets in order, held tokens excluded and reserved from the oldest lots, not covered, overshoot credited back;
+      - **a lot used then clawed back sums to its cost** (5 prices × 4 usages);
+      - **one micro-token fewer never covers it**;
+      - `ClawableValue` and the state machine table.
+    - **app:**
+      - **the worked example reversed:** 13,000.00 topped up and 8,000.00 in 10,000 SMS units. Reversing it all leaves main 0, SMS 0 with no tokens and clearing 13,000.00; lot consumptions are worth 8,000.00 and `reverses_id` is the top-up. A failed pay-back leaves clearing at 13,000.00; a successful one empties clearing and puts M-Pesa's clearing back to 0. A repeat posts nothing, and a later failure is VAL-4016.
+      - a chargeback credits M-Pesa's clearing and skips clearing;
+      - the cap with a rejection freeing its share; not-a-top-up, another tenant's and absent originals not found;
+      - **10 concurrent requests on one top-up: exactly 5 through**;
+      - clawback: main alone short, held tokens never clawed, exactly what's free, with the preview;
+      - newest lot first across two prices;
+      - maker-checker: non-staff, stale step-up, validation writing nothing, the maker can't approve or reject, plain staff refused at KES 2,000 and allowed at 1,999.99, a finance lead allowed, a second decision VAL-4014, a rejection needing a reason, unknown IDs, identity down fails closed;
+      - the list across clients, by status, paged.
+      - Every event is checked against its schema.
+    - **identity:** grant and revoke of finance lead (staff only, events, revoking staff drops it); the flag over gRPC.
+    - **packs:** KE's threshold; none without a block; 0, negative, fractional and string thresholds refused.
+    - **store:** every new CHECK both ways (5 allowed shapes, 13 refused); the review role only inside `WithRoleTx`, with no writes.
+    - **gRPC:** `RecordPayback` (failure, success, a chargeback VAL-4016, another tenant NOT_FOUND, a malformed ID); `TestToStatus` gains BAL-4007 and VAL-4016.
+    - **API:**
+      - the spec-driven 401/403 test now names all nine staff operations;
+      - `TestReversalsAPI` covers the codes (VAL-4003, VAL-4015, VAL-4000, VAL-4013, AUTH-4026, VAL-4014, BAL-4007), the replayed creation, the preview, rejection and the list.
+    - **Property test:**
+      - **New steps:** a reversal step (sometimes the client first spends most of its main wallet on tokens, so clawback is reached) and a pay-back step.
+      - **New invariants:** reversal clearing equals the pay-backs still owed, per currency; no top-up is reversed beyond itself.
+      - It fails if no reversal clawed tokens back. Six fresh seeds were green, with 8–16 clawbacks a run.
+    - **Earlier tests changed for the schema, not weakened:** the 3.1 store fixtures that insert reversals now give `kind` and `currency`, which are required now. Without them they would have failed on NOT NULL rather than the rule they test.
+    - **Order of work:**
+      - the packs, identity and app tests were seen failing first (the app's against stubs answering "not built");
+      - **the domain code was written before its tests were run**, and the store and gRPC tests came after the code. The mutation checks below stand in for seeing those fail.
+    - **Fixes while writing them:**
+      - two of my expectations forgot half-up rounding (19.99 and 49.99 tokens, not 20 and 50; the code was right);
+      - the property test's first draft overwrote a refused approval's reversal before rejecting it;
+      - it also reached clawback 0–1 times a run, so a pass meant little; it now tracks what's left of each top-up and spends the main wallet first.
+      - **A real bug the gRPC test found:** `RecordPayback` opened reversal clearing for the loaded packs' currencies, so a service without packs failed with SYS-9000. It now opens the reversal's own currency.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - per-draw rounding in clawback;
+      - oldest lot first;
+      - clawing held tokens;
+      - no finance-lead check;
+      - **no main-wallet lock at request** (6–10 of 10 through, not 5);
+      - a chargeback crediting reversal clearing;
+      - the maker deciding (the database's CHECK also refuses it, as SYS-9000);
+      - the rejected-status CHECK.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 39 packages fresh (`identity/app` 360s, `accounts/app` 190s, `ledger/app` 107s, `ledger/store` 87s), 31 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the ledger's login role reaches `ledger_reversal_review` through `ledger_service` (granted in the migration);
+    - run `vaspro identity grant-finance-lead` for finance leads;
+    - `docs/api/API.md` lives on `ops/dev-environment` and needs regenerating there after this merges.
+  - **Not in 3.7:**
+    - recorded debt (refused instead, your call);
+    - credit notes (billing, Phase 11, from `reversal.posted`);
+    - pay-back execution and retries (Payments, Phase 13);
+    - a `payment.reversed` event (system design §4.3 names it; it's Payments' event);
+    - bonus wallets as a clawback source;
+    - checking `evidence_document_id` against accounts (stored as given).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -944,7 +1047,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.7: reversals with maker-checker (system design §4.3).
+1. Task 3.8: the nightly job that rebuilds every balance from the entries and raises a P1 event on any difference.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).

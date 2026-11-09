@@ -37,6 +37,7 @@ service IdentityService {
   // IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
   // ask on every staff action, so a revocation takes effect at once.
   // A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+  // It also says whether the user is a finance lead (task 3.7).
   rpc IsStaff(IsStaffRequest) returns (IsStaffResponse);
 }
 
@@ -96,4 +97,7 @@ message IsStaffRequest {
 
 message IsStaffResponse {
   bool is_staff = 1;
+  // A finance lead approves reversals at or above the country pack's
+  // threshold (task 3.7). Only staff can be one.
+  bool finance_lead = 2;
 }

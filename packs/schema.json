@@ -42,6 +42,18 @@
         }
       }
     },
+    "ledger": {
+      "type": "object",
+      "description": "Ledger rules for this country (task 3.7, OQ-18).",
+      "additionalProperties": false,
+      "properties": {
+        "reversal_finance_lead_minor": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A reversal of at least this many minor units of the pack's currency needs a finance lead's approval (system design §4.3). Without it, every reversal does."
+        }
+      }
+    },
     "services": {
       "type": "object",
       "description": "Each service's minimum KYC tier and availability in this country (task 2.4, OQ-06), keyed by accounts' service code. accounts syncs it into service_country_rules; a service not listed uses the catalogue default and is enabled.",

@@ -235,6 +235,14 @@ type LedgerReversal struct {
 	PaybackReference      pgtype.Text        `json:"payback_reference"`
 	CreatedAt             time.Time          `json:"created_at"`
 	DecidedAt             pgtype.Timestamptz `json:"decided_at"`
+	Kind                  string             `json:"kind"`
+	Currency              string             `json:"currency"`
+	ClawbackServices      []string           `json:"clawback_services"`
+	RejectedBy            pgtype.UUID        `json:"rejected_by"`
+	RejectionReason       pgtype.Text        `json:"rejection_reason"`
+	PaybackTransactionID  pgtype.UUID        `json:"payback_transaction_id"`
+	PaybackAttempts       int32              `json:"payback_attempts"`
+	LastPaybackError      pgtype.Text        `json:"last_payback_error"`
 }
 
 type LedgerTaxRate struct {

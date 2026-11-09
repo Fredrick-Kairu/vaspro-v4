@@ -44,18 +44,24 @@ var (
 	ErrNotStaff = errors.New("app: staff only")
 	// ErrStepUpRequired: the session's step-up isn't fresh (AUTH-4012).
 	ErrStepUpRequired = errors.New("app: step-up required")
-	// ErrMakerCannotApprove: maker-checker, the price's maker approving
-	// it (VAL-4013).
-	ErrMakerCannotApprove = errors.New("app: a price's maker can't approve it")
+	// ErrMakerCannotApprove: maker-checker, a price's or reversal's maker
+	// deciding it (VAL-4013).
+	ErrMakerCannotApprove = errors.New("app: the maker can't decide their own request")
 	// ErrPriceDecided: the price was already approved or withdrawn
 	// (VAL-4014).
 	ErrPriceDecided = errors.New("app: price already decided")
 	// ErrPriceOverlap: approving would overlap an active price (VAL-4012).
 	ErrPriceOverlap = errors.New("app: price would overlap an active one")
+	// ErrFinanceLeadRequired: a reversal at or above the pack's threshold
+	// approved by staff who aren't a finance lead (AUTH-4026).
+	ErrFinanceLeadRequired = errors.New("app: a finance lead must approve this reversal")
 )
 
 // domain.ErrHoldState (BAL-4003) and domain.ErrAllocationFinal
-// (BAL-4004) are returned as they are.
+// (BAL-4004) are returned as they are, as are the reversal errors
+// domain.ErrReversalDecided (VAL-4014), ErrReversalExceedsOriginal
+// (VAL-4015), ErrNotAwaitingPayback (VAL-4016) and
+// ErrReversalNotCovered (BAL-4007).
 
 // Service holds the ledger's use cases.
 type Service struct {
@@ -117,6 +123,9 @@ type PostRequest struct {
 	// internal marks a posting from the ledger's own token use cases,
 	// the only ones that may touch a service wallet (OQ-15).
 	internal bool
+	// reverses is the transaction a reversal or pay-back undoes
+	// (transactions.reverses_id, task 3.7).
+	reverses *uuid.UUID
 }
 
 // PostedLine is a line as posted, with its account's ID.

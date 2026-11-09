@@ -1,6 +1,6 @@
 // Package staffcheck is a fake of the identity questions a staff action
-// asks (ledger's adapters.Identity): who is staff and whose step-up is
-// fresh. Nothing is staff or stepped up until a test says so; Fail makes
+// asks (ledger's adapters.Identity): who is staff, who is a finance
+// lead, and whose step-up is fresh. Nothing is staff or stepped up until a test says so; Fail makes
 // every question error, as identity being down would.
 package staffcheck
 
@@ -19,13 +19,14 @@ var ErrDown = errors.New("staffcheck: identity unavailable")
 type Fake struct {
 	mu        sync.Mutex
 	staff     map[uuid.UUID]bool
+	leads     map[uuid.UUID]bool
 	steppedUp map[[2]uuid.UUID]bool
 	down      bool
 }
 
 // New returns a Fake with no staff.
 func New() *Fake {
-	return &Fake{staff: map[uuid.UUID]bool{}, steppedUp: map[[2]uuid.UUID]bool{}}
+	return &Fake{staff: map[uuid.UUID]bool{}, leads: map[uuid.UUID]bool{}, steppedUp: map[[2]uuid.UUID]bool{}}
 }
 
 // SetStaff grants or revokes staff.
@@ -33,6 +34,14 @@ func (f *Fake) SetStaff(user uuid.UUID, staff bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.staff[user] = staff
+}
+
+// SetFinanceLead sets the finance-lead flag; it counts only for staff,
+// as in identity.
+func (f *Fake) SetFinanceLead(user uuid.UUID, lead bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.leads[user] = lead
 }
 
 // StepUp marks the user's session as freshly stepped up; Expire undoes it.
@@ -63,6 +72,15 @@ func (f *Fake) IsStaff(_ context.Context, userID uuid.UUID) (bool, error) {
 		return false, ErrDown
 	}
 	return f.staff[userID], nil
+}
+
+func (f *Fake) IsFinanceLead(_ context.Context, userID uuid.UUID) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.down {
+		return false, ErrDown
+	}
+	return f.staff[userID] && f.leads[userID], nil
 }
 
 func (f *Fake) IsStepUpFresh(_ context.Context, userID, sessionID uuid.UUID) (bool, error) {

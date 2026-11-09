@@ -577,7 +577,7 @@ I made these design choices to draw the flows; confirm or change them in your re
 - [x] **Token units:** are tokens message units with a consumption rate per route (as drawn), or a money balance per service?
 - [ ] **Unused tokens:** can they be moved back to the main wallet or refunded, and do they expire?
 - [x] **Tax point:** is VAT charged on the top-up, on the token purchase, or on use? This decides when invoices are issued.
-- [ ] **Reversals:** the amount above which a finance lead must approve, and who holds that role.
+- [x] **Reversals:** the amount above which a finance lead must approve, and who holds that role. *Answered 9 Nov 2026 (OQ-18): a per-currency threshold in the country pack, KES 2,000 in Kenya; finance leads are staff flagged by the ops CLI.*
 - [ ] **Payment window** for approved codes, per country, and whether any deposit is taken at application.
 - [ ] **Billing day and proration** policy for assets added mid-cycle.
 - [x] **Holding client money:** collections straight to the client's own paybill, or through VASPRO accounts with sweeps? The second option needs legal advice on payment service provider licensing.

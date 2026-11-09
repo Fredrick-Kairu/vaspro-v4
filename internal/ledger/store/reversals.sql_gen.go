@@ -12,34 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createReversal = `-- name: CreateReversal :one
-INSERT INTO ledger.reversals
-  (id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at
+const approveReversal = `-- name: ApproveReversal :one
+UPDATE ledger.reversals
+SET status = $1, approved_by = $2, decided_at = $3,
+    reversal_transaction_id = $4
+WHERE id = $5
+RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error
 `
 
-type CreateReversalParams struct {
-	ID                    uuid.UUID   `json:"id"`
-	TenantID              uuid.UUID   `json:"tenant_id"`
-	OriginalTransactionID uuid.UUID   `json:"original_transaction_id"`
-	AmountMinor           int64       `json:"amount_minor"`
-	Reason                string      `json:"reason"`
-	EvidenceDocumentID    pgtype.UUID `json:"evidence_document_id"`
-	Status                string      `json:"status"`
-	RequestedBy           uuid.UUID   `json:"requested_by"`
+type ApproveReversalParams struct {
+	Status                string             `json:"status"`
+	ApprovedBy            pgtype.UUID        `json:"approved_by"`
+	DecidedAt             pgtype.Timestamptz `json:"decided_at"`
+	ReversalTransactionID pgtype.UUID        `json:"reversal_transaction_id"`
+	ID                    uuid.UUID          `json:"id"`
 }
 
-func (q *Queries) CreateReversal(ctx context.Context, arg CreateReversalParams) (LedgerReversal, error) {
-	row := q.db.QueryRow(ctx, createReversal,
-		arg.ID,
-		arg.TenantID,
-		arg.OriginalTransactionID,
-		arg.AmountMinor,
-		arg.Reason,
-		arg.EvidenceDocumentID,
+func (q *Queries) ApproveReversal(ctx context.Context, arg ApproveReversalParams) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, approveReversal,
 		arg.Status,
-		arg.RequestedBy,
+		arg.ApprovedBy,
+		arg.DecidedAt,
+		arg.ReversalTransactionID,
+		arg.ID,
 	)
 	var i LedgerReversal
 	err := row.Scan(
@@ -56,12 +51,83 @@ func (q *Queries) CreateReversal(ctx context.Context, arg CreateReversalParams) 
 		&i.PaybackReference,
 		&i.CreatedAt,
 		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
+	)
+	return i, err
+}
+
+const createReversal = `-- name: CreateReversal :one
+INSERT INTO ledger.reversals
+  (id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by,
+   kind, currency, clawback_services)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error
+`
+
+type CreateReversalParams struct {
+	ID                    uuid.UUID   `json:"id"`
+	TenantID              uuid.UUID   `json:"tenant_id"`
+	OriginalTransactionID uuid.UUID   `json:"original_transaction_id"`
+	AmountMinor           int64       `json:"amount_minor"`
+	Reason                string      `json:"reason"`
+	EvidenceDocumentID    pgtype.UUID `json:"evidence_document_id"`
+	Status                string      `json:"status"`
+	RequestedBy           uuid.UUID   `json:"requested_by"`
+	Kind                  string      `json:"kind"`
+	Currency              string      `json:"currency"`
+	ClawbackServices      []string    `json:"clawback_services"`
+}
+
+func (q *Queries) CreateReversal(ctx context.Context, arg CreateReversalParams) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, createReversal,
+		arg.ID,
+		arg.TenantID,
+		arg.OriginalTransactionID,
+		arg.AmountMinor,
+		arg.Reason,
+		arg.EvidenceDocumentID,
+		arg.Status,
+		arg.RequestedBy,
+		arg.Kind,
+		arg.Currency,
+		arg.ClawbackServices,
+	)
+	var i LedgerReversal
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OriginalTransactionID,
+		&i.AmountMinor,
+		&i.Reason,
+		&i.EvidenceDocumentID,
+		&i.Status,
+		&i.RequestedBy,
+		&i.ApprovedBy,
+		&i.ReversalTransactionID,
+		&i.PaybackReference,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
 	)
 	return i, err
 }
 
 const getReversal = `-- name: GetReversal :one
-SELECT id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at FROM ledger.reversals WHERE id = $1
+SELECT id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error FROM ledger.reversals WHERE id = $1
 `
 
 func (q *Queries) GetReversal(ctx context.Context, id uuid.UUID) (LedgerReversal, error) {
@@ -81,6 +147,276 @@ func (q *Queries) GetReversal(ctx context.Context, id uuid.UUID) (LedgerReversal
 		&i.PaybackReference,
 		&i.CreatedAt,
 		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
 	)
 	return i, err
+}
+
+const getReversalTenant = `-- name: GetReversalTenant :one
+SELECT tenant_id FROM ledger.reversals WHERE id = $1
+`
+
+// Which client a reversal belongs to, read as ledger_reversal_review so
+// staff can then act in that client's own transaction.
+func (q *Queries) GetReversalTenant(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getReversalTenant, id)
+	var tenant_id uuid.UUID
+	err := row.Scan(&tenant_id)
+	return tenant_id, err
+}
+
+const listReversalsPage = `-- name: ListReversalsPage :many
+SELECT id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error FROM ledger.reversals
+WHERE ($1::uuid IS NULL OR tenant_id = $1)
+  AND ($2::text IS NULL OR status = $2)
+  AND ($3::uuid IS NULL OR id > $3)
+ORDER BY id
+LIMIT $4
+`
+
+type ListReversalsPageParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	Status   pgtype.Text `json:"status"`
+	After    pgtype.UUID `json:"after"`
+	MaxRows  int32       `json:"max_rows"`
+}
+
+// Staff's queue across clients (task 3.7), run as
+// ledger_reversal_review: oldest first (ids are UUIDv7), filtered,
+// after a cursor.
+func (q *Queries) ListReversalsPage(ctx context.Context, arg ListReversalsPageParams) ([]LedgerReversal, error) {
+	rows, err := q.db.Query(ctx, listReversalsPage,
+		arg.TenantID,
+		arg.Status,
+		arg.After,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerReversal
+	for rows.Next() {
+		var i LedgerReversal
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OriginalTransactionID,
+			&i.AmountMinor,
+			&i.Reason,
+			&i.EvidenceDocumentID,
+			&i.Status,
+			&i.RequestedBy,
+			&i.ApprovedBy,
+			&i.ReversalTransactionID,
+			&i.PaybackReference,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.Kind,
+			&i.Currency,
+			&i.ClawbackServices,
+			&i.RejectedBy,
+			&i.RejectionReason,
+			&i.PaybackTransactionID,
+			&i.PaybackAttempts,
+			&i.LastPaybackError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockReversal = `-- name: LockReversal :one
+SELECT id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error FROM ledger.reversals WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockReversal(ctx context.Context, id uuid.UUID) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, lockReversal, id)
+	var i LedgerReversal
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OriginalTransactionID,
+		&i.AmountMinor,
+		&i.Reason,
+		&i.EvidenceDocumentID,
+		&i.Status,
+		&i.RequestedBy,
+		&i.ApprovedBy,
+		&i.ReversalTransactionID,
+		&i.PaybackReference,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
+	)
+	return i, err
+}
+
+const markReversalPaidBack = `-- name: MarkReversalPaidBack :one
+UPDATE ledger.reversals
+SET status = 'paid_back', payback_transaction_id = $1, payback_reference = $2
+WHERE id = $3
+RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error
+`
+
+type MarkReversalPaidBackParams struct {
+	PaybackTransactionID pgtype.UUID `json:"payback_transaction_id"`
+	PaybackReference     pgtype.Text `json:"payback_reference"`
+	ID                   uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) MarkReversalPaidBack(ctx context.Context, arg MarkReversalPaidBackParams) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, markReversalPaidBack, arg.PaybackTransactionID, arg.PaybackReference, arg.ID)
+	var i LedgerReversal
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OriginalTransactionID,
+		&i.AmountMinor,
+		&i.Reason,
+		&i.EvidenceDocumentID,
+		&i.Status,
+		&i.RequestedBy,
+		&i.ApprovedBy,
+		&i.ReversalTransactionID,
+		&i.PaybackReference,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
+	)
+	return i, err
+}
+
+const recordReversalPaybackFailure = `-- name: RecordReversalPaybackFailure :one
+UPDATE ledger.reversals
+SET payback_attempts = payback_attempts + 1, last_payback_error = $1,
+    payback_reference = coalesce($2, payback_reference)
+WHERE id = $3
+RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error
+`
+
+type RecordReversalPaybackFailureParams struct {
+	LastPaybackError pgtype.Text `json:"last_payback_error"`
+	PaybackReference pgtype.Text `json:"payback_reference"`
+	ID               uuid.UUID   `json:"id"`
+}
+
+// A failed pay-back leaves the reversal pending, the money still in
+// reversal_clearing, for the rail's retry (system design §4.3).
+func (q *Queries) RecordReversalPaybackFailure(ctx context.Context, arg RecordReversalPaybackFailureParams) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, recordReversalPaybackFailure, arg.LastPaybackError, arg.PaybackReference, arg.ID)
+	var i LedgerReversal
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OriginalTransactionID,
+		&i.AmountMinor,
+		&i.Reason,
+		&i.EvidenceDocumentID,
+		&i.Status,
+		&i.RequestedBy,
+		&i.ApprovedBy,
+		&i.ReversalTransactionID,
+		&i.PaybackReference,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
+	)
+	return i, err
+}
+
+const rejectReversal = `-- name: RejectReversal :one
+UPDATE ledger.reversals
+SET status = 'rejected', rejected_by = $1, rejection_reason = $2, decided_at = $3
+WHERE id = $4
+RETURNING id, tenant_id, original_transaction_id, amount_minor, reason, evidence_document_id, status, requested_by, approved_by, reversal_transaction_id, payback_reference, created_at, decided_at, kind, currency, clawback_services, rejected_by, rejection_reason, payback_transaction_id, payback_attempts, last_payback_error
+`
+
+type RejectReversalParams struct {
+	RejectedBy      pgtype.UUID        `json:"rejected_by"`
+	RejectionReason pgtype.Text        `json:"rejection_reason"`
+	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
+	ID              uuid.UUID          `json:"id"`
+}
+
+func (q *Queries) RejectReversal(ctx context.Context, arg RejectReversalParams) (LedgerReversal, error) {
+	row := q.db.QueryRow(ctx, rejectReversal,
+		arg.RejectedBy,
+		arg.RejectionReason,
+		arg.DecidedAt,
+		arg.ID,
+	)
+	var i LedgerReversal
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OriginalTransactionID,
+		&i.AmountMinor,
+		&i.Reason,
+		&i.EvidenceDocumentID,
+		&i.Status,
+		&i.RequestedBy,
+		&i.ApprovedBy,
+		&i.ReversalTransactionID,
+		&i.PaybackReference,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.Kind,
+		&i.Currency,
+		&i.ClawbackServices,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.PaybackTransactionID,
+		&i.PaybackAttempts,
+		&i.LastPaybackError,
+	)
+	return i, err
+}
+
+const sumLiveReversals = `-- name: SumLiveReversals :one
+SELECT coalesce(sum(amount_minor), 0)::bigint FROM ledger.reversals
+WHERE original_transaction_id = $1 AND status <> 'rejected'
+`
+
+// What the top-up's reversals take already (task 3.7): every one that
+// wasn't rejected. The caller holds the main wallet's balance row lock,
+// which serialises reversals of the tenant's top-ups.
+func (q *Queries) SumLiveReversals(ctx context.Context, originalTransactionID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, sumLiveReversals, originalTransactionID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }

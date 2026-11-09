@@ -19,6 +19,7 @@ import (
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
@@ -28,6 +29,7 @@ import (
 type harness struct {
 	router http.Handler
 	staff  *staffcheck.Fake
+	svc    *app.Service
 }
 
 func newHarness(t *testing.T) harness {
@@ -44,7 +46,7 @@ func newHarness(t *testing.T) harness {
 	t.Cleanup(pool.Close)
 	staff := staffcheck.New()
 	svc := app.New(app.Deps{Pool: pool, Clock: testkit.NewClock(time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)), Identity: staff})
-	return harness{router: api.Routes(api.NewHandlers(svc), slog.Default(), nil, idempotency.NewPostgresStore(pool)), staff: staff}
+	return harness{router: api.Routes(api.NewHandlers(svc), slog.Default(), nil, idempotency.NewPostgresStore(pool)), staff: staff, svc: svc}
 }
 
 type caller struct{ user, session uuid.UUID }
@@ -197,7 +199,11 @@ func TestStaffOperations_RefuseEveryoneElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bodies := map[string]any{"createTokenPrice": deal(uuid.New(), "50")}
+	bodies := map[string]any{
+		"createTokenPrice": deal(uuid.New(), "50"),
+		"createReversal":   reversal(uuid.New(), uuid.New(), 100),
+		"rejectReversal":   map[string]any{"reason": "no"},
+	}
 
 	var ops []string
 	for path, item := range spec.Paths.Map() {
@@ -206,7 +212,7 @@ func TestStaffOperations_RefuseEveryoneElse(t *testing.T) {
 		}
 		for method, op := range item.Operations() {
 			ops = append(ops, op.OperationID)
-			concrete := strings.ReplaceAll(path, "{priceId}", uuid.NewString())
+			concrete := strings.NewReplacer("{priceId}", uuid.NewString(), "{reversalId}", uuid.NewString()).Replace(path)
 			t.Run(op.OperationID, func(t *testing.T) {
 				status, body := h.do(t, method, concrete, nil, bodies[op.OperationID], "")
 				wantProblem(t, status, body, http.StatusUnauthorized, "AUTH-4010")
@@ -219,8 +225,102 @@ func TestStaffOperations_RefuseEveryoneElse(t *testing.T) {
 		}
 	}
 	sort.Strings(ops)
-	want := []string{"approveTokenPrice", "createTokenPrice", "listTokenPrices", "withdrawTokenPrice"}
+	want := []string{"approveReversal", "approveTokenPrice", "createReversal", "createTokenPrice", "getReversal",
+		"listReversals", "listTokenPrices", "rejectReversal", "withdrawTokenPrice"}
 	if strings.Join(ops, ",") != strings.Join(want, ",") {
 		t.Fatalf("staff operations in the spec %v, cases written for %v: add the new one's case", ops, want)
 	}
+}
+
+func reversal(tenant, original uuid.UUID, amount int64) map[string]any {
+	return map[string]any{
+		"tenant_id": tenant.String(), "original_transaction_id": original.String(), "kind": "payback",
+		"amount_minor": amount, "reason": "paid twice",
+	}
+}
+
+// TestReversalsAPI covers the reversal routes' codes (task 3.7). This
+// service has no country pack, so every reversal needs a finance lead
+// (fails closed).
+func TestReversalsAPI(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	maker, checker, lead := h.staffMember(), h.staffMember(), h.staffMember()
+	h.staff.SetFinanceLead(lead.user, true)
+	tenant := uuid.New()
+	main := domain.AccountKey{Type: domain.MainWallet, Currency: "KES"}
+	mpesa := domain.AccountKey{Type: domain.ProviderClearing, Rail: "mpesa_ke", Currency: "KES"}
+	top, err := h.svc.Post(ctx, app.PostRequest{TenantID: &tenant, IdempotencyKey: "t1", Type: domain.TxnTopup, Description: "top-up",
+		Lines: []domain.Line{{Account: mpesa, Direction: domain.Debit, AmountMinor: 50_000}, {Account: main, Direction: domain.Credit, AmountMinor: 50_000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const base = "/v1/ledger/staff/reversals"
+
+	key := uuid.NewString()
+	status, created := h.do(t, http.MethodPost, base, &maker, reversal(tenant, top.TransactionID, 30_000), key)
+	if status != http.StatusCreated || created["status"] != "requested" || created["currency"] != "KES" || created["requested_by"] != maker.user.String() {
+		t.Fatalf("create: %d %v", status, created)
+	}
+	id := created["id"].(string)
+	if status, again := h.do(t, http.MethodPost, base, &maker, reversal(tenant, top.TransactionID, 30_000), key); status != http.StatusCreated || again["id"] != id {
+		t.Fatalf("replay: %d %v", status, again)
+	}
+
+	t.Run("refusals at request", func(t *testing.T) {
+		status, body := h.do(t, http.MethodPost, base, &maker, reversal(tenant, uuid.New(), 1), "")
+		wantProblem(t, status, body, http.StatusNotFound, "VAL-4003")
+		status, body = h.do(t, http.MethodPost, base, &maker, reversal(tenant, top.TransactionID, 20_001), "")
+		wantProblem(t, status, body, http.StatusConflict, "VAL-4015")
+		bad := reversal(tenant, top.TransactionID, 1)
+		bad["kind"] = "refund"
+		status, body = h.do(t, http.MethodPost, base, &maker, bad, "")
+		wantProblem(t, status, body, http.StatusBadRequest, "VAL-4000")
+	})
+
+	t.Run("the preview", func(t *testing.T) {
+		status, got := h.do(t, http.MethodGet, base+"/"+id, &checker, nil, "")
+		preview, _ := got["preview"].(map[string]any)
+		if status != http.StatusOK || preview == nil || preview["covered"] != true || preview["from_main_minor"] != float64(30_000) {
+			t.Fatalf("get: %d %v", status, got)
+		}
+	})
+
+	t.Run("who may approve", func(t *testing.T) {
+		status, body := h.do(t, http.MethodPost, base+"/"+id+"/approval", &maker, nil, "")
+		wantProblem(t, status, body, http.StatusForbidden, "VAL-4013")
+		status, body = h.do(t, http.MethodPost, base+"/"+id+"/approval", &checker, nil, "")
+		wantProblem(t, status, body, http.StatusForbidden, "AUTH-4026")
+	})
+
+	status, approved := h.do(t, http.MethodPost, base+"/"+id+"/approval", &lead, nil, "")
+	if status != http.StatusOK || approved["status"] != "payback_pending" || approved["reversal_transaction_id"] == nil {
+		t.Fatalf("approve: %d %v", status, approved)
+	}
+	status, body := h.do(t, http.MethodPost, base+"/"+id+"/approval", &lead, nil, "")
+	wantProblem(t, status, body, http.StatusConflict, "VAL-4014")
+
+	t.Run("not covered, then rejected", func(t *testing.T) {
+		_, second := h.do(t, http.MethodPost, base, &maker, reversal(tenant, top.TransactionID, 20_000), "")
+		if _, err := h.svc.PlaceHold(ctx, app.HoldRequest{TenantID: tenant, Account: main, ReferenceType: "fee", ReferenceID: uuid.New(),
+			AmountMinor: 1, ExpiresAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)}); err != nil {
+			t.Fatal(err)
+		}
+		id := second["id"].(string)
+		status, body := h.do(t, http.MethodPost, base+"/"+id+"/approval", &lead, nil, "")
+		wantProblem(t, status, body, http.StatusConflict, "BAL-4007")
+		status, body = h.do(t, http.MethodPost, base+"/"+id+"/rejection", &checker, map[string]any{"reason": " "}, "")
+		wantProblem(t, status, body, http.StatusBadRequest, "VAL-4000")
+		status, rejected := h.do(t, http.MethodPost, base+"/"+id+"/rejection", &checker, map[string]any{"reason": "the client kept the money"}, "")
+		if status != http.StatusOK || rejected["status"] != "rejected" || rejected["rejection_reason"] != "the client kept the money" {
+			t.Fatalf("reject: %d %v", status, rejected)
+		}
+	})
+
+	t.Run("the list by status", func(t *testing.T) {
+		status, page := h.do(t, http.MethodGet, base+"?status=rejected", &checker, nil, "")
+		if status != http.StatusOK || len(page["reversals"].([]any)) != 1 {
+			t.Fatalf("list: %d %v", status, page)
+		}
+	})
 }

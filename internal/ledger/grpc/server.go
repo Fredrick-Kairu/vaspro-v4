@@ -210,6 +210,29 @@ func (s *Server) ListAutoBuyRules(ctx context.Context, req *ledgerv1.ListAutoBuy
 	return out, nil
 }
 
+// RecordPayback implements ledgerv1.LedgerServiceServer (task 3.7).
+func (s *Server) RecordPayback(ctx context.Context, req *ledgerv1.RecordPaybackRequest) (*ledgerv1.RecordPaybackResponse, error) {
+	tenant, err := requiredTenant(req.GetTenantId())
+	if err != nil {
+		return nil, err
+	}
+	id, err := parseUUID("reversal_id", req.GetReversalId())
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.svc.RecordPayback(ctx, app.PaybackReport{
+		TenantID: tenant, ReversalID: id, Succeeded: req.GetSucceeded(), Reference: req.GetReference(), Error: req.GetError(),
+	})
+	if err != nil {
+		return nil, s.toStatus(err)
+	}
+	out := &ledgerv1.RecordPaybackResponse{Status: string(r.Status), PaybackAttempts: r.PaybackAttempts}
+	if r.PaybackTransactionID != nil {
+		out.PaybackTransactionId = r.PaybackTransactionID.String()
+	}
+	return out, nil
+}
+
 func autoBuyRuleMessage(r app.AutoBuyRule) *ledgerv1.AutoBuyRule {
 	m := &ledgerv1.AutoBuyRule{
 		RuleId: r.ID.String(), ServiceCode: r.ServiceCode, Currency: r.Currency,
@@ -253,7 +276,7 @@ func (s *Server) toStatus(err error) error {
 	case errors.Is(err, app.ErrValidation):
 		return withCode(codes.InvalidArgument, problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
-		return withCode(codes.NotFound, problem.VAL4003, "no such hold")
+		return withCode(codes.NotFound, problem.VAL4003, "not found")
 	case errors.Is(err, app.ErrIdempotencyConflict):
 		return withCode(codes.AlreadyExists, problem.VAL4001, err.Error())
 	case errors.Is(err, app.ErrInsufficientBalance):
@@ -268,6 +291,10 @@ func (s *Server) toStatus(err error) error {
 		return withCode(codes.InvalidArgument, problem.BAL4004, err.Error())
 	case errors.Is(err, app.ErrNoPrice):
 		return withCode(codes.FailedPrecondition, problem.BAL4005, err.Error())
+	case errors.Is(err, domain.ErrNotAwaitingPayback):
+		return withCode(codes.FailedPrecondition, problem.VAL4016, err.Error())
+	case errors.Is(err, domain.ErrReversalNotCovered):
+		return withCode(codes.FailedPrecondition, problem.BAL4007, err.Error())
 	}
 	s.log.Error("ledger: request failed", "error", err)
 	return withCode(codes.Internal, problem.SYS9000, "internal error")

@@ -52,6 +52,11 @@ kyb:
     - tax_certificate
     - proof_of_address
 
+# A reversal of KES 2,000 or more needs a finance lead's approval
+# (task 3.7, OQ-18; system design §4.3). Minor units.
+ledger:
+  reversal_finance_lead_minor: 200000
+
 # Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
 # requirements' tier table. accounts syncs these into
 # service_country_rules at startup.

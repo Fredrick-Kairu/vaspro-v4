@@ -33,6 +33,8 @@ func TestToStatus(t *testing.T) {
 		{domain.ErrAllocationFinal, codes.InvalidArgument, "BAL-4004"},
 		{app.ErrNoPrice, codes.FailedPrecondition, "BAL-4005"},
 		{app.ErrAccountNotOpen, codes.FailedPrecondition, "BAL-4006"},
+		{domain.ErrReversalNotCovered, codes.FailedPrecondition, "BAL-4007"},
+		{domain.ErrNotAwaitingPayback, codes.FailedPrecondition, "VAL-4016"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.reason, func(t *testing.T) {

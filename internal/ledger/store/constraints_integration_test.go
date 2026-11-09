@@ -218,14 +218,14 @@ func TestOtherTables_Constraints(t *testing.T) {
 			INSERT INTO auto_buy_rules (id, tenant_id, service_code, currency, below_tokens, buy_tokens)
 			VALUES ($1, $2, 'sms', 'KES', 5, 50)`, []any{uuid.New(), tenant}, "23505"},
 		{"a reversal approved by its own maker", `
-			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, approved_by)
-			VALUES ($1, $2, $3, 100, 'chargeback', 'approved', $4, $4)`, []any{uuid.New(), tenant, txn, maker}, "23514"},
+			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, approved_by, kind, currency)
+			VALUES ($1, $2, $3, 100, 'chargeback', 'approved', $4, $4, 'chargeback', 'KES')`, []any{uuid.New(), tenant, txn, maker}, "23514"},
 		{"a zero reversal", `
-			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by)
-			VALUES ($1, $2, $3, 0, 'chargeback', 'requested', $4)`, []any{uuid.New(), tenant, txn, maker}, "23514"},
+			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, kind, currency)
+			VALUES ($1, $2, $3, 0, 'chargeback', 'requested', $4, 'chargeback', 'KES')`, []any{uuid.New(), tenant, txn, maker}, "23514"},
 		{"a reversal in an unknown status", `
-			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by)
-			VALUES ($1, $2, $3, 1, 'chargeback', 'done', $4)`, []any{uuid.New(), tenant, txn, maker}, "23514"},
+			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, kind, currency)
+			VALUES ($1, $2, $3, 1, 'chargeback', 'done', $4, 'chargeback', 'KES')`, []any{uuid.New(), tenant, txn, maker}, "23514"},
 		{"a negative held amount", `UPDATE balances SET held_minor = -1 WHERE account_id = $1`, []any{wallet}, "23514"},
 		{"a second VAT rate from the same day", `
 			INSERT INTO tax_rates (country_code, tax_code, rate, effective_from) VALUES ('KE', 'VAT', 0.1500, '2026-01-01')`, nil, "23505"},
@@ -242,8 +242,8 @@ func TestOtherTables_Constraints(t *testing.T) {
 
 	t.Run("a reversal approved by someone else", func(t *testing.T) {
 		if _, err := db.super.Exec(ctx, `
-			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, approved_by)
-			VALUES ($1, $2, $3, 100, 'chargeback', 'approved', $4, $5)`, uuid.New(), tenant, txn, maker, uuid.New()); err != nil {
+			INSERT INTO reversals (id, tenant_id, original_transaction_id, amount_minor, reason, status, requested_by, approved_by, kind, currency)
+			VALUES ($1, $2, $3, 100, 'chargeback', 'approved', $4, $5, 'chargeback', 'KES')`, uuid.New(), tenant, txn, maker, uuid.New()); err != nil {
 			t.Fatal(err)
 		}
 	})

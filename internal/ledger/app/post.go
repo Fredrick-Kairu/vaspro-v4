@@ -124,7 +124,8 @@ func (s *Service) postInTx(ctx context.Context, tx pgx.Tx, req PostRequest) (Pos
 	if _, err := q.CreateTransaction(ctx, store.CreateTransactionParams{
 		ID: txnID, TenantID: pgUUID(req.TenantID), Type: store.LedgerTxnType(req.Type),
 		IdempotencyKey: req.IdempotencyKey, ReferenceType: text(req.ReferenceType),
-		ReferenceID: pgUUID(req.ReferenceID), Description: req.Description, CreatedBy: pgUUID(req.CreatedBy),
+		ReferenceID: pgUUID(req.ReferenceID), ReversesID: pgUUID(req.reverses),
+		Description: req.Description, CreatedBy: pgUUID(req.CreatedBy),
 	}); err != nil {
 		return PostResult{}, fmt.Errorf("app: writing the transaction: %w", err)
 	}

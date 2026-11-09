@@ -176,6 +176,209 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals:
+    post:
+      operationId: createReversal
+      summary: Raise a reversal of a client's top-up (staff only, step-up)
+      description: >
+        The maker of maker-checker (system design §4.3, task 3.7,
+        OQ-18). Only a client's top-up can be reversed, in whole or in
+        parts; open and completed reversals of it never add up to more
+        than it (VAL-4015). kind payback pays the money back through
+        the rail; chargeback and operator skip the pay-back because the
+        rail already moved it. clawback_services names the service
+        wallets whose unused tokens may be clawed back, in order, if the
+        main wallet falls short. Nothing is posted until a different
+        staff member approves it. Staff only (AUTH-4025), with a fresh
+        step-up (AUTH-4012); a transaction that isn't the client's
+        top-up is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversalCreateRequest'
+            example:
+              tenant_id: "0192c3a1-7f00-7000-8000-000000000001"
+              original_transaction_id: "0192c3a1-7f00-7000-8000-0000000000a1"
+              kind: payback
+              amount_minor: 1300000
+              reason: "Client paid the same invoice twice"
+              clawback_services: [sms]
+      responses:
+        "201":
+          description: The requested reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listReversals
+      summary: Reversals across clients (staff only)
+      description: >
+        Oldest first, filtered by client and status (for example the
+        requested queue), paged with next_cursor.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReversalStatus'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of reversals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReversalList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}:
+    get:
+      operationId: getReversal
+      summary: One reversal, with a live preview while it's requested (staff only)
+      description: >
+        While requested, preview shows where the money would come from
+        if it were approved now: the main wallet's available balance
+        first, then each named wallet's unused, unheld tokens, newest
+        lot first. covered false means approving now would be refused
+        (BAL-4007).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+      responses:
+        "200":
+          description: The reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}/approval:
+    post:
+      operationId: approveReversal
+      summary: Approve and post a requested reversal (staff only, step-up)
+      description: >
+        The checker of maker-checker: a staff member other than the
+        maker (VAL-4013), with a fresh step-up (AUTH-4012). At or above
+        the country pack's threshold (KES 2,000 in Kenya) only a finance
+        lead may approve (AUTH-4026). The reversal is posted at once:
+        payback lands in payback_pending, the others in posted. If the
+        main wallet and the named clawback can't cover it, nothing is
+        posted (BAL-4007) and it stays requested. Only a requested
+        reversal can be decided (VAL-4014).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The posted reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}/rejection:
+    post:
+      operationId: rejectReversal
+      summary: Reject a requested reversal (staff only, step-up)
+      description: >
+        A staff member other than the maker (VAL-4013), with a fresh
+        step-up, rejects it with a reason. Nothing is posted, and its
+        share of the top-up can be reversed again.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversalRejectRequest'
+            example:
+              reason: "The client's bank confirmed both payments were intended"
+      responses:
+        "200":
+          description: The rejected reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -188,6 +391,12 @@ components:
   parameters:
     PriceID:
       name: priceId
+      in: path
+      required: true
+      schema:
+        type: string
+    ReversalID:
+      name: reversalId
       in: path
       required: true
       schema:
@@ -274,6 +483,140 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TokenPrice'
+        next_cursor:
+          type: string
+    ReversalStatus:
+      type: string
+      enum: [requested, rejected, posted, payback_pending, paid_back]
+    ReversalCreateRequest:
+      type: object
+      required: [tenant_id, original_transaction_id, kind, amount_minor, reason]
+      properties:
+        tenant_id:
+          type: string
+        original_transaction_id:
+          type: string
+          description: The client's top-up being reversed.
+        kind:
+          type: string
+          enum: [payback, chargeback, operator]
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Minor units of the top-up's currency.
+        reason:
+          type: string
+        evidence_document_id:
+          type: string
+          description: A document the client uploaded (accounts' documents), stored as given.
+        clawback_services:
+          type: array
+          items:
+            type: string
+          description: Service wallets to claw unused tokens back from, in order.
+    ReversalRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+    Reversal:
+      type: object
+      required: [id, tenant_id, original_transaction_id, kind, currency, amount_minor, reason, clawback_services, status, requested_by, created_at, payback_attempts]
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        original_transaction_id:
+          type: string
+        kind:
+          type: string
+          enum: [payback, chargeback, operator]
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        evidence_document_id:
+          type: string
+        clawback_services:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ReversalStatus'
+        requested_by:
+          type: string
+        approved_by:
+          type: string
+        rejected_by:
+          type: string
+        rejection_reason:
+          type: string
+        reversal_transaction_id:
+          type: string
+        payback_transaction_id:
+          type: string
+        payback_reference:
+          type: string
+        payback_attempts:
+          type: integer
+        last_payback_error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        preview:
+          $ref: '#/components/schemas/ReversalPreview'
+    ReversalPreview:
+      type: object
+      required: [covered, main_available_minor, from_main_minor, clawback]
+      properties:
+        covered:
+          type: boolean
+        main_available_minor:
+          type: integer
+          format: int64
+        from_main_minor:
+          type: integer
+          format: int64
+          description: What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back.
+        clawback:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReversalClawback'
+    ReversalClawback:
+      type: object
+      required: [service_code, clawable_minor, tokens, value_minor]
+      properties:
+        service_code:
+          type: string
+        clawable_minor:
+          type: integer
+          format: int64
+          description: The wallet's unused, unheld tokens' value.
+        tokens:
+          type: string
+          description: Tokens the reversal would take back, a decimal with up to 6 places.
+        value_minor:
+          type: integer
+          format: int64
+          description: Their value at their lots' prices.
+    ReversalList:
+      type: object
+      required: [reversals]
+      properties:
+        reversals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reversal'
         next_cursor:
           type: string
     Problem:

@@ -732,6 +732,13 @@ CREATE TABLE ledger.reversals (
 > - **CHECKs:** `auto_buy_rules.below_tokens ≥ 0`, `buy_tokens > 0`.
 > - **`ledger_settlement`** also reads active holds, for the expiry job.
 
+> **Built in task 3.7 (9 Nov 2026, OQ-18).** Additions to `reversals`:
+> - **Columns:** `kind` (`payback`, `chargeback`, `operator`), `currency`, `clawback_services` (the wallets the maker named, in order), `rejected_by` and `rejection_reason`, `payback_transaction_id`, `payback_attempts`, `last_payback_error`.
+> - **CHECKs:** each status carries exactly its decision columns; a rejection is never by its maker; `payback_pending` and `paid_back` only for `payback`, `posted` only for the others; `paid_back` names its pay-back transaction.
+> - **Postings:** the reversal (`reverses_id` the top-up) debits the main wallet up to its available balance, then the named wallets' unused, unheld tokens, newest lot first (recorded in `lot_consumptions`); it credits reversal clearing for a pay-back, or the rail's provider clearing for a chargeback or operator reversal. The pay-back moves reversal clearing to provider clearing. No VAT moves: top-ups carry none.
+> - **Cap:** the live reversals of a top-up never exceed what it credited, checked under the main wallet's balance lock.
+> - **`ledger_reversal_review`** reads reversals across clients for the staff queue. `identity.staff_members.finance_lead` marks finance leads.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

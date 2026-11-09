@@ -26,6 +26,7 @@ const (
 	LedgerService_ReleaseHold_FullMethodName      = "/ledger.v1.LedgerService/ReleaseHold"
 	LedgerService_SetAutoBuyRule_FullMethodName   = "/ledger.v1.LedgerService/SetAutoBuyRule"
 	LedgerService_ListAutoBuyRules_FullMethodName = "/ledger.v1.LedgerService/ListAutoBuyRules"
+	LedgerService_RecordPayback_FullMethodName    = "/ledger.v1.LedgerService/RecordPayback"
 	LedgerService_GetBalances_FullMethodName      = "/ledger.v1.LedgerService/GetBalances"
 )
 
@@ -77,6 +78,13 @@ type LedgerServiceClient interface {
 	SetAutoBuyRule(ctx context.Context, in *SetAutoBuyRuleRequest, opts ...grpc.CallOption) (*SetAutoBuyRuleResponse, error)
 	// ListAutoBuyRules lists the tenant's auto-buy rules.
 	ListAutoBuyRules(ctx context.Context, in *ListAutoBuyRulesRequest, opts ...grpc.CallOption) (*ListAutoBuyRulesResponse, error)
+	// RecordPayback reports the rail's outcome for a reversal's pay-back
+	// (task 3.7; Payments calls it from Phase 13). succeeded posts the
+	// pay-back from reversal clearing to the rail's provider clearing, and
+	// a repeat of it is a replay; a failure is recorded and the money stays
+	// in clearing for the retry. Only a pay-back reversal awaiting its
+	// pay-back can record one (VAL-4016).
+	RecordPayback(ctx context.Context, in *RecordPaybackRequest, opts ...grpc.CallOption) (*RecordPaybackResponse, error)
 	// GetBalances lists a tenant's accounts with their balances, or, with
 	// no tenant, VASPRO's accounts with balances summed from the journal
 	// (ADR 0010).
@@ -161,6 +169,16 @@ func (c *ledgerServiceClient) ListAutoBuyRules(ctx context.Context, in *ListAuto
 	return out, nil
 }
 
+func (c *ledgerServiceClient) RecordPayback(ctx context.Context, in *RecordPaybackRequest, opts ...grpc.CallOption) (*RecordPaybackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordPaybackResponse)
+	err := c.cc.Invoke(ctx, LedgerService_RecordPayback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ledgerServiceClient) GetBalances(ctx context.Context, in *GetBalancesRequest, opts ...grpc.CallOption) (*GetBalancesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBalancesResponse)
@@ -219,6 +237,13 @@ type LedgerServiceServer interface {
 	SetAutoBuyRule(context.Context, *SetAutoBuyRuleRequest) (*SetAutoBuyRuleResponse, error)
 	// ListAutoBuyRules lists the tenant's auto-buy rules.
 	ListAutoBuyRules(context.Context, *ListAutoBuyRulesRequest) (*ListAutoBuyRulesResponse, error)
+	// RecordPayback reports the rail's outcome for a reversal's pay-back
+	// (task 3.7; Payments calls it from Phase 13). succeeded posts the
+	// pay-back from reversal clearing to the rail's provider clearing, and
+	// a repeat of it is a replay; a failure is recorded and the money stays
+	// in clearing for the retry. Only a pay-back reversal awaiting its
+	// pay-back can record one (VAL-4016).
+	RecordPayback(context.Context, *RecordPaybackRequest) (*RecordPaybackResponse, error)
 	// GetBalances lists a tenant's accounts with their balances, or, with
 	// no tenant, VASPRO's accounts with balances summed from the journal
 	// (ADR 0010).
@@ -253,6 +278,9 @@ func (UnimplementedLedgerServiceServer) SetAutoBuyRule(context.Context, *SetAuto
 }
 func (UnimplementedLedgerServiceServer) ListAutoBuyRules(context.Context, *ListAutoBuyRulesRequest) (*ListAutoBuyRulesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAutoBuyRules not implemented")
+}
+func (UnimplementedLedgerServiceServer) RecordPayback(context.Context, *RecordPaybackRequest) (*RecordPaybackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordPayback not implemented")
 }
 func (UnimplementedLedgerServiceServer) GetBalances(context.Context, *GetBalancesRequest) (*GetBalancesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBalances not implemented")
@@ -404,6 +432,24 @@ func _LedgerService_ListAutoBuyRules_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LedgerService_RecordPayback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordPaybackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).RecordPayback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_RecordPayback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).RecordPayback(ctx, req.(*RecordPaybackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LedgerService_GetBalances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBalancesRequest)
 	if err := dec(in); err != nil {
@@ -456,6 +502,10 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAutoBuyRules",
 			Handler:    _LedgerService_ListAutoBuyRules_Handler,
+		},
+		{
+			MethodName: "RecordPayback",
+			Handler:    _LedgerService_RecordPayback_Handler,
 		},
 		{
 			MethodName: "GetBalances",

@@ -244,3 +244,37 @@ func TestParse_VATEffectiveFrom(t *testing.T) {
 		}
 	}
 }
+
+// The finance-lead threshold for reversals is a country rule (task 3.7,
+// OQ-18): KES 2,000 in Kenya. A pack without one leaves it nil, which
+// the ledger reads as "every reversal needs a finance lead".
+func TestParse_ReversalFinanceLeadThreshold(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	p, err := packs.Parse(schema, readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Ledger.ReversalFinanceLeadMinor == nil || *p.Ledger.ReversalFinanceLeadMinor != 200000 {
+		t.Fatalf("KE reversal threshold = %v, want 200000 (KES 2,000)", p.Ledger.ReversalFinanceLeadMinor)
+	}
+
+	base := string(readFile(t, realKEPackPath))
+	i := strings.Index(base, "\nledger:")
+	if i < 0 {
+		t.Fatal("KE pack has no ledger block")
+	}
+	without := base[:i] + base[i+len("\nledger:\n  reversal_finance_lead_minor: 200000"):]
+	p, err = packs.Parse(schema, []byte(without))
+	if err != nil {
+		t.Fatalf("a pack without a ledger block: %v", err)
+	}
+	if p.Ledger.ReversalFinanceLeadMinor != nil {
+		t.Fatalf("threshold = %v with no ledger block, want nil", *p.Ledger.ReversalFinanceLeadMinor)
+	}
+
+	for _, bad := range []string{"0", "-5", "12.5", `"2000"`} {
+		if _, err := packs.Parse(schema, []byte(strings.Replace(base, "reversal_finance_lead_minor: 200000", "reversal_finance_lead_minor: "+bad, 1))); err == nil {
+			t.Errorf("threshold %s accepted, want refused", bad)
+		}
+	}
+}

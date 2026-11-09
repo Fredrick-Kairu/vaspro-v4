@@ -123,15 +123,23 @@ func toProblem(err error) error {
 	case errors.Is(err, app.ErrNotStaff):
 		return problem.New(problem.AUTH4025, "only VASPRO staff can do this")
 	case errors.Is(err, app.ErrStepUpRequired):
-		return problem.New(problem.AUTH4012, "verify again (step-up) before changing a price")
+		return problem.New(problem.AUTH4012, "verify again (step-up) first")
+	case errors.Is(err, app.ErrFinanceLeadRequired):
+		return problem.New(problem.AUTH4026, "a finance lead must approve a reversal of this size")
 	case errors.Is(err, app.ErrValidation):
 		return problem.New(problem.VAL4000, err.Error())
 	case errors.Is(err, app.ErrNotFound):
-		return problem.New(problem.VAL4003, "no such price")
+		return problem.New(problem.VAL4003, "not found")
 	case errors.Is(err, app.ErrMakerCannotApprove):
-		return problem.New(problem.VAL4013, "another staff member must approve a price you entered")
+		return problem.New(problem.VAL4013, "another staff member must decide what you entered")
 	case errors.Is(err, app.ErrPriceDecided):
 		return problem.New(problem.VAL4014, err.Error())
+	case errors.Is(err, domain.ErrReversalDecided):
+		return problem.New(problem.VAL4014, err.Error())
+	case errors.Is(err, domain.ErrReversalExceedsOriginal):
+		return problem.New(problem.VAL4015, err.Error())
+	case errors.Is(err, domain.ErrReversalNotCovered):
+		return problem.New(problem.BAL4007, err.Error())
 	case errors.Is(err, app.ErrPriceOverlap):
 		return problem.New(problem.VAL4012, "an active price already covers this client, service, currency and tier then")
 	}
@@ -156,4 +164,138 @@ func tokenPriceResponse(p app.TokenPrice) TokenPrice {
 		out.ApprovedBy = &s
 	}
 	return out
+}
+
+func (h *Handlers) CreateReversal(ctx context.Context, request CreateReversalRequestObject) (CreateReversalResponseObject, error) {
+	b := request.Body
+	tenant, err := uuid.Parse(b.TenantId)
+	if err != nil {
+		return nil, problem.New(problem.VAL4000, "tenant_id must be a UUID")
+	}
+	original, err := uuid.Parse(b.OriginalTransactionId)
+	if err != nil {
+		return nil, problem.New(problem.VAL4000, "original_transaction_id must be a UUID")
+	}
+	req := app.ReversalRequest{
+		TenantID: tenant, OriginalTransactionID: original, Kind: domain.ReversalKind(b.Kind),
+		AmountMinor: b.AmountMinor, Reason: b.Reason,
+	}
+	if b.EvidenceDocumentId != nil {
+		doc, err := uuid.Parse(*b.EvidenceDocumentId)
+		if err != nil {
+			return nil, problem.New(problem.VAL4000, "evidence_document_id must be a UUID")
+		}
+		req.EvidenceDocumentID = &doc
+	}
+	if b.ClawbackServices != nil {
+		req.ClawbackServices = *b.ClawbackServices
+	}
+	r, err := h.app.RequestReversal(ctx, callerFromContext(ctx), sessionFromContext(ctx), req)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateReversal201JSONResponse(reversalResponse(r)), nil
+}
+
+func (h *Handlers) ListReversals(ctx context.Context, request ListReversalsRequestObject) (ListReversalsResponseObject, error) {
+	params := request.Params
+	var f app.ReversalFilter
+	if params.TenantId != nil {
+		tenant, err := uuid.Parse(*params.TenantId)
+		if err != nil {
+			return nil, problem.New(problem.VAL4000, "tenant_id must be a UUID")
+		}
+		f.TenantID = &tenant
+	}
+	if params.Status != nil {
+		f.Status = string(*params.Status)
+	}
+	if params.Cursor != nil {
+		f.Cursor = *params.Cursor
+	}
+	if params.Limit != nil {
+		f.Limit = *params.Limit
+	}
+	page, err := h.app.ListReversals(ctx, callerFromContext(ctx), f)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	resp := ListReversals200JSONResponse{Reversals: make([]Reversal, len(page.Reversals))}
+	for i, r := range page.Reversals {
+		resp.Reversals[i] = reversalResponse(r)
+	}
+	if page.NextCursor != "" {
+		resp.NextCursor = &page.NextCursor
+	}
+	return resp, nil
+}
+
+func (h *Handlers) GetReversal(ctx context.Context, request GetReversalRequestObject) (GetReversalResponseObject, error) {
+	r, err := h.app.GetReversal(ctx, callerFromContext(ctx), parseOrNil(request.ReversalId))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return GetReversal200JSONResponse(reversalResponse(r)), nil
+}
+
+func (h *Handlers) ApproveReversal(ctx context.Context, request ApproveReversalRequestObject) (ApproveReversalResponseObject, error) {
+	r, err := h.app.ApproveReversal(ctx, callerFromContext(ctx), sessionFromContext(ctx), parseOrNil(request.ReversalId))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return ApproveReversal200JSONResponse(reversalResponse(r)), nil
+}
+
+func (h *Handlers) RejectReversal(ctx context.Context, request RejectReversalRequestObject) (RejectReversalResponseObject, error) {
+	r, err := h.app.RejectReversal(ctx, callerFromContext(ctx), sessionFromContext(ctx), parseOrNil(request.ReversalId), request.Body.Reason)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return RejectReversal200JSONResponse(reversalResponse(r)), nil
+}
+
+// parseOrNil: an ID that isn't a UUID names nothing; uuid.Nil goes on,
+// so the staff and step-up checks still come first.
+func parseOrNil(s string) uuid.UUID {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
+}
+
+func reversalResponse(r app.Reversal) Reversal {
+	out := Reversal{
+		Id: r.ID.String(), TenantId: r.TenantID.String(), OriginalTransactionId: r.OriginalTransactionID.String(),
+		Kind: ReversalKind(r.Kind), Currency: r.Currency, AmountMinor: r.AmountMinor, Reason: r.Reason,
+		ClawbackServices: append([]string{}, r.ClawbackServices...), Status: ReversalStatus(r.Status),
+		RequestedBy: r.RequestedBy.String(), CreatedAt: r.CreatedAt, DecidedAt: r.DecidedAt,
+		PaybackAttempts:    int(r.PaybackAttempts),
+		EvidenceDocumentId: idString(r.EvidenceDocumentID), ApprovedBy: idString(r.ApprovedBy), RejectedBy: idString(r.RejectedBy),
+		ReversalTransactionId: idString(r.ReversalTransactionID), PaybackTransactionId: idString(r.PaybackTransactionID),
+		RejectionReason: nonEmpty(r.RejectionReason), PaybackReference: nonEmpty(r.PaybackReference), LastPaybackError: nonEmpty(r.LastPaybackError),
+	}
+	if p := r.Preview; p != nil {
+		out.Preview = &ReversalPreview{Covered: p.Covered, MainAvailableMinor: p.MainAvailableMinor, FromMainMinor: p.FromMainMinor,
+			Clawback: make([]ReversalClawback, len(p.Clawback))}
+		for i, c := range p.Clawback {
+			out.Preview.Clawback[i] = ReversalClawback{ServiceCode: c.ServiceCode, ClawableMinor: c.ClawableMinor, Tokens: c.Tokens.String(), ValueMinor: c.ValueMinor}
+		}
+	}
+	return out
+}
+
+func idString(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	s := id.String()
+	return &s
+}
+
+func nonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
