@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.9 done (3.7–3.9 on 2026-11-09). Next: 3.10, the v3 importer (waits for a v3 export, like 2.11), then the Phase 3 exit gate.
+**Current task:** 3.1–3.9 done and 3.10 designed (2026-11-09). Next: Phase 3's exit gate, then the PR to `main`.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -608,6 +608,32 @@
     - on `ops/dev-environment` after this merges: `env.example` gains both variables, the compose file the accounts address, and `docs/api/API.md` is regenerated.
   - **Not in 3.9:** CSV statements, real top-ups (Payments, Phase 4), and a quote that reserves its price.
 
+- 3.10 v3 ledger importer: **designed, not built** (OQ-21, ADR 0011). There's no v3 export or anonymised copy (OQ-02), so, per your answer of 9 Nov, it's designed now and built with the export, as 2.11 was.
+  - **Your answers:**
+    - design only;
+    - opening balances post against a new VASPRO account type, `migration_clearing`;
+    - v3 bonus is money in the bonus account;
+    - v3 history goes in its own read-only table, never the journal.
+  - **ADR 0011:**
+    - **Inputs:** the assumed v3 columns, and ADR 0009's `v3_client_map`, read through accounts' app.
+    - **Amounts:** parsed as decimals, and more places than the currency has are flagged, never rounded.
+    - **One `migration` posting per client:**
+      - credits main, bonus, commission payable, and revenue share behind `--include-subscription` until finance confirms what it is;
+      - debits `migration_clearing`;
+      - a negative balance goes to the receivable, flagged.
+    - **Commissions:** credited to the user's single reseller or agent client, else flagged.
+    - **Client SMS prices:** become deals, entered and approved by two staff members.
+    - **`ledger.v3_history`:** RLS, insert-only, unique per v3 ID, never counted in balances or the rebuild.
+    - **Idempotency:** a changed balance on re-run is refused and flagged.
+    - **The dry-run report**, and, after a real run, a read-back against v3 and a rebuild that must pass.
+    - **Cut-over** per wave.
+  - **The design sources reconciled:** data model §5's From-v3 rows now say bonus is money and history is `v3_history` (system design §4.2's "bonus tokens" is superseded).
+  - **ROADMAP:**
+    - 3.10 is `[>]`;
+    - Phase 3's v3 dry-run exit-gate box notes it waits for the build;
+    - **"All ledger invariants above are green" is ticked**, citing each test.
+  - No code. **`make check`** was green (lint 0 issues; 3 packages fresh, 68 from the cache: nothing changed but docs), and gitleaks found no leaks.
+
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
 
@@ -1168,14 +1194,13 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.10: the v3 ledger importer. It needs a v3 export or anonymised copy, like 2.11 (ADR 0009); without one, design it as an ADR as 2.11 did.
-2. Phase 3's exit gate: the benchmark on the reference machine (undefined), finance's review of the worked examples and reversal rules, then one PR of `p3/phase-3` to `main`.
+1. Phase 3's exit gate: the benchmark on the reference machine (undefined), finance's review of the worked examples and reversal rules; the v3 dry-run box waits like Phase 2's. Then one PR of `p3/phase-3` to `main`.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
-- 2.11's build and Phase 2's last exit-gate box (the importer dry run) need a v3 export or anonymised copy (OQ-02, OQ-12, ADR 0009).
+- 2.11's and 3.10's builds, and Phase 2's and Phase 3's importer dry-run exit-gate boxes, need a v3 export or anonymised copy (OQ-02, OQ-12, OQ-21, ADRs 0009 and 0011).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
 - (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)

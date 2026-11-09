@@ -822,7 +822,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 3.7 Reversals with maker-checker, as in system design §4.3. *Done 2026-11-09 (OQ-18): staff raise and approve over `/v1/ledger/staff/reversals` (finance lead at or above the pack's threshold, KES 2,000), clawback from named wallets newest lot first, pay-back reported over gRPC (`RecordPayback`); `TestReversal_WorkedExample`, `TestReversal_MakerChecker`, `TestReversal_Concurrent`, `TestPlanReversal_LotStillSumsToItsCost`.*
 - [x] 3.8 Nightly job that rebuilds every balance from the entries and raises a P1 event on any difference. *Done 2026-11-09 (OQ-19): `RebuildBalances`, ten report-only checks, one run per date (`rebuild_runs`), `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`; `TestRebuild_TamperedBalance` (the tamper test), `TestRebuild_EachCheck`, `TestRebuild_OncePerDate`.*
 - [x] 3.9 Wallet and token APIs for the dashboard (balances, statements, buying tokens). *Done 2026-11-09 (OQ-20): `/v1/ledger/tenants/{tenantId}/` balances, statement with running balance, prices in force, quote, purchase and auto-buy rules, checked by accounts' billing permissions; a dev-only sandbox top-up for staff; `TestStatement_WorkedExample`, `TestTenantOperations_NeedBillingPermissions`, `TestTokenBuying_Dashboard`.*
-- [ ] 3.10 v3 importer: opening balances, bonuses and commissions as one migration transaction per client; v3 transaction history as read-only migration records.
+- [>] 3.10 v3 importer: opening balances, bonuses and commissions as one migration transaction per client; v3 transaction history as read-only migration records. **Designed, not built** (2026-11-09, OQ-21): ADR 0011 is the design (a `migration_clearing` contra account, bonus as money, history in `ledger.v3_history`, client deals with maker-checker); it is built when a v3 export or anonymised copy exists (OQ-02), with ADR 0009's.
 
 **Tests specific to this phase**
 
@@ -838,10 +838,10 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] All ledger invariants above are green.
+- [x] All ledger invariants above are green. *2026-11-09: property `TestLedger_RandomOperationsKeepInvariants`; concurrency `TestHolds_200ConcurrentHoldsNeverOverspend` (`-race`); golden `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`, `TestDrawLots_WorkedExample`; pricing `TestPurchaseTokens_Pricing`, `TestTokenPrices_Constraints`; `TestJournal_AppendOnly`, `TestBalanceGuard_CheckedAtCommit`; own-maker reversal in `TestOtherTables_Constraints`; tamper `TestRebuild_TamperedBalance`; UGX and fractional tokens in the property, purchase and domain tests. All green in `make check`.*
 - [ ] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *First figure 2026-11-04 (3.3, dev machine, not the reference machine): 1,504/s on separate wallets, 765/s on one wallet; see STATUS.*
 - [ ] Finance has reviewed the worked examples and the reversal rules.
-- [ ] The v3 balance import dry run reproduces v3 totals per client to the cent.
+- [ ] The v3 balance import dry run reproduces v3 totals per client to the cent. *Open: waits for 3.10's build (ADR 0011) and a v3 export or anonymised copy, like Phase 2's importer box.*
 
 **Kickoff prompt**
 

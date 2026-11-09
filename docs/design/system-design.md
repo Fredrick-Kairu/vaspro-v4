@@ -128,7 +128,7 @@ The shaded boxes are service token wallets; the five shown are examples, and eve
 - **Consumption per message** comes from the country pack. For example, one SMS segment to a Kenyan network might use 1 token and an international one more. The exact rates are a pricing decision.
 - **Auto-buy** is opt-in per service: when tokens drop below the client's level, the rule buys a set amount from the main wallet. Without it, a service stops at zero tokens, as the team asked.
 - **Holds** (section 5) now reserve tokens in the service wallet, not money in the main wallet.
-- **v3 migration:** v3 balances move into each client's main wallet; v3 bonus balances become bonus tokens per the client's plan.
+- **v3 migration:** v3 balances move into each client's main wallet; v3 bonus balances become bonus tokens per the client's plan. *Superseded 9 Nov 2026 (OQ-21, ADR 0011): v3 bonus moves as money into the client's bonus account.*
 
 ### 4.3 Reversals
 

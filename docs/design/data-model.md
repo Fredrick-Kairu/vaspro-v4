@@ -783,12 +783,12 @@ Buying tokens (steps 2 and 5) carries no VAT, because it only moves the client's
 
 | v3 table or column | v4 | Notes |
 | --- | --- | --- |
-| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client |
-| `client_balance.bonus`, `client_app_bonus` | Bonus account | Usable on any service unless restricted |
+| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client, against VASPRO's `migration_clearing` (OQ-21, ADR 0011) |
+| `client_balance.bonus`, `client_app_bonus` | Bonus account | Money, usable on any service unless restricted (OQ-21; system design §4.2's "bonus tokens" wording is superseded) |
 | `client_balance.subscription_balance` | `revenue_share_payable` | Assumed to be premium subscription revenue owed to the client; to confirm |
 | `client_balance.alert_threshold` | Client alert rule (Monitoring, Part 4) | Not ledger data |
 | `user_balance.commissions` | `commission_payable` | Reseller and agent commissions |
-| `transactions` (reference types 1 to 30) | `transactions` and `entries` | v3 history is imported read-only as `migration` transactions with the v3 reference kept. Balances are checked against v3 totals before cut-over |
+| `transactions` (reference types 1 to 30) | `ledger.v3_history` | v3 history is imported read-only, with the v3 reference kept, into its own table, never journal entries (OQ-21, ADR 0011: entries would count it twice alongside the opening balance). Balances are checked against v3 totals before cut-over |
 | `client_services.unit_cost`, `discount` | `token_prices` with `tenant_id` set | Each client's current SMS price (unit\_cost less discount) becomes its negotiated deal from cut-over |
 | `manual_payments` | `topup` transactions with `created_by` | v4 adds maker-checker for manual loads |
 | `invoices`, `invoice_status`, `mpesa_transactions` | Billing and Payments (Part 2) |  |
