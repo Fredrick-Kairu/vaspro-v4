@@ -57,6 +57,24 @@ domain/ is pure Go and has no I/O. app/ holds use cases. store/ is sqlc. adapter
 
 - Branch per task: p<phase>/<short-name>. Conventional commits. Never push to main directly.
 
+### Remotes and where code goes
+
+Before every push, PR or merge, remind the user of this setup and give the exact commands for the step at hand. Check the remote and branch first.
+
+- `origin` (`Fredrick-Kairu/vaspro-v4`): the working repo. Task branches live here; `main` changes only by PR (policy below).
+- `release` (`techplain-ltd/vaspro_v4`): the organisation's repo, deployed by devops. It receives `main` only: `git push release` is configured to push `main` and no tags. Never commit to it, force-push it, or push another branch to it.
+- Dev server: runs `ops/dev-environment` from `origin`; update it on the server with `git pull && make dev-up` (docs/runbooks/dev-environment.md).
+
+| Step | Commands |
+|---|---|
+| Push a task branch | `git push -u origin <branch>` |
+| Test a branch on the dev server | `git checkout ops/dev-environment && git pull --ff-only && git merge --no-ff <branch> && git push origin ops/dev-environment`, then on the server `git pull && make dev-up` |
+| Merge to `main` | `gh pr create --base main --head <branch>`; merge only after the user confirms that PR: `gh pr merge <n> --merge` |
+| Keep the dev branch current after a merge | `git checkout ops/dev-environment && git merge origin/main && git push origin ops/dev-environment` |
+| Release to the organisation | `git checkout main && git pull --ff-only origin main && git push release`; optional tag: `git tag -a vX.Y.Z -m "..." && git push release vX.Y.Z`; check `git ls-remote release main` matches `git rev-parse main` |
+
+If `git push release` is refused as non-fast-forward, someone changed the release repo directly: stop and ask, don't force.
+
 ## GitHub Pull Request Policy
 
 When using the GitHub MCP server:
