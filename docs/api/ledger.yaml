@@ -379,6 +379,335 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/balances:
+    get:
+      operationId: listBalances
+      summary: The account's wallets and balances
+      description: >
+        Every ledger account of the client: the main wallet, each
+        service wallet with its tokens, bonus and receivable, with
+        balance, held and available amounts (task 3.9). Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement:
+    get:
+      operationId: getStatement
+      summary: One wallet's statement, newest first
+      description: >
+        The account's lines, newest first, each with the balance after
+        it (and, for a service wallet, the tokens after it), read in one
+        snapshot so the running balance is exact (task 3.9, OQ-20).
+        from and to filter on the posting time (to excluded); paged with
+        next_cursor. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of the statement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statement'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-prices:
+    get:
+      operationId: listTenantTokenPrices
+      summary: The prices the account buys tokens at now
+      description: >
+        Per service and currency, the tiers that apply now: the
+        client's negotiated deal while one is in force (source deal),
+        otherwise the list price's volume tiers (source list). A
+        purchase uses the highest tier not above its quantity; a deal
+        always applies, its lowest tier below all its tiers. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The prices in force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantTokenPriceList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-quote:
+    get:
+      operationId: quoteTokenPurchase
+      summary: What buying tokens would cost now
+      description: >
+        The price a purchase of this quantity would use now, its cost
+        (rounded half-up to the minor unit) and whether the main
+        wallet's available money covers it. Nothing is reserved: the
+        price can change before the purchase. No price for the service
+        is BAL-4005. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: service_code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: tokens
+          in: query
+          required: true
+          schema:
+            type: string
+          description: A positive decimal with up to 6 places.
+      responses:
+        "200":
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenQuote'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-purchases:
+    post:
+      operationId: createTokenPurchase
+      summary: Buy tokens for a service from the main wallet
+      description: >
+        Moves the cost from the main wallet into the service's token
+        wallet at the price in force, locked into a new lot (system
+        design §4.2). Buying is final: tokens never move back to the
+        main wallet. Not enough money is BAL-4001, no price BAL-4005.
+        The Idempotency-Key makes a retry return the same purchase. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenPurchaseRequest'
+            example:
+              service_code: sms
+              currency: KES
+              tokens: "10000"
+      responses:
+        "201":
+          description: The purchase.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPurchase'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "402":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/auto-buy-rules:
+    get:
+      operationId: listTenantAutoBuyRules
+      summary: The account's auto-buy rules
+      description: >
+        When a send would leave a service's tokens below below_tokens,
+        or couldn't go ahead at all, the rule first buys buy_tokens
+        from the main wallet (system design §4.2). Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoBuyRuleList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}:
+    put:
+      operationId: setTenantAutoBuyRule
+      summary: Set the auto-buy rule for a service and currency
+      description: >
+        Replaces the rule for the service and currency; enabled false
+        turns it off. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: serviceCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoBuyRuleRequest'
+            example:
+              below_tokens: "500"
+              buy_tokens: "10000"
+              enabled: true
+      responses:
+        "200":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoBuyRule'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/dev-top-ups:
+    post:
+      operationId: createDevTopUp
+      summary: Credit a main wallet from the sandbox rail (staff only, dev environments only)
+      description: >
+        For testers and the frontend team before Payments exists (task
+        3.9, OQ-20): posts an ordinary top-up from VASPRO's sandbox rail
+        clearing account into the account's main wallet. Only where the
+        ledger runs with LEDGER_DEV_TOPUPS=true; elsewhere VAL-4003, as
+        if the route didn't exist. Staff only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevTopUpRequest'
+            example:
+              tenant_id: "0192c3a1-7f00-7000-8000-000000000001"
+              currency: KES
+              amount_minor: 1300000
+      responses:
+        "201":
+          description: The top-up's transaction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevTopUp'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -391,6 +720,12 @@ components:
   parameters:
     PriceID:
       name: priceId
+      in: path
+      required: true
+      schema:
+        type: string
+    TenantID:
+      name: tenantId
       in: path
       required: true
       schema:
@@ -484,6 +819,237 @@ components:
           items:
             $ref: '#/components/schemas/TokenPrice'
         next_cursor:
+          type: string
+    Balance:
+      type: object
+      required: [account_id, type, currency, status, balance_minor, held_minor, available_minor]
+      properties:
+        account_id:
+          type: string
+        type:
+          type: string
+          enum: [main_wallet, service_wallet, bonus, receivable, revenue_share_payable, commission_payable]
+        service_code:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+        balance_minor:
+          type: integer
+          format: int64
+        held_minor:
+          type: integer
+          format: int64
+        available_minor:
+          type: integer
+          format: int64
+        tokens_remaining:
+          type: string
+          description: Service wallets only, a decimal.
+        held_tokens:
+          type: string
+        tokens_available:
+          type: string
+    BalanceList:
+      type: object
+      required: [balances]
+      properties:
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Balance'
+    StatementLine:
+      type: object
+      required: [entry_id, transaction_id, posted_at, type, description, direction, amount_minor, balance_after_minor]
+      properties:
+        entry_id:
+          type: integer
+          format: int64
+        transaction_id:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+        type:
+          type: string
+          description: topup, token_purchase, usage, refund, reversal, ...
+        description:
+          type: string
+        reference_type:
+          type: string
+        reference_id:
+          type: string
+        direction:
+          type: string
+          enum: [debit, credit]
+        amount_minor:
+          type: integer
+          format: int64
+        tokens:
+          type: string
+        balance_after_minor:
+          type: integer
+          format: int64
+        tokens_after:
+          type: string
+          description: Service wallets only.
+    Statement:
+      type: object
+      required: [account_id, type, currency, lines]
+      properties:
+        account_id:
+          type: string
+        type:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementLine'
+        next_cursor:
+          type: string
+    TenantTokenPrice:
+      type: object
+      required: [service_code, currency, source, min_tokens, minor_per_token]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        source:
+          type: string
+          enum: [deal, list]
+        min_tokens:
+          type: string
+        minor_per_token:
+          type: string
+          description: Minor units per token, a decimal ("80" is KES 0.80).
+        deal_reference:
+          type: string
+        effective_to:
+          type: string
+          format: date-time
+    TenantTokenPriceList:
+      type: object
+      required: [prices]
+      properties:
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantTokenPrice'
+    TokenQuote:
+      type: object
+      required: [service_code, currency, tokens, source, min_tokens, minor_per_token, cost_minor, main_available_minor, affordable]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+        source:
+          type: string
+          enum: [deal, list]
+        min_tokens:
+          type: string
+        minor_per_token:
+          type: string
+        cost_minor:
+          type: integer
+          format: int64
+        main_available_minor:
+          type: integer
+          format: int64
+        affordable:
+          type: boolean
+    TokenPurchaseRequest:
+      type: object
+      required: [service_code, currency, tokens]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+          description: A positive decimal with up to 6 places.
+    TokenPurchase:
+      type: object
+      required: [transaction_id, lot_id, service_code, currency, tokens, minor_per_token, cost_minor]
+      properties:
+        transaction_id:
+          type: string
+        lot_id:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+        minor_per_token:
+          type: string
+        cost_minor:
+          type: integer
+          format: int64
+    AutoBuyRuleRequest:
+      type: object
+      required: [below_tokens, buy_tokens, enabled]
+      properties:
+        below_tokens:
+          type: string
+        buy_tokens:
+          type: string
+        enabled:
+          type: boolean
+    AutoBuyRule:
+      type: object
+      required: [id, service_code, currency, below_tokens, buy_tokens, enabled]
+      properties:
+        id:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        below_tokens:
+          type: string
+        buy_tokens:
+          type: string
+        enabled:
+          type: boolean
+        last_triggered_at:
+          type: string
+          format: date-time
+    AutoBuyRuleList:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AutoBuyRule'
+    DevTopUpRequest:
+      type: object
+      required: [tenant_id, currency, amount_minor]
+      properties:
+        tenant_id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+    DevTopUp:
+      type: object
+      required: [transaction_id]
+      properties:
+        transaction_id:
           type: string
     ReversalStatus:
       type: string

@@ -162,6 +162,24 @@ func TestGatewayBackends_Ledger(t *testing.T) {
 			t.Fatalf("got %d", status)
 		}
 	})
+	t.Run("a dashboard wallet route reaches the ledger with the session's user (task 3.9)", func(t *testing.T) {
+		tenant := uuid.NewString()
+		status, _ := send(t, gw, http.MethodGet, "/v1/ledger/tenants/"+tenant+"/token-quote?service_code=sms&currency=KES&tokens=100",
+			map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := ledger.last(t)
+		if req.URL.Path != "/v1/ledger/tenants/"+tenant+"/token-quote" || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" {
+			t.Fatalf("forwarded %s as %q", req.URL.Path, req.Header.Get(headerUserID))
+		}
+		before := ledger.count()
+		status, body := send(t, gw, http.MethodGet, "/v1/ledger/tenants/"+tenant+"/token-quote?service_code=sms",
+			map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status != http.StatusBadRequest || body["code"] != "VAL-4000" || ledger.count() != before {
+			t.Fatalf("a quote without tokens: %d %v, want 400 before the ledger", status, body)
+		}
+	})
 	t.Run("ledger paths never fall through to identity", func(t *testing.T) {
 		before := identity.count()
 		_, _ = send(t, gw, http.MethodGet, "/v1/ledger/unknown", map[string]string{"Authorization": "Bearer sess_good"}, nil)

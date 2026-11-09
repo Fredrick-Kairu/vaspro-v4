@@ -52,6 +52,9 @@ var (
 	ErrPriceDecided = errors.New("app: price already decided")
 	// ErrPriceOverlap: approving would overlap an active price (VAL-4012).
 	ErrPriceOverlap = errors.New("app: price would overlap an active one")
+	// ErrPermissionDenied: a dashboard user whose role lacks the
+	// permission (AUTH-4024).
+	ErrPermissionDenied = errors.New("app: your role doesn't allow this")
 	// ErrFinanceLeadRequired: a reversal at or above the pack's threshold
 	// approved by staff who aren't a finance lead (AUTH-4026).
 	ErrFinanceLeadRequired = errors.New("app: a finance lead must approve this reversal")
@@ -71,6 +74,13 @@ type Service struct {
 	// identity answers staff and step-up checks (task 3.4b); nil makes
 	// every staff action fail closed.
 	identity adapters.Identity
+	// accounts answers whether a dashboard user may work in a tenant
+	// with a permission (task 3.9); nil fails every dashboard call
+	// closed.
+	accounts adapters.Accounts
+	// devTopUps lets staff credit main wallets from the sandbox rail
+	// (task 3.9, OQ-20): dev environments only.
+	devTopUps bool
 	// packs are the country packs by country code: their VAT rates and
 	// whether prices include VAT (task 3.5). A wallet's country is the
 	// one pack with its currency.
@@ -86,6 +96,10 @@ type Deps struct {
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	Identity adapters.Identity
+	// Accounts checks dashboard callers' access (task 3.9).
+	Accounts adapters.Accounts
+	// DevTopUps turns on staff's sandbox top-ups (LEDGER_DEV_TOPUPS).
+	DevTopUps bool
 	// Packs are every loaded country pack, by country code.
 	Packs map[string]*packs.Pack
 	// SettlementWindow is OD-07's settlement window; 0 is the default,
@@ -106,7 +120,8 @@ func New(d Deps) *Service {
 	if window == 0 {
 		window = DefaultSettlementWindow
 	}
-	return &Service{pool: d.Pool, clk: d.Clock, log: log, identity: d.Identity, packs: d.Packs, window: window}
+	return &Service{pool: d.Pool, clk: d.Clock, log: log, identity: d.Identity, accounts: d.Accounts, devTopUps: d.DevTopUps,
+		packs: d.Packs, window: window}
 }
 
 // PostRequest asks for one balanced transaction. TenantID nil is a

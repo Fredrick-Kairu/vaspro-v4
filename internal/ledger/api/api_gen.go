@@ -16,6 +16,36 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for BalanceType.
+const (
+	Bonus               BalanceType = "bonus"
+	CommissionPayable   BalanceType = "commission_payable"
+	MainWallet          BalanceType = "main_wallet"
+	Receivable          BalanceType = "receivable"
+	RevenueSharePayable BalanceType = "revenue_share_payable"
+	ServiceWallet       BalanceType = "service_wallet"
+)
+
+// Valid indicates whether the value is a known member of the BalanceType enum.
+func (e BalanceType) Valid() bool {
+	switch e {
+	case Bonus:
+		return true
+	case CommissionPayable:
+		return true
+	case MainWallet:
+		return true
+	case Receivable:
+		return true
+	case RevenueSharePayable:
+		return true
+	case ServiceWallet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReversalKind.
 const (
 	ReversalKindChargeback ReversalKind = "chargeback"
@@ -85,6 +115,42 @@ func (e ReversalStatus) Valid() bool {
 	}
 }
 
+// Defines values for StatementLineDirection.
+const (
+	Credit StatementLineDirection = "credit"
+	Debit  StatementLineDirection = "debit"
+)
+
+// Valid indicates whether the value is a known member of the StatementLineDirection enum.
+func (e StatementLineDirection) Valid() bool {
+	switch e {
+	case Credit:
+		return true
+	case Debit:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TenantTokenPriceSource.
+const (
+	TenantTokenPriceSourceDeal TenantTokenPriceSource = "deal"
+	TenantTokenPriceSourceList TenantTokenPriceSource = "list"
+)
+
+// Valid indicates whether the value is a known member of the TenantTokenPriceSource enum.
+func (e TenantTokenPriceSource) Valid() bool {
+	switch e {
+	case TenantTokenPriceSourceDeal:
+		return true
+	case TenantTokenPriceSourceList:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TokenPriceStatus.
 const (
 	TokenPriceStatusActive          TokenPriceStatus = "active"
@@ -100,6 +166,24 @@ func (e TokenPriceStatus) Valid() bool {
 	case TokenPriceStatusPendingApproval:
 		return true
 	case TokenPriceStatusWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TokenQuoteSource.
+const (
+	TokenQuoteSourceDeal TokenQuoteSource = "deal"
+	TokenQuoteSourceList TokenQuoteSource = "list"
+)
+
+// Valid indicates whether the value is a known member of the TokenQuoteSource enum.
+func (e TokenQuoteSource) Valid() bool {
+	switch e {
+	case TokenQuoteSourceDeal:
+		return true
+	case TokenQuoteSourceList:
 		return true
 	default:
 		return false
@@ -125,6 +209,66 @@ func (e ListTokenPricesParamsStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AutoBuyRule defines model for AutoBuyRule.
+type AutoBuyRule struct {
+	BelowTokens     string     `json:"below_tokens"`
+	BuyTokens       string     `json:"buy_tokens"`
+	Currency        string     `json:"currency"`
+	Enabled         bool       `json:"enabled"`
+	Id              string     `json:"id"`
+	LastTriggeredAt *time.Time `json:"last_triggered_at,omitempty"`
+	ServiceCode     string     `json:"service_code"`
+}
+
+// AutoBuyRuleList defines model for AutoBuyRuleList.
+type AutoBuyRuleList struct {
+	Rules []AutoBuyRule `json:"rules"`
+}
+
+// AutoBuyRuleRequest defines model for AutoBuyRuleRequest.
+type AutoBuyRuleRequest struct {
+	BelowTokens string `json:"below_tokens"`
+	BuyTokens   string `json:"buy_tokens"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// Balance defines model for Balance.
+type Balance struct {
+	AccountId       string  `json:"account_id"`
+	AvailableMinor  int64   `json:"available_minor"`
+	BalanceMinor    int64   `json:"balance_minor"`
+	Currency        string  `json:"currency"`
+	HeldMinor       int64   `json:"held_minor"`
+	HeldTokens      *string `json:"held_tokens,omitempty"`
+	ServiceCode     *string `json:"service_code,omitempty"`
+	Status          string  `json:"status"`
+	TokensAvailable *string `json:"tokens_available,omitempty"`
+
+	// TokensRemaining Service wallets only, a decimal.
+	TokensRemaining *string     `json:"tokens_remaining,omitempty"`
+	Type            BalanceType `json:"type"`
+}
+
+// BalanceType defines model for Balance.Type.
+type BalanceType string
+
+// BalanceList defines model for BalanceList.
+type BalanceList struct {
+	Balances []Balance `json:"balances"`
+}
+
+// DevTopUp defines model for DevTopUp.
+type DevTopUp struct {
+	TransactionId string `json:"transaction_id"`
+}
+
+// DevTopUpRequest defines model for DevTopUpRequest.
+type DevTopUpRequest struct {
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+	TenantId    string `json:"tenant_id"`
 }
 
 // Problem defines model for Problem.
@@ -225,6 +369,60 @@ type ReversalRejectRequest struct {
 // ReversalStatus defines model for ReversalStatus.
 type ReversalStatus string
 
+// Statement defines model for Statement.
+type Statement struct {
+	AccountId   string          `json:"account_id"`
+	Currency    string          `json:"currency"`
+	Lines       []StatementLine `json:"lines"`
+	NextCursor  *string         `json:"next_cursor,omitempty"`
+	ServiceCode *string         `json:"service_code,omitempty"`
+	Type        string          `json:"type"`
+}
+
+// StatementLine defines model for StatementLine.
+type StatementLine struct {
+	AmountMinor       int64                  `json:"amount_minor"`
+	BalanceAfterMinor int64                  `json:"balance_after_minor"`
+	Description       string                 `json:"description"`
+	Direction         StatementLineDirection `json:"direction"`
+	EntryId           int64                  `json:"entry_id"`
+	PostedAt          time.Time              `json:"posted_at"`
+	ReferenceId       *string                `json:"reference_id,omitempty"`
+	ReferenceType     *string                `json:"reference_type,omitempty"`
+	Tokens            *string                `json:"tokens,omitempty"`
+
+	// TokensAfter Service wallets only.
+	TokensAfter   *string `json:"tokens_after,omitempty"`
+	TransactionId string  `json:"transaction_id"`
+
+	// Type topup, token_purchase, usage, refund, reversal, ...
+	Type string `json:"type"`
+}
+
+// StatementLineDirection defines model for StatementLine.Direction.
+type StatementLineDirection string
+
+// TenantTokenPrice defines model for TenantTokenPrice.
+type TenantTokenPrice struct {
+	Currency      string     `json:"currency"`
+	DealReference *string    `json:"deal_reference,omitempty"`
+	EffectiveTo   *time.Time `json:"effective_to,omitempty"`
+	MinTokens     string     `json:"min_tokens"`
+
+	// MinorPerToken Minor units per token, a decimal ("80" is KES 0.80).
+	MinorPerToken string                 `json:"minor_per_token"`
+	ServiceCode   string                 `json:"service_code"`
+	Source        TenantTokenPriceSource `json:"source"`
+}
+
+// TenantTokenPriceSource defines model for TenantTokenPrice.Source.
+type TenantTokenPriceSource string
+
+// TenantTokenPriceList defines model for TenantTokenPriceList.
+type TenantTokenPriceList struct {
+	Prices []TenantTokenPrice `json:"prices"`
+}
+
 // TokenPrice defines model for TokenPrice.
 type TokenPrice struct {
 	ApprovedBy    *string          `json:"approved_by,omitempty"`
@@ -273,6 +471,42 @@ type TokenPriceList struct {
 	Prices     []TokenPrice `json:"prices"`
 }
 
+// TokenPurchase defines model for TokenPurchase.
+type TokenPurchase struct {
+	CostMinor     int64  `json:"cost_minor"`
+	Currency      string `json:"currency"`
+	LotId         string `json:"lot_id"`
+	MinorPerToken string `json:"minor_per_token"`
+	ServiceCode   string `json:"service_code"`
+	Tokens        string `json:"tokens"`
+	TransactionId string `json:"transaction_id"`
+}
+
+// TokenPurchaseRequest defines model for TokenPurchaseRequest.
+type TokenPurchaseRequest struct {
+	Currency    string `json:"currency"`
+	ServiceCode string `json:"service_code"`
+
+	// Tokens A positive decimal with up to 6 places.
+	Tokens string `json:"tokens"`
+}
+
+// TokenQuote defines model for TokenQuote.
+type TokenQuote struct {
+	Affordable         bool             `json:"affordable"`
+	CostMinor          int64            `json:"cost_minor"`
+	Currency           string           `json:"currency"`
+	MainAvailableMinor int64            `json:"main_available_minor"`
+	MinTokens          string           `json:"min_tokens"`
+	MinorPerToken      string           `json:"minor_per_token"`
+	ServiceCode        string           `json:"service_code"`
+	Source             TokenQuoteSource `json:"source"`
+	Tokens             string           `json:"tokens"`
+}
+
+// TokenQuoteSource defines model for TokenQuote.Source.
+type TokenQuoteSource string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -281,6 +515,15 @@ type PriceID = string
 
 // ReversalID defines model for ReversalID.
 type ReversalID = string
+
+// TenantID defines model for TenantID.
+type TenantID = string
+
+// CreateDevTopUpParams defines parameters for CreateDevTopUp.
+type CreateDevTopUpParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
 
 // ListReversalsParams defines parameters for ListReversals.
 type ListReversalsParams struct {
@@ -338,6 +581,38 @@ type WithdrawTokenPriceParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// GetStatementParams defines parameters for GetStatement.
+type GetStatementParams struct {
+	From   *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To     *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	Cursor *string    `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int       `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SetTenantAutoBuyRuleParams defines parameters for SetTenantAutoBuyRule.
+type SetTenantAutoBuyRuleParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateTokenPurchaseParams defines parameters for CreateTokenPurchase.
+type CreateTokenPurchaseParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// QuoteTokenPurchaseParams defines parameters for QuoteTokenPurchase.
+type QuoteTokenPurchaseParams struct {
+	ServiceCode string `form:"service_code" json:"service_code"`
+	Currency    string `form:"currency" json:"currency"`
+
+	// Tokens A positive decimal with up to 6 places.
+	Tokens string `form:"tokens" json:"tokens"`
+}
+
+// CreateDevTopUpJSONRequestBody defines body for CreateDevTopUp for application/json ContentType.
+type CreateDevTopUpJSONRequestBody = DevTopUpRequest
+
 // CreateReversalJSONRequestBody defines body for CreateReversal for application/json ContentType.
 type CreateReversalJSONRequestBody = ReversalCreateRequest
 
@@ -347,8 +622,17 @@ type RejectReversalJSONRequestBody = ReversalRejectRequest
 // CreateTokenPriceJSONRequestBody defines body for CreateTokenPrice for application/json ContentType.
 type CreateTokenPriceJSONRequestBody = TokenPriceCreateRequest
 
+// SetTenantAutoBuyRuleJSONRequestBody defines body for SetTenantAutoBuyRule for application/json ContentType.
+type SetTenantAutoBuyRuleJSONRequestBody = AutoBuyRuleRequest
+
+// CreateTokenPurchaseJSONRequestBody defines body for CreateTokenPurchase for application/json ContentType.
+type CreateTokenPurchaseJSONRequestBody = TokenPurchaseRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// CreateDevTopUp Credit a main wallet from the sandbox rail (staff only, dev environments only)
+	// (POST /v1/ledger/staff/dev-top-ups)
+	CreateDevTopUp(w http.ResponseWriter, r *http.Request, params CreateDevTopUpParams)
 	// ListReversals Reversals across clients (staff only)
 	// (GET /v1/ledger/staff/reversals)
 	ListReversals(w http.ResponseWriter, r *http.Request, params ListReversalsParams)
@@ -376,11 +660,38 @@ type ServerInterface interface {
 	// WithdrawTokenPrice Withdraw a pending or active token price (staff only, step-up)
 	// (POST /v1/ledger/staff/token-prices/{priceId}/withdrawal)
 	WithdrawTokenPrice(w http.ResponseWriter, r *http.Request, priceId PriceID, params WithdrawTokenPriceParams)
+	// GetStatement One wallet's statement, newest first
+	// (GET /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement)
+	GetStatement(w http.ResponseWriter, r *http.Request, tenantId TenantID, accountId string, params GetStatementParams)
+	// ListTenantAutoBuyRules The account's auto-buy rules
+	// (GET /v1/ledger/tenants/{tenantId}/auto-buy-rules)
+	ListTenantAutoBuyRules(w http.ResponseWriter, r *http.Request, tenantId TenantID)
+	// SetTenantAutoBuyRule Set the auto-buy rule for a service and currency
+	// (PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency})
+	SetTenantAutoBuyRule(w http.ResponseWriter, r *http.Request, tenantId TenantID, serviceCode string, currency string, params SetTenantAutoBuyRuleParams)
+	// ListBalances The account's wallets and balances
+	// (GET /v1/ledger/tenants/{tenantId}/balances)
+	ListBalances(w http.ResponseWriter, r *http.Request, tenantId TenantID)
+	// ListTenantTokenPrices The prices the account buys tokens at now
+	// (GET /v1/ledger/tenants/{tenantId}/token-prices)
+	ListTenantTokenPrices(w http.ResponseWriter, r *http.Request, tenantId TenantID)
+	// CreateTokenPurchase Buy tokens for a service from the main wallet
+	// (POST /v1/ledger/tenants/{tenantId}/token-purchases)
+	CreateTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTokenPurchaseParams)
+	// QuoteTokenPurchase What buying tokens would cost now
+	// (GET /v1/ledger/tenants/{tenantId}/token-quote)
+	QuoteTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params QuoteTokenPurchaseParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// CreateDevTopUp Credit a main wallet from the sandbox rail (staff only, dev environments only)
+// (POST /v1/ledger/staff/dev-top-ups)
+func (_ Unimplemented) CreateDevTopUp(w http.ResponseWriter, r *http.Request, params CreateDevTopUpParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // ListReversals Reversals across clients (staff only)
 // (GET /v1/ledger/staff/reversals)
@@ -436,6 +747,48 @@ func (_ Unimplemented) WithdrawTokenPrice(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetStatement One wallet's statement, newest first
+// (GET /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement)
+func (_ Unimplemented) GetStatement(w http.ResponseWriter, r *http.Request, tenantId TenantID, accountId string, params GetStatementParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListTenantAutoBuyRules The account's auto-buy rules
+// (GET /v1/ledger/tenants/{tenantId}/auto-buy-rules)
+func (_ Unimplemented) ListTenantAutoBuyRules(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetTenantAutoBuyRule Set the auto-buy rule for a service and currency
+// (PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency})
+func (_ Unimplemented) SetTenantAutoBuyRule(w http.ResponseWriter, r *http.Request, tenantId TenantID, serviceCode string, currency string, params SetTenantAutoBuyRuleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListBalances The account's wallets and balances
+// (GET /v1/ledger/tenants/{tenantId}/balances)
+func (_ Unimplemented) ListBalances(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListTenantTokenPrices The prices the account buys tokens at now
+// (GET /v1/ledger/tenants/{tenantId}/token-prices)
+func (_ Unimplemented) ListTenantTokenPrices(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateTokenPurchase Buy tokens for a service from the main wallet
+// (POST /v1/ledger/tenants/{tenantId}/token-purchases)
+func (_ Unimplemented) CreateTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTokenPurchaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// QuoteTokenPurchase What buying tokens would cost now
+// (GET /v1/ledger/tenants/{tenantId}/token-quote)
+func (_ Unimplemented) QuoteTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params QuoteTokenPurchaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -444,6 +797,51 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// CreateDevTopUp operation middleware
+func (siw *ServerInterfaceWrapper) CreateDevTopUp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateDevTopUpParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDevTopUp(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListReversals operation middleware
 func (siw *ServerInterfaceWrapper) ListReversals(w http.ResponseWriter, r *http.Request) {
@@ -934,6 +1332,368 @@ func (siw *ServerInterfaceWrapper) WithdrawTokenPrice(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetStatement operation middleware
+func (siw *ServerInterfaceWrapper) GetStatement(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "accountId" -------------
+	var accountId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "accountId", chi.URLParam(r, "accountId"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "accountId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetStatementParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatement(w, r, tenantId, accountId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTenantAutoBuyRules operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantAutoBuyRules(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantAutoBuyRules(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetTenantAutoBuyRule operation middleware
+func (siw *ServerInterfaceWrapper) SetTenantAutoBuyRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "serviceCode" -------------
+	var serviceCode string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceCode", chi.URLParam(r, "serviceCode"), &serviceCode, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceCode", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "currency" -------------
+	var currency string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "currency", chi.URLParam(r, "currency"), &currency, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "currency", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetTenantAutoBuyRuleParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetTenantAutoBuyRule(w, r, tenantId, serviceCode, currency, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBalances operation middleware
+func (siw *ServerInterfaceWrapper) ListBalances(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBalances(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTenantTokenPrices operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantTokenPrices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantTokenPrices(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTokenPurchase operation middleware
+func (siw *ServerInterfaceWrapper) CreateTokenPurchase(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTokenPurchaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTokenPurchase(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// QuoteTokenPurchase operation middleware
+func (siw *ServerInterfaceWrapper) QuoteTokenPurchase(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params QuoteTokenPurchaseParams
+
+	// ------------- Required query parameter "service_code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "service_code", r.URL.Query(), &params.ServiceCode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "service_code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "currency" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "currency", r.URL.Query(), &params.Currency, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "currency"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "currency", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "tokens" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "tokens", r.URL.Query(), &params.Tokens, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tokens"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tokens", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.QuoteTokenPurchase(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1074,11 +1834,133 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/ledger/staff/reversals/{reversalId}/rejection", wrapper.RejectReversal)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/tenants/{tenantId}/balances", wrapper.ListBalances)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement", wrapper.GetStatement)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/tenants/{tenantId}/token-prices", wrapper.ListTenantTokenPrices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/tenants/{tenantId}/token-quote", wrapper.QuoteTokenPurchase)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledger/tenants/{tenantId}/token-purchases", wrapper.CreateTokenPurchase)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledger/tenants/{tenantId}/auto-buy-rules", wrapper.ListTenantAutoBuyRules)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}", wrapper.SetTenantAutoBuyRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledger/staff/dev-top-ups", wrapper.CreateDevTopUp)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type CreateDevTopUpRequestObject struct {
+	Params CreateDevTopUpParams
+	Body   *CreateDevTopUpJSONRequestBody
+}
+
+type CreateDevTopUpResponseObject interface {
+	VisitCreateDevTopUpResponse(w http.ResponseWriter) error
+}
+
+type CreateDevTopUp201JSONResponse DevTopUp
+
+func (response CreateDevTopUp201JSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevTopUp400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateDevTopUp400ApplicationProblemPlusJSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevTopUp401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateDevTopUp401ApplicationProblemPlusJSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevTopUp403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateDevTopUp403ApplicationProblemPlusJSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevTopUp404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateDevTopUp404ApplicationProblemPlusJSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevTopUpdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateDevTopUpdefaultApplicationProblemPlusJSONResponse) VisitCreateDevTopUpResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListReversalsRequestObject struct {
 	Params ListReversalsParams
@@ -1960,8 +2842,699 @@ func (response WithdrawTokenPricedefaultApplicationProblemPlusJSONResponse) Visi
 	return err
 }
 
+type GetStatementRequestObject struct {
+	TenantId  TenantID `json:"tenantId"`
+	AccountId string   `json:"accountId"`
+	Params    GetStatementParams
+}
+
+type GetStatementResponseObject interface {
+	VisitGetStatementResponse(w http.ResponseWriter) error
+}
+
+type GetStatement200JSONResponse Statement
+
+func (response GetStatement200JSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatement400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetStatement400ApplicationProblemPlusJSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatement401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetStatement401ApplicationProblemPlusJSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatement403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetStatement403ApplicationProblemPlusJSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatement404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetStatement404ApplicationProblemPlusJSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatementdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetStatementdefaultApplicationProblemPlusJSONResponse) VisitGetStatementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantAutoBuyRulesRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+}
+
+type ListTenantAutoBuyRulesResponseObject interface {
+	VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantAutoBuyRules200JSONResponse AutoBuyRuleList
+
+func (response ListTenantAutoBuyRules200JSONResponse) VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantAutoBuyRules401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantAutoBuyRules401ApplicationProblemPlusJSONResponse) VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantAutoBuyRules403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListTenantAutoBuyRules403ApplicationProblemPlusJSONResponse) VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantAutoBuyRules404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListTenantAutoBuyRules404ApplicationProblemPlusJSONResponse) VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantAutoBuyRulesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListTenantAutoBuyRulesdefaultApplicationProblemPlusJSONResponse) VisitListTenantAutoBuyRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRuleRequestObject struct {
+	TenantId    TenantID `json:"tenantId"`
+	ServiceCode string   `json:"serviceCode"`
+	Currency    string   `json:"currency"`
+	Params      SetTenantAutoBuyRuleParams
+	Body        *SetTenantAutoBuyRuleJSONRequestBody
+}
+
+type SetTenantAutoBuyRuleResponseObject interface {
+	VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error
+}
+
+type SetTenantAutoBuyRule200JSONResponse AutoBuyRule
+
+func (response SetTenantAutoBuyRule200JSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRule400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SetTenantAutoBuyRule400ApplicationProblemPlusJSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRule401ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantAutoBuyRule401ApplicationProblemPlusJSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRule403ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantAutoBuyRule403ApplicationProblemPlusJSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRule404ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantAutoBuyRule404ApplicationProblemPlusJSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantAutoBuyRuledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetTenantAutoBuyRuledefaultApplicationProblemPlusJSONResponse) VisitSetTenantAutoBuyRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBalancesRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+}
+
+type ListBalancesResponseObject interface {
+	VisitListBalancesResponse(w http.ResponseWriter) error
+}
+
+type ListBalances200JSONResponse BalanceList
+
+func (response ListBalances200JSONResponse) VisitListBalancesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBalances401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListBalances401ApplicationProblemPlusJSONResponse) VisitListBalancesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBalances403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListBalances403ApplicationProblemPlusJSONResponse) VisitListBalancesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBalances404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListBalances404ApplicationProblemPlusJSONResponse) VisitListBalancesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBalancesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListBalancesdefaultApplicationProblemPlusJSONResponse) VisitListBalancesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantTokenPricesRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+}
+
+type ListTenantTokenPricesResponseObject interface {
+	VisitListTenantTokenPricesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantTokenPrices200JSONResponse TenantTokenPriceList
+
+func (response ListTenantTokenPrices200JSONResponse) VisitListTenantTokenPricesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantTokenPrices401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantTokenPrices401ApplicationProblemPlusJSONResponse) VisitListTenantTokenPricesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantTokenPrices403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListTenantTokenPrices403ApplicationProblemPlusJSONResponse) VisitListTenantTokenPricesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantTokenPrices404ApplicationProblemPlusJSONResponse Problem
+
+func (response ListTenantTokenPrices404ApplicationProblemPlusJSONResponse) VisitListTenantTokenPricesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantTokenPricesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListTenantTokenPricesdefaultApplicationProblemPlusJSONResponse) VisitListTenantTokenPricesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchaseRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+	Params   CreateTokenPurchaseParams
+	Body     *CreateTokenPurchaseJSONRequestBody
+}
+
+type CreateTokenPurchaseResponseObject interface {
+	VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error
+}
+
+type CreateTokenPurchase201JSONResponse TokenPurchase
+
+func (response CreateTokenPurchase201JSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTokenPurchase400ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTokenPurchase401ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase402ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTokenPurchase402ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(402)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTokenPurchase403ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTokenPurchase404ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchase409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTokenPurchase409ApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenPurchasedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTokenPurchasedefaultApplicationProblemPlusJSONResponse) VisitCreateTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchaseRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+	Params   QuoteTokenPurchaseParams
+}
+
+type QuoteTokenPurchaseResponseObject interface {
+	VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error
+}
+
+type QuoteTokenPurchase200JSONResponse TokenQuote
+
+func (response QuoteTokenPurchase200JSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchase400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response QuoteTokenPurchase400ApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchase401ApplicationProblemPlusJSONResponse Problem
+
+func (response QuoteTokenPurchase401ApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchase403ApplicationProblemPlusJSONResponse Problem
+
+func (response QuoteTokenPurchase403ApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchase404ApplicationProblemPlusJSONResponse Problem
+
+func (response QuoteTokenPurchase404ApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchase409ApplicationProblemPlusJSONResponse Problem
+
+func (response QuoteTokenPurchase409ApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuoteTokenPurchasedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response QuoteTokenPurchasedefaultApplicationProblemPlusJSONResponse) VisitQuoteTokenPurchaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// CreateDevTopUp Credit a main wallet from the sandbox rail (staff only, dev environments only)
+	// (POST /v1/ledger/staff/dev-top-ups)
+	CreateDevTopUp(ctx context.Context, request CreateDevTopUpRequestObject) (CreateDevTopUpResponseObject, error)
 	// ListReversals Reversals across clients (staff only)
 	// (GET /v1/ledger/staff/reversals)
 	ListReversals(ctx context.Context, request ListReversalsRequestObject) (ListReversalsResponseObject, error)
@@ -1989,6 +3562,27 @@ type StrictServerInterface interface {
 	// WithdrawTokenPrice Withdraw a pending or active token price (staff only, step-up)
 	// (POST /v1/ledger/staff/token-prices/{priceId}/withdrawal)
 	WithdrawTokenPrice(ctx context.Context, request WithdrawTokenPriceRequestObject) (WithdrawTokenPriceResponseObject, error)
+	// GetStatement One wallet's statement, newest first
+	// (GET /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement)
+	GetStatement(ctx context.Context, request GetStatementRequestObject) (GetStatementResponseObject, error)
+	// ListTenantAutoBuyRules The account's auto-buy rules
+	// (GET /v1/ledger/tenants/{tenantId}/auto-buy-rules)
+	ListTenantAutoBuyRules(ctx context.Context, request ListTenantAutoBuyRulesRequestObject) (ListTenantAutoBuyRulesResponseObject, error)
+	// SetTenantAutoBuyRule Set the auto-buy rule for a service and currency
+	// (PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency})
+	SetTenantAutoBuyRule(ctx context.Context, request SetTenantAutoBuyRuleRequestObject) (SetTenantAutoBuyRuleResponseObject, error)
+	// ListBalances The account's wallets and balances
+	// (GET /v1/ledger/tenants/{tenantId}/balances)
+	ListBalances(ctx context.Context, request ListBalancesRequestObject) (ListBalancesResponseObject, error)
+	// ListTenantTokenPrices The prices the account buys tokens at now
+	// (GET /v1/ledger/tenants/{tenantId}/token-prices)
+	ListTenantTokenPrices(ctx context.Context, request ListTenantTokenPricesRequestObject) (ListTenantTokenPricesResponseObject, error)
+	// CreateTokenPurchase Buy tokens for a service from the main wallet
+	// (POST /v1/ledger/tenants/{tenantId}/token-purchases)
+	CreateTokenPurchase(ctx context.Context, request CreateTokenPurchaseRequestObject) (CreateTokenPurchaseResponseObject, error)
+	// QuoteTokenPurchase What buying tokens would cost now
+	// (GET /v1/ledger/tenants/{tenantId}/token-quote)
+	QuoteTokenPurchase(ctx context.Context, request QuoteTokenPurchaseRequestObject) (QuoteTokenPurchaseResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -2028,6 +3622,39 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// CreateDevTopUp operation middleware
+func (sh *strictHandler) CreateDevTopUp(w http.ResponseWriter, r *http.Request, params CreateDevTopUpParams) {
+	var request CreateDevTopUpRequestObject
+
+	request.Params = params
+
+	var body CreateDevTopUpJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDevTopUp(ctx, request.(CreateDevTopUpRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDevTopUp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDevTopUpResponseObject); ok {
+		if err := validResponse.VisitCreateDevTopUpResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListReversals operation middleware
@@ -2282,6 +3909,209 @@ func (sh *strictHandler) WithdrawTokenPrice(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(WithdrawTokenPriceResponseObject); ok {
 		if err := validResponse.VisitWithdrawTokenPriceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStatement operation middleware
+func (sh *strictHandler) GetStatement(w http.ResponseWriter, r *http.Request, tenantId TenantID, accountId string, params GetStatementParams) {
+	var request GetStatementRequestObject
+
+	request.TenantId = tenantId
+	request.AccountId = accountId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatement(ctx, request.(GetStatementRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatement")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatementResponseObject); ok {
+		if err := validResponse.VisitGetStatementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantAutoBuyRules operation middleware
+func (sh *strictHandler) ListTenantAutoBuyRules(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	var request ListTenantAutoBuyRulesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantAutoBuyRules(ctx, request.(ListTenantAutoBuyRulesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantAutoBuyRules")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantAutoBuyRulesResponseObject); ok {
+		if err := validResponse.VisitListTenantAutoBuyRulesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetTenantAutoBuyRule operation middleware
+func (sh *strictHandler) SetTenantAutoBuyRule(w http.ResponseWriter, r *http.Request, tenantId TenantID, serviceCode string, currency string, params SetTenantAutoBuyRuleParams) {
+	var request SetTenantAutoBuyRuleRequestObject
+
+	request.TenantId = tenantId
+	request.ServiceCode = serviceCode
+	request.Currency = currency
+	request.Params = params
+
+	var body SetTenantAutoBuyRuleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetTenantAutoBuyRule(ctx, request.(SetTenantAutoBuyRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetTenantAutoBuyRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetTenantAutoBuyRuleResponseObject); ok {
+		if err := validResponse.VisitSetTenantAutoBuyRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBalances operation middleware
+func (sh *strictHandler) ListBalances(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	var request ListBalancesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBalances(ctx, request.(ListBalancesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBalances")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBalancesResponseObject); ok {
+		if err := validResponse.VisitListBalancesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantTokenPrices operation middleware
+func (sh *strictHandler) ListTenantTokenPrices(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	var request ListTenantTokenPricesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantTokenPrices(ctx, request.(ListTenantTokenPricesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantTokenPrices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantTokenPricesResponseObject); ok {
+		if err := validResponse.VisitListTenantTokenPricesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTokenPurchase operation middleware
+func (sh *strictHandler) CreateTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTokenPurchaseParams) {
+	var request CreateTokenPurchaseRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateTokenPurchaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTokenPurchase(ctx, request.(CreateTokenPurchaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTokenPurchase")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTokenPurchaseResponseObject); ok {
+		if err := validResponse.VisitCreateTokenPurchaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// QuoteTokenPurchase operation middleware
+func (sh *strictHandler) QuoteTokenPurchase(w http.ResponseWriter, r *http.Request, tenantId TenantID, params QuoteTokenPurchaseParams) {
+	var request QuoteTokenPurchaseRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.QuoteTokenPurchase(ctx, request.(QuoteTokenPurchaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "QuoteTokenPurchase")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(QuoteTokenPurchaseResponseObject); ok {
+		if err := validResponse.VisitQuoteTokenPurchaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

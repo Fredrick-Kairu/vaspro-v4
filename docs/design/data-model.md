@@ -745,6 +745,8 @@ CREATE TABLE ledger.reversals (
 > - **Events:** `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`.
 > - **`ledger_audit`** reads every client's journal and copies, only for the rebuild.
 
+> **Built in task 3.9 (9 Nov 2026, OQ-20).** No schema change. The dashboard reads balances, statements (each line with the balance after it, from one snapshot), the prices in force and quotes, and buys tokens and sets auto-buy rules, with access checked by accounts (billing:read, billing:manage). Dev environments can credit main wallets from VASPRO's `sandbox` rail clearing (LEDGER_DEV_TOPUPS), as ordinary top-ups.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

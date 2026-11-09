@@ -24,11 +24,13 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffcheck"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantcheck"
 )
 
 type harness struct {
 	router http.Handler
 	staff  *staffcheck.Fake
+	access *tenantcheck.Fake
 	svc    *app.Service
 }
 
@@ -44,9 +46,14 @@ func newHarness(t *testing.T) harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	staff := staffcheck.New()
-	svc := app.New(app.Deps{Pool: pool, Clock: testkit.NewClock(time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)), Identity: staff})
-	return harness{router: api.Routes(api.NewHandlers(svc), slog.Default(), nil, idempotency.NewPostgresStore(pool)), staff: staff, svc: svc}
+	if _, err := pg.Pool.Exec(ctx, `
+		INSERT INTO ledger.token_prices (id, service_code, currency, minor_per_token, status, effective_from, created_by, approved_by)
+		VALUES ($1, 'sms', 'KES', 80, 'active', '2026-01-01', $2, $3)`, uuid.New(), uuid.New(), uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	staff, access := staffcheck.New(), tenantcheck.New()
+	svc := app.New(app.Deps{Pool: pool, Clock: testkit.NewClock(time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)), Identity: staff, Accounts: access})
+	return harness{router: api.Routes(api.NewHandlers(svc), slog.Default(), nil, idempotency.NewPostgresStore(pool)), staff: staff, access: access, svc: svc}
 }
 
 type caller struct{ user, session uuid.UUID }
@@ -203,6 +210,7 @@ func TestStaffOperations_RefuseEveryoneElse(t *testing.T) {
 		"createTokenPrice": deal(uuid.New(), "50"),
 		"createReversal":   reversal(uuid.New(), uuid.New(), 100),
 		"rejectReversal":   map[string]any{"reason": "no"},
+		"createDevTopUp":   map[string]any{"tenant_id": uuid.NewString(), "currency": "KES", "amount_minor": 100},
 	}
 
 	var ops []string
@@ -225,7 +233,7 @@ func TestStaffOperations_RefuseEveryoneElse(t *testing.T) {
 		}
 	}
 	sort.Strings(ops)
-	want := []string{"approveReversal", "approveTokenPrice", "createReversal", "createTokenPrice", "getReversal",
+	want := []string{"approveReversal", "approveTokenPrice", "createDevTopUp", "createReversal", "createTokenPrice", "getReversal",
 		"listReversals", "listTokenPrices", "rejectReversal", "withdrawTokenPrice"}
 	if strings.Join(ops, ",") != strings.Join(want, ",") {
 		t.Fatalf("staff operations in the spec %v, cases written for %v: add the new one's case", ops, want)
@@ -323,4 +331,151 @@ func TestReversalsAPI(t *testing.T) {
 			t.Fatalf("list: %d %v", status, page)
 		}
 	})
+}
+
+// tenantOperationBodies are valid bodies for the tenant routes' writes.
+var tenantOperationBodies = map[string]any{
+	"createTokenPurchase":  map[string]any{"service_code": "sms", "currency": "KES", "tokens": "10"},
+	"setTenantAutoBuyRule": map[string]any{"below_tokens": "10", "buy_tokens": "100", "enabled": true},
+}
+
+// tenantPath fills a tenant route's parameters.
+func tenantPath(path string, tenant, account uuid.UUID) string {
+	return strings.NewReplacer("{tenantId}", tenant.String(), "{accountId}", account.String(),
+		"{serviceCode}", "sms", "{currency}", "KES").Replace(path) + map[bool]string{true: "?service_code=sms&currency=KES&tokens=1"}[strings.HasSuffix(path, "/token-quote")]
+}
+
+// TestTenantOperations_NeedBillingPermissions is spec-driven (task 3.9,
+// OQ-20): every /v1/ledger/tenants/ operation is 401 without a user,
+// VAL-4003 for someone outside the account, and AUTH-4024 for a member
+// without the billing permission it needs; writes need billing:manage,
+// so a read-only member gets AUTH-4024 there too. It fails if an
+// operation has no case.
+func TestTenantOperations_NeedBillingPermissions(t *testing.T) {
+	h := newHarness(t)
+	spec, err := openapi3.NewLoader().LoadFromFile("../../../docs/api/ledger.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	main := domain.AccountKey{Type: domain.MainWallet, Currency: "KES"}
+	top, err := h.svc.Post(context.Background(), app.PostRequest{TenantID: &tenant, IdempotencyKey: "t1", Type: domain.TxnTopup, Description: "top-up",
+		Lines: []domain.Line{{Account: domain.AccountKey{Type: domain.ProviderClearing, Rail: "mpesa_ke", Currency: "KES"}, Direction: domain.Debit, AmountMinor: 100}, {Account: main, Direction: domain.Credit, AmountMinor: 100}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var account uuid.UUID
+	for _, l := range top.Lines {
+		if l.Line.Account == main {
+			account = l.AccountID
+		}
+	}
+	stranger, member, reader := caller{uuid.New(), uuid.New()}, caller{uuid.New(), uuid.New()}, caller{uuid.New(), uuid.New()}
+	h.access.Grant(member.user, tenant)
+	h.access.Grant(reader.user, tenant, app.PermBillingRead)
+
+	writes := map[string]bool{"createTokenPurchase": true, "setTenantAutoBuyRule": true}
+	var ops []string
+	for path, item := range spec.Paths.Map() {
+		if !strings.HasPrefix(path, "/v1/ledger/tenants/") {
+			continue
+		}
+		for method, op := range item.Operations() {
+			ops = append(ops, op.OperationID)
+			concrete := tenantPath(path, tenant, account)
+			body := tenantOperationBodies[op.OperationID]
+			t.Run(op.OperationID, func(t *testing.T) {
+				status, got := h.do(t, method, concrete, nil, body, "")
+				wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4010")
+				status, got = h.do(t, method, concrete, &stranger, body, "")
+				wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
+				status, got = h.do(t, method, concrete, &member, body, "")
+				wantProblem(t, status, got, http.StatusForbidden, "AUTH-4024")
+				status, got = h.do(t, method, concrete, &reader, body, "")
+				if writes[op.OperationID] {
+					wantProblem(t, status, got, http.StatusForbidden, "AUTH-4024")
+				} else if status != http.StatusOK {
+					t.Fatalf("billing:read on a read: %d %v", status, got)
+				}
+			})
+		}
+	}
+	sort.Strings(ops)
+	want := []string{"createTokenPurchase", "getStatement", "listBalances", "listTenantAutoBuyRules", "listTenantTokenPrices",
+		"quoteTokenPurchase", "setTenantAutoBuyRule"}
+	if strings.Join(ops, ",") != strings.Join(want, ",") {
+		t.Fatalf("tenant operations in the spec %v, cases written for %v: add the new one's case", ops, want)
+	}
+}
+
+// TestDashboardAPI: the dashboard's wallet flow over HTTP (task 3.9).
+func TestDashboardAPI(t *testing.T) {
+	h := newHarness(t)
+	tenant := uuid.New()
+	finance := caller{uuid.New(), uuid.New()}
+	h.access.Grant(finance.user, tenant, app.PermBillingRead, app.PermBillingManage)
+	base := "/v1/ledger/tenants/" + tenant.String()
+
+	staff := h.staffMember()
+	status, body := h.do(t, http.MethodPost, "/v1/ledger/staff/dev-top-ups", &staff, map[string]any{"tenant_id": tenant.String(), "currency": "KES", "amount_minor": 100_000}, "")
+	wantProblem(t, status, body, http.StatusNotFound, "VAL-4003") // off in this service
+	if _, err := h.svc.Post(context.Background(), app.PostRequest{TenantID: &tenant, IdempotencyKey: "t1", Type: domain.TxnTopup, Description: "top-up",
+		Lines: []domain.Line{{Account: domain.AccountKey{Type: domain.ProviderClearing, Rail: "mpesa_ke", Currency: "KES"}, Direction: domain.Debit, AmountMinor: 100_000},
+			{Account: domain.AccountKey{Type: domain.MainWallet, Currency: "KES"}, Direction: domain.Credit, AmountMinor: 100_000}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, quote := h.do(t, http.MethodGet, base+"/token-quote?service_code=sms&currency=KES&tokens=1000", &finance, nil, "")
+	if status != http.StatusOK || quote["cost_minor"] != float64(80_000) || quote["affordable"] != true || quote["source"] != "list" {
+		t.Fatalf("quote: %d %v", status, quote)
+	}
+	key := uuid.NewString()
+	status, bought := h.do(t, http.MethodPost, base+"/token-purchases", &finance, map[string]any{"service_code": "sms", "currency": "KES", "tokens": "1000"}, key)
+	if status != http.StatusCreated || bought["cost_minor"] != float64(80_000) {
+		t.Fatalf("purchase: %d %v", status, bought)
+	}
+	if status, again := h.do(t, http.MethodPost, base+"/token-purchases", &finance, map[string]any{"service_code": "sms", "currency": "KES", "tokens": "1000"}, key); status != http.StatusCreated || again["lot_id"] != bought["lot_id"] {
+		t.Fatalf("replay: %d %v", status, again)
+	}
+	status, body = h.do(t, http.MethodPost, base+"/token-purchases", &finance, map[string]any{"service_code": "sms", "currency": "KES", "tokens": "1000"}, "")
+	wantProblem(t, status, body, http.StatusPaymentRequired, "BAL-4001")
+	status, body = h.do(t, http.MethodGet, base+"/token-quote?service_code=whatsapp&currency=KES&tokens=1", &finance, nil, "")
+	wantProblem(t, status, body, http.StatusConflict, "BAL-4005")
+
+	status, bals := h.do(t, http.MethodGet, base+"/balances", &finance, nil, "")
+	if status != http.StatusOK {
+		t.Fatalf("balances: %d %v", status, bals)
+	}
+	var mainID, smsTokens string
+	for _, b := range bals["balances"].([]any) {
+		b := b.(map[string]any)
+		switch b["type"] {
+		case "main_wallet":
+			mainID = b["account_id"].(string)
+		case "service_wallet":
+			smsTokens, _ = b["tokens_remaining"].(string)
+		}
+	}
+	if smsTokens != "1000" {
+		t.Fatalf("SMS tokens %q, want 1000", smsTokens)
+	}
+	status, st := h.do(t, http.MethodGet, base+"/accounts/"+mainID+"/statement?limit=1", &finance, nil, "")
+	lines, _ := st["lines"].([]any)
+	if status != http.StatusOK || len(lines) != 1 || st["next_cursor"] == nil {
+		t.Fatalf("statement: %d %v", status, st)
+	}
+	if l := lines[0].(map[string]any); l["direction"] != "debit" || l["balance_after_minor"] != float64(20_000) || l["type"] != "token_purchase" {
+		t.Fatalf("newest line %v", l)
+	}
+
+	status, rule := h.do(t, http.MethodPut, base+"/auto-buy-rules/sms/KES", &finance, map[string]any{"below_tokens": "100", "buy_tokens": "500", "enabled": true}, "")
+	if status != http.StatusOK || rule["buy_tokens"] != "500" {
+		t.Fatalf("rule: %d %v", status, rule)
+	}
+	status, body = h.do(t, http.MethodPut, base+"/auto-buy-rules/sms/KES", &finance, map[string]any{"below_tokens": "100", "buy_tokens": "0", "enabled": true}, "")
+	wantProblem(t, status, body, http.StatusBadRequest, "VAL-4000")
+	status, prices := h.do(t, http.MethodGet, base+"/token-prices", &finance, nil, "")
+	if status != http.StatusOK || len(prices["prices"].([]any)) != 1 {
+		t.Fatalf("prices: %d %v", status, prices)
+	}
 }

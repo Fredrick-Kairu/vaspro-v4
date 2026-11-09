@@ -24,17 +24,19 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffcheck"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantcheck"
 )
 
 // harness is one migrated Postgres, the service connected as
 // ledger_app (privileges only through ledger_service, as in
 // production), and a superuser pool for arranging and inspecting.
 type harness struct {
-	super *vasdb.Pool
-	app   *vasdb.Pool
-	svc   *app.Service
-	clk   *testkit.Clock
-	staff *staffcheck.Fake
+	super  *vasdb.Pool
+	app    *vasdb.Pool
+	svc    *app.Service
+	clk    *testkit.Clock
+	staff  *staffcheck.Fake
+	access *tenantcheck.Fake
 }
 
 var testNow = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
@@ -59,8 +61,9 @@ func newHarness(t testing.TB) harness {
 	}
 	t.Cleanup(appPool.Close)
 	clk := testkit.NewClock(testNow)
-	staff := staffcheck.New()
-	h := harness{super: super, app: appPool, svc: app.New(app.Deps{Pool: appPool, Clock: clk, Identity: staff, Packs: testPacks(t)}), clk: clk, staff: staff}
+	staff, access := staffcheck.New(), tenantcheck.New()
+	h := harness{super: super, app: appPool, clk: clk, staff: staff, access: access}
+	h.svc = h.service(t, false)
 	if err := h.svc.SyncTaxRates(ctx); err != nil {
 		t.Fatalf("syncing tax rates: %v", err)
 	}
@@ -71,6 +74,12 @@ func newHarness(t testing.TB) harness {
 }
 
 var jan1 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// service is a Service on the harness's pool, clock and fakes; devTopUps
+// turns on staff's sandbox top-ups (task 3.9).
+func (h harness) service(t testing.TB, devTopUps bool) *app.Service {
+	return app.New(app.Deps{Pool: h.app, Clock: h.clk, Identity: h.staff, Accounts: h.access, DevTopUps: devTopUps, Packs: testPacks(t)})
+}
 
 // testPacks are the real KE pack (VAT included), a test-only TZS pack
 // whose prices exclude VAT (testdata/vat-exclusive.yaml) and a

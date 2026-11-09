@@ -124,6 +124,14 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4025, "only VASPRO staff can do this")
 	case errors.Is(err, app.ErrStepUpRequired):
 		return problem.New(problem.AUTH4012, "verify again (step-up) first")
+	case errors.Is(err, app.ErrPermissionDenied):
+		return problem.New(problem.AUTH4024, "your role in this account doesn't allow this")
+	case errors.Is(err, app.ErrInsufficientBalance):
+		return problem.New(problem.BAL4001, err.Error())
+	case errors.Is(err, app.ErrNoPrice):
+		return problem.New(problem.BAL4005, "there's no price for this service in this currency")
+	case errors.Is(err, app.ErrIdempotencyConflict):
+		return problem.New(problem.VAL4001, err.Error())
 	case errors.Is(err, app.ErrFinanceLeadRequired):
 		return problem.New(problem.AUTH4026, "a finance lead must approve a reversal of this size")
 	case errors.Is(err, app.ErrValidation):

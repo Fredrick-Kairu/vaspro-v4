@@ -25,6 +25,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
 	ledgerv1 "github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffcheck"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantcheck"
 )
 
 func freeAddr(t *testing.T) string {
@@ -72,7 +73,7 @@ func TestService_RunsAndRelaysWalletCredited(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := ledger.Config{HTTPAddr: freeAddr(t), GRPCAddr: freeAddr(t), SettlementWindow: time.Second}
-	svc := ledger.New(cfg, pool, b, staffcheck.New(), map[string]*packs.Pack{"KE": ke})
+	svc := ledger.New(cfg, pool, b, staffcheck.New(), tenantcheck.New(), map[string]*packs.Pack{"KE": ke})
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 

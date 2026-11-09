@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.8 done (3.7 and 3.8 on 2026-11-09). Next: 3.9, wallet and token APIs for the dashboard.
+**Current task:** 3.1–3.9 done (3.7–3.9 on 2026-11-09). Next: 3.10, the v3 importer (waits for a v3 export, like 2.11), then the Phase 3 exit gate.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -540,6 +540,73 @@
     - a finance snapshot of VASPRO's account balances (ADR 0010's consequence, later);
     - a manual "run now" command;
     - per-message ClickHouse detail against usage batches.
+
+- 3.9 Wallet and token APIs for the dashboard (OQ-20). Your answers of 9 Nov:
+  - the tenant comes from the path, and accounts checks billing permissions on every call;
+  - a per-wallet statement with a running balance;
+  - prices, a quote and a purchase;
+  - a dev-only top-up.
+  - **Contract** (`docs/api/ledger.yaml`, no new codes):
+    - **Under `/v1/ledger/tenants/{tenantId}`:**
+      - `listBalances`, `getStatement` (`accounts/{accountId}/statement`, `from`/`to`/`cursor`/`limit`), `listTenantTokenPrices`, `quoteTokenPurchase` and `listTenantAutoBuyRules` need billing:read;
+      - `createTokenPurchase` and `setTenantAutoBuyRule` (PUT `auto-buy-rules/{serviceCode}/{currency}`) need billing:manage.
+      - No access is VAL-4003, as if the account didn't exist; a role without the permission is AUTH-4024.
+    - **Staff:** `createDevTopUp` (`/v1/ledger/staff/dev-top-ups`), 404 VAL-4003 unless dev top-ups are on.
+    - **Config:**
+      - **`LEDGER_ACCOUNTS_GRPC_ADDR`**: required, dialled lazily;
+      - **`LEDGER_DEV_TOPUPS`**: default false; startup logs a warning when it's on.
+  - **Rules:** `domain.PricesInForce`, the rows `SelectPrice` chooses from: the deal's tiers while one is in force, else the list's, lowest tier first.
+  - **App** (`app/dashboard.go`):
+    - **`requireTenant`** asks accounts on every call (`adapters.Accounts`; fake `tools/fakes/tenantcheck`, since identity's `tenantaccess` implements identity's own adapter). No access is `ErrNotFound`, no permission the new `ErrPermissionDenied`, and accounts down fails closed.
+    - **`TenantBalances`.**
+    - **`Statement`:** one SQL statement, so one snapshot. Each line's balance after it is the current balance, less the lines newer than the page, less those above it on the page; tokens run the same way from the lots. A VASPRO or other tenant's account is not found.
+    - **`TenantPrices`.**
+    - **`QuoteTokens`:** `SelectPrice` and `CostMinor`, as a purchase does, plus the main wallet's available balance and `affordable`.
+    - **`BuyTokens`:** the purchase key is `dashboard:` plus the client's Idempotency-Key.
+    - **`TenantAutoBuyRules` / `SetTenantAutoBuyRule`.**
+    - **`DevTopUp`:** staff first, then the flag; an ordinary `topup` from provider clearing on rail `sandbox`, so `wallet.credited` goes out and the nightly rebuild treats it like any other.
+  - **Tests:**
+    - **domain:** `PricesInForce` (5 cases); **2,000 random price sets: whatever `SelectPrice` picks is listed**, and with no price only list tiers above the quantity are.
+    - **app:**
+      - **the statement on the worked example:**
+        - main wallet: −8,000.00 (5,000.00 after), then +13,000.00 (13,000.00);
+        - SMS wallet: −304.00 and −380 tokens (7,696.00 and 9,620 after), then +8,000.00 and +10,000 tokens.
+        - Paged one line at a time, by date range, and refused for another tenant's, a VASPRO and an unknown account, a bad cursor, and a limit over 100.
+      - **while 40 top-ups land:** 30 pages read concurrently all add up, and the final 41 lines run 1,000 to 1,280.
+      - **prices and the quote:** prices show the deal's two tiers and not the list's, and UGX's list; the quote of 100.5 at the deal is 5,025, and the purchase right after costs the same; unaffordable and no-price quotes; a replayed purchase; the rules.
+      - **permissions:** a read-only member reads all five and is refused both writes; a member without billing gets AUTH-4024; a stranger and a removed member not found; accounts down fails closed.
+      - **dev top-up:** off is not found and writes nothing; non-staff refused; on, it credits 500,000 against sandbox clearing with `wallet.credited`; it replays by key; bad requests refused.
+    - **API:**
+      - **spec-driven `TestTenantOperations_NeedBillingPermissions`:** every tenant operation is 401 without a user, VAL-4003 for a stranger and AUTH-4024 for a member without billing; with billing:read, reads pass and writes are AUTH-4024. It fails if an operation has no case.
+      - `TestDashboardAPI`: dev top-up off, quote, purchase and replay, BAL-4001, BAL-4005, balances with tokens, a statement line, rules and VAL-4000, prices.
+      - The staff spec-driven test now covers `createDevTopUp`.
+    - **gateway:** a tenant quote reaches the ledger with the session's user; one without `tokens` is refused by spec validation before the ledger.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - the API and gateway tests came after the handlers; the mutations below stand in.
+    - **Test fixes while writing them:**
+      - the price agreement test's first assertion wrongly said "no price means nothing listed": list tiers above the quantity are listed but not chosen;
+      - `wallet.credited`'s aggregate is the wallet, not the transaction;
+      - the concurrency test now waits for its writer before failing.
+    - **Code fixes found by the tests:**
+      - the dev top-up first set a reference type without an ID, which `ValidatePosting` refuses;
+      - a statement column needed an explicit `::text` for sqlc.
+    - **Mutation-checked:**
+      - a purchase without the permission check (the app and spec-driven API tests);
+      - the statement's sign on the wrong side;
+      - dev top-ups ignoring the flag;
+      - the quote ignoring the deal;
+      - no access treated as access.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 12 packages fresh (`ledger/app` 156s, `gateway` 131s, `ledger/store` 96s), 59 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Notes:**
+    - **posting times are the database's `now()`**, not the app clock, so statement date ranges are database time;
+    - the statement's cost is the lines newer than the page, so very deep pages of a busy wallet get slower: an index or snapshot is the fix if it shows;
+    - the console screen and dashboard are frontend tracks F2 and F4.
+  - **Deployment notes:**
+    - the ledger needs `LEDGER_ACCOUNTS_GRPC_ADDR` (and `vaspro-all` with it);
+    - set `LEDGER_DEV_TOPUPS=true` only on the dev environment;
+    - on `ops/dev-environment` after this merges: `env.example` gains both variables, the compose file the accounts address, and `docs/api/API.md` is regenerated.
+  - **Not in 3.9:** CSV statements, real top-ups (Payments, Phase 4), and a quote that reserves its price.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1101,7 +1168,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.9: wallet and token APIs for the dashboard (balances, statements, buying tokens; the auto-buy rule routes and the client's own prices).
+1. Task 3.10: the v3 ledger importer. It needs a v3 export or anonymised copy, like 2.11 (ADR 0009); without one, design it as an ADR as 2.11 did.
+2. Phase 3's exit gate: the benchmark on the reference machine (undefined), finance's review of the worked examples and reversal rules, then one PR of `p3/phase-3` to `main`.
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).

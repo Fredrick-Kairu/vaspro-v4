@@ -57,6 +57,15 @@ type Config struct {
 	// ledger starts while identity is down; staff actions then fail
 	// closed.
 	IdentityGRPCAddr string `env:"LEDGER_IDENTITY_GRPC_ADDR,required"`
+	// AccountsGRPCAddr is accounts' internal gRPC API, asked on every
+	// dashboard call whether the user may work in the account with a
+	// billing permission (task 3.9). Dialled lazily; dashboard calls
+	// fail closed while accounts is down.
+	AccountsGRPCAddr string `env:"LEDGER_ACCOUNTS_GRPC_ADDR,required"`
+	// DevTopUps lets staff credit main wallets from the sandbox rail
+	// (task 3.9, OQ-20). Dev environments only: never set it where real
+	// money moves.
+	DevTopUps bool `env:"LEDGER_DEV_TOPUPS" envDefault:"false"`
 	// SettlementWindow is how often usage settles (task 3.5, OD-07's
 	// default); every replica settles the same grid of windows.
 	SettlementWindow time.Duration `env:"LEDGER_SETTLEMENT_WINDOW" envDefault:"5m"`
@@ -82,10 +91,13 @@ type Service struct {
 
 // New builds a Service from already-connected dependencies and the
 // loaded country packs, by country code.
-func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity, loaded map[string]*packs.Pack) *Service {
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity, accounts adapters.Accounts, loaded map[string]*packs.Pack) *Service {
+	if cfg.DevTopUps {
+		slog.Warn("ledger: LEDGER_DEV_TOPUPS is on: staff can credit main wallets from the sandbox rail. Dev environments only.")
+	}
 	a := app.New(app.Deps{
-		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity,
-		Packs: loaded, SettlementWindow: cfg.SettlementWindow,
+		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity, Accounts: accounts,
+		DevTopUps: cfg.DevTopUps, Packs: loaded, SettlementWindow: cfg.SettlementWindow,
 	})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
@@ -109,11 +121,15 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ledger: %w", err)
 	}
+	accounts, err := adapters.DialAccounts(cfg.AccountsGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: %w", err)
+	}
 	loaded, err := loadPacks(cfg.PacksDir)
 	if err != nil {
 		return nil, err
 	}
-	return New(cfg, pool, b, identity, loaded), nil
+	return New(cfg, pool, b, identity, accounts, loaded), nil
 }
 
 // loadPacks loads every <dir>/<cc>/pack.yaml against <dir>/schema.json.
