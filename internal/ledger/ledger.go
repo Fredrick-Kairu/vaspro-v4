@@ -28,6 +28,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 	ledgergrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/grpc"
 )
 
@@ -62,7 +63,13 @@ type Config struct {
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country: the
 	// VAT rates settlement uses.
 	PacksDir string `env:"LEDGER_PACKS_DIR" envDefault:"packs"`
+	// RebuildAt is when the nightly rebuild runs, HH:MM UTC (task 3.8,
+	// OQ-19); empty is the default, 21:30 (00:30 in Nairobi). One
+	// replica runs each date.
+	RebuildAt string `env:"LEDGER_REBUILD_AT" envDefault:"21:30"`
 }
+
+const defaultRebuildAt = "21:30"
 
 // Service wires the ledger's dependencies together and runs them.
 type Service struct {
@@ -131,6 +138,14 @@ func relaySubject(eventType string) string { return "ledger." + eventType }
 // Run starts the gRPC and HTTP servers and the outbox relay, and
 // blocks until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
+	rebuildAt := s.cfg.RebuildAt
+	if rebuildAt == "" {
+		rebuildAt = defaultRebuildAt
+	}
+	at, err := domain.ParseTimeOfDay(rebuildAt)
+	if err != nil {
+		return fmt.Errorf("ledger: LEDGER_REBUILD_AT: %w", err)
+	}
 	// The packs are the source of VAT rates (task 3.5); a rate changed
 	// without a new date, or two packs sharing a currency, stops startup.
 	if err := s.app.SyncTaxRates(ctx); err != nil {
@@ -143,6 +158,12 @@ func (s *Service) Run(ctx context.Context) error {
 	go func() {
 		defer close(settleDone)
 		s.settleEachWindow(ctx)
+	}()
+
+	rebuildDone := make(chan struct{})
+	go func() {
+		defer close(rebuildDone)
+		s.rebuildNightly(ctx, at)
 	}()
 
 	relay := outbox.NewRelay(s.pool, s.bus, relaySubject)
@@ -184,7 +205,38 @@ func (s *Service) Run(ctx context.Context) error {
 	<-grpcDone
 	<-relayDone
 	<-settleDone
+	<-rebuildDone
 	return err
+}
+
+// rebuildNightly runs the nightly rebuild (task 3.8) at the configured
+// time each day. Every replica wakes; the one that claims the date runs
+// it. A failed run is logged, and the date's row is taken over after an
+// hour by any replica that wakes again; the next night runs regardless.
+func (s *Service) rebuildNightly(ctx context.Context, at domain.TimeOfDay) {
+	clk := clock.Real{}
+	for {
+		next, runDate := domain.NextRebuild(clk.Now(), at)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(next.Sub(clk.Now())):
+		}
+		sum, err := s.app.RebuildBalances(ctx, runDate)
+		switch {
+		case err != nil:
+			slog.ErrorContext(ctx, "ledger: P1 the nightly rebuild couldn't run", "run_date", runDate.Format(time.DateOnly), "error", err)
+		case sum.Ran:
+			slog.InfoContext(ctx, "ledger: nightly rebuild", "run_date", runDate.Format(time.DateOnly), "passed", sum.Passed,
+				"differences", len(sum.Differences), "accounts", sum.AccountsChecked, "transactions", sum.TransactionsChecked)
+		}
+		// Past this run's time, so the next wake is tomorrow's.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // settleEachWindow wakes just after each window boundary, settles the

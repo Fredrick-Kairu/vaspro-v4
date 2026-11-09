@@ -300,6 +300,11 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			t.Fatalf("seed %d step %d after %s: %s", seed, step, op, msg)
 		}
 	}
+	// The nightly rebuild (task 3.8) is a second, independent check: it
+	// must agree that the random ledger holds together.
+	if sum, err := h.svc.RebuildBalances(ctx, h.clk.Now()); err != nil || !sum.Ran || !sum.Passed {
+		t.Fatalf("seed %d: the rebuild on the random ledger: %v, %+v", seed, err, sum.Differences)
+	}
 	batches := count(t, h, `SELECT count(*) FROM usage_batches WHERE transaction_id IS NOT NULL`)
 	autoBuys := count(t, h, `SELECT count(*) FROM outbox_events WHERE event_type = 'autobuy.triggered'`)
 	expired := count(t, h, `SELECT count(*) FROM holds WHERE status = 'expired'`)

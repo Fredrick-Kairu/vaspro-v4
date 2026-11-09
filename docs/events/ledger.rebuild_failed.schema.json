@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/ledger.rebuild_failed.schema.json",
+  "title": "ledger.rebuild_failed",
+  "description": "Published by the ledger when the nightly rebuild (data model §5's proof of correctness, task 3.8, OQ-19) finds the journal and its copies disagree: a transaction or currency that doesn't balance, or a balance, held amount, lot or wallet that differs from what its entries, holds and lot consumptions say. Severity P1: monitoring (Phase 16) pages on it. Nothing was corrected. differences lists the first 100; differences_total is the true count. expected is what the journal says, actual what the copy holds. The envelope's tenant is the nil UUID: it's the system's, not a client's. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": [
+    "run_id",
+    "run_date",
+    "accounts_checked",
+    "transactions_checked",
+    "severity",
+    "differences_total",
+    "differences"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "run_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "accounts_checked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "transactions_checked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "severity": {
+      "type": "string",
+      "const": "P1"
+    },
+    "differences_total": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "differences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "check",
+          "expected",
+          "actual"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "check": {
+            "type": "string",
+            "enum": [
+              "transaction_unbalanced",
+              "transaction_thin",
+              "currency_unbalanced",
+              "balance_mismatch",
+              "balance_row_missing",
+              "held_minor_mismatch",
+              "held_tokens_mismatch",
+              "lot_remaining_mismatch",
+              "wallet_value_mismatch",
+              "wallet_floor"
+            ]
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "expected": {
+            "type": "string"
+          },
+          "actual": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -739,6 +739,12 @@ CREATE TABLE ledger.reversals (
 > - **Cap:** the live reversals of a top-up never exceed what it credited, checked under the main wallet's balance lock.
 > - **`ledger_reversal_review`** reads reversals across clients for the staff queue. `identity.staff_members.finance_lead` marks finance leads.
 
+> **Built in task 3.8 (9 Nov 2026, OQ-19).** The nightly rebuild compares every copy with the journal and corrects nothing.
+> - **`ledger.rebuild_runs`** (an addition): one row per date (`running`, `passed`, `failed`, with counts), claimed by the replica that runs it.
+> - **Checks:** every transaction and currency balances; balance rows against entries on the normal side; held money and tokens against holds; each lot's remaining against its consumptions; each service wallet's money against its lots' remaining value; the wallet floor.
+> - **Events:** `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`.
+> - **`ledger_audit`** reads every client's journal and copies, only for the rebuild.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |

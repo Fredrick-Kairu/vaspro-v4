@@ -221,6 +221,17 @@ type LedgerRateCard struct {
 	EffectiveTo      pgtype.Timestamptz `json:"effective_to"`
 }
 
+type LedgerRebuildRun struct {
+	ID                  uuid.UUID          `json:"id"`
+	RunDate             pgtype.Date        `json:"run_date"`
+	Status              string             `json:"status"`
+	StartedAt           time.Time          `json:"started_at"`
+	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
+	AccountsChecked     pgtype.Int8        `json:"accounts_checked"`
+	TransactionsChecked pgtype.Int8        `json:"transactions_checked"`
+	Differences         pgtype.Int4        `json:"differences"`
+}
+
 type LedgerReversal struct {
 	ID                    uuid.UUID          `json:"id"`
 	TenantID              uuid.UUID          `json:"tenant_id"`

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.7 done (3.7 on 2026-11-09). Next: 3.8, the nightly balance rebuild with a P1 event.
+**Current task:** 3.1–3.8 done (3.7 and 3.8 on 2026-11-09). Next: 3.9, wallet and token APIs for the dashboard.
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -486,6 +486,60 @@
     - a `payment.reversed` event (system design §4.3 names it; it's Payments' event);
     - bonus wallets as a clawback source;
     - checking `evidence_document_id` against accounts (stored as given).
+
+- 3.8 Nightly rebuild with a P1 event (OQ-19). Your answers of 9 Nov:
+  - report only;
+  - check everything derivable;
+  - daily, one run per date;
+  - one event per run, passes included.
+  - **Contract:**
+    - **Migration** `20261106170000_rebuild.sql` (additions to data model §5):
+      - `ledger.rebuild_runs`: one row per date, `running`, `passed` or `failed`, with counts. The CHECKs tie each status to its columns, a pass to 0 differences and a failure to more. It's global, with no RLS.
+      - NOLOGIN **`ledger_audit`** reads every client's accounts, balances, transactions, entries, holds, lots and consumptions, only in `WithRoleTx`, and writes nothing.
+    - **Events:**
+      - `ledger.rebuild_failed`: severity P1, counts, the total, and up to 100 differences, each with its check, IDs, and expected and actual as strings;
+      - `ledger.rebuild_passed`, so a missing night is visible to monitoring.
+    - **Config:** `LEDGER_REBUILD_AT`, HH:MM UTC, default 21:30 (00:30 Nairobi). A bad value stops `Run` before anything starts.
+  - **Rules:** `domain.ParseTimeOfDay` and `NextRebuild` (the next run at or after now, and its UTC date).
+  - **App** (`app/rebuild.go`), `RebuildBalances(runDate)`:
+    1. **Claims the date:** an insert, or taking over a row still running an hour after it started. Otherwise it returns `Ran: false`.
+    2. **Runs ten checks as `ledger_audit`:** unbalanced and one-line transactions, unbalanced currencies, balance rows against the replay on the normal side, missing balance rows, held money, held tokens, lots' remaining, service-wallet value, and the wallet floor. Each is one statement, so each reads one snapshot while postings go on.
+    3. **Finishes the row and writes the event** in one transaction. Only the run that claimed the row finishes it, so a taken-over run that wakes late publishes nothing.
+    - **Never corrects anything.** A check that can't run is an error and the row stays `running`, never a pass.
+    - **`Run`** gains a loop that wakes at the time each day; a failure is logged as P1.
+  - **Tests:**
+    - **domain:** `ParseTimeOfDay` (3 good, 7 bad) and `NextRebuild` (before, at and after the time, after midnight, another zone).
+    - **app:**
+      - **clean ledger** (top-up, purchase, hold, capture, settlement, money hold, reversal paid back): passes with exactly 6 accounts and 5 transactions, and a valid `ledger.rebuild_passed`.
+      - **the ROADMAP's tamper test** (`TestRebuild_TamperedBalance`): a main wallet raised by 1 directly gives exactly one `balance_mismatch` with the right account, tenant, expected and actual, plus a valid `ledger.rebuild_failed` (P1) and a failed run row. **The row is still tampered afterwards** (report only).
+      - **each check** (`TestRebuild_EachCheck`): held money, held tokens, a lot's remaining, a service wallet's money (balance and value), a deleted balance row, a wallet below its floor, and a one-line unbalanced transaction slipped in with triggers off (transaction, thin, currency and balance). Each case finds exactly its expected checks.
+      - **over 100 differences:** 120 found, 100 listed, total 120.
+      - **once per date:** a second call skips; 5 concurrent calls run once; a row running for 61 minutes is taken over and one at 10 minutes isn't.
+    - **store:** the `rebuild_runs` CHECKs (3 allowed, 8 refused, including a second row for a date); `ledger_audit` reads both clients' rows in 5 tables only inside `WithRoleTx` and can't write.
+    - **service:** a bad `LEDGER_REBUILD_AT` stops `Run`.
+    - **property test:** at the end, the rebuild must pass on the random ledger: a second check, written independently of the test's own invariants. Four fresh seeds were green.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - the store and service tests came after the code, and the mutations below stand in for them.
+    - **Test fixes while writing them:**
+      - my first account-count expectation (at least 8) was wrong: the ledger has 6, now pinned exactly;
+      - the audit-role test first used a fixture with no token lot.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - **no held-tokens check;**
+      - **a run that passes with differences** (the tamper test);
+      - **every claim taking the date over:** caught by the fresh-run case. The same-date and concurrent cases were still guarded by the finish step only completing a running row, a second layer.
+      - **the replay on the wrong normal side** (the clean ledger);
+      - **an unchecked `LEDGER_REBUILD_AT`** (the service test).
+  - **`make check`** (after staging, dev stack down): the first run stopped at lint on one gosec G101 false positive. It read the check name `held_tokens_mismatch` as a credential; it's now marked `nolint` with the reason. The second run was green: lint 0 issues, 10 packages fresh (the ledger's: `ledger/app` 114s, `ledger/store` 79s), 61 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the ledger's login role reaches `ledger_audit` through `ledger_service` (granted in the migration);
+    - `deploy/compose/env.example` on `ops/dev-environment` should gain `LEDGER_REBUILD_AT` after this merges;
+    - one ledger replica runs each night's check.
+  - **Not in 3.8:**
+    - paging on the event (monitoring, Phase 16);
+    - a finance snapshot of VASPRO's account balances (ADR 0010's consequence, later);
+    - a manual "run now" command;
+    - per-message ClickHouse detail against usage batches.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1047,7 +1101,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 3.8: the nightly job that rebuilds every balance from the entries and raises a P1 event on any difference.
+1. Task 3.9: wallet and token APIs for the dashboard (balances, statements, buying tokens; the auto-buy rule routes and the client's own prices).
 2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
