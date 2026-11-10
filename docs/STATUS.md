@@ -1,8 +1,8 @@
 # Build status
 
-**Updated:** 2026-11-04
+**Updated:** 2026-11-10
 **Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.9 done and 3.10 designed (2026-11-09). Next: Phase 3's exit gate, then the PR to `main`.
+**Current task:** 3.1–3.9 done, 3.10 designed (2026-11-09), and the exit gate gone through (2026-11-10): ready for the PR to `main`, with finance's review and the v3 dry run still open (see Blockers).
 **Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
 
 ## Done in Phase 3
@@ -145,7 +145,7 @@
   - **Benchmark** (`BenchmarkHoldCapture`, `-benchtime=5s`, Apple M4 with 10 cores and 16 GB, Postgres 16 in Docker Desktop's 8 GB VM, pgx's default pool):
     - **1,504 hold+capture pairs/s on separate wallets** (665 µs per pair);
     - **765/s on one wallet** (1.31 ms), where the balance row lock serialises them.
-    - This is a development-machine figure: the exit gate wants the reference machine, which isn't defined yet.
+    - This is a development-machine figure: the exit gate wants the reference machine, which isn't defined yet. *(Since defined as this machine; the baseline is in "Phase 3 exit gate" below.)*
   - **`make check`:** the first run stopped at `gen-check` because the regenerated files weren't staged yet (the known working-tree-against-index behaviour in Notes, not stale code). After staging it was green: lint 0 issues, 36 packages fresh (testkit changed, so every integration package reran; `identity/app` 379s, `ledger/store` 81s), 32 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Not in 3.3:** token holds and FIFO valuation (3.4/3.5); settling plain captures (3.5); hold expiry (3.6); `entries.tax_code` on VAT lines (3.5, where the tax is known); a per-tenant account cache (only if the benchmark calls for it).
 
@@ -633,6 +633,19 @@
     - Phase 3's v3 dry-run exit-gate box notes it waits for the build;
     - **"All ledger invariants above are green" is ticked**, citing each test.
   - No code. **`make check`** was green (lint 0 issues; 3 packages fresh, 68 from the cache: nothing changed but docs), and gitleaks found no leaks.
+
+- **Phase 3 exit gate** (2026-11-10). Your answers: the development machine is the reference machine; merge without finance's review; prepare the PR.
+  - **All ledger invariants green:** ticked with 3.10 (the tests are named in ROADMAP).
+  - **Benchmark baseline, ticked:**
+    - **The reference machine:** Apple M4 (Mac16,1), 10 cores, 16 GB; Postgres 16 in Docker Desktop 28.0.4's VM (10 CPUs, about 8 GB); pgx's default pool.
+    - **The command:** `go test -tags=integration -run '^$' -bench BenchmarkHoldCapture -benchtime=5s -count=3 ./internal/ledger/app/`.
+    - **Median of 3, separate wallets:** **1,360 hold+capture pairs/s**, 735 µs a pair (runs 1,514, 1,360, 1,335).
+    - **Median of 3, one wallet:** **761/s**, 1.31 ms (runs 631, 761, 793), serialised on the balance row lock.
+    - **Against 3.3's figures** (1,504 and 765): about the same, though holds now also check tokens and auto-buy rules. Run-to-run spread is about ±10% on Docker Desktop.
+    - Re-measure on production hardware in Phase 17.
+  - **Finance's review, open:** the worked examples (3.4 and 3.5's golden tests: `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`) and the reversal rules (OQ-18, `internal/ledger/domain/reversals.go`).
+  - **v3 dry run, open:** waits for 3.10's build and a v3 export, like Phase 2's.
+  - The Phase 3 heading isn't ticked while two boxes are open, as with Phase 2.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1194,13 +1207,19 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Phase 3's exit gate: the benchmark on the reference machine (undefined), finance's review of the worked examples and reversal rules; the v3 dry-run box waits like Phase 2's. Then one PR of `p3/phase-3` to `main`.
-2. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
-3. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
-4. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
+1. The PR of `p3/phase-3` to `main`; merge only after its CI is green and you confirm it.
+2. After the merge, on `ops/dev-environment`:
+   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
+   - the compose file gains the accounts address;
+   - `docs/api/API.md` is regenerated.
+3. Phase 4 (Payments I, wallet top-ups).
+4. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
+5. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
+6. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
 - 2.11's and 3.10's builds, and Phase 2's and Phase 3's importer dry-run exit-gate boxes, need a v3 export or anonymised copy (OQ-02, OQ-12, OQ-21, ADRs 0009 and 0011).
+- Phase 3's "finance has reviewed the worked examples and the reversal rules" box needs finance's review, which only you can arrange. It was merged without it (your call, 2026-11-10).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
 - (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)

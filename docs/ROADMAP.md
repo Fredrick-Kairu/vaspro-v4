@@ -839,8 +839,8 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 **Exit gate**
 
 - [x] All ledger invariants above are green. *2026-11-09: property `TestLedger_RandomOperationsKeepInvariants`; concurrency `TestHolds_200ConcurrentHoldsNeverOverspend` (`-race`); golden `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`, `TestDrawLots_WorkedExample`; pricing `TestPurchaseTokens_Pricing`, `TestTokenPrices_Constraints`; `TestJournal_AppendOnly`, `TestBalanceGuard_CheckedAtCommit`; own-maker reversal in `TestOtherTables_Constraints`; tamper `TestRebuild_TamperedBalance`; UGX and fractional tokens in the property, purchase and domain tests. All green in `make check`.*
-- [ ] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *First figure 2026-11-04 (3.3, dev machine, not the reference machine): 1,504/s on separate wallets, 765/s on one wallet; see STATUS.*
-- [ ] Finance has reviewed the worked examples and the reversal rules.
+- [x] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *2026-11-10: the reference machine is defined as the development machine (Apple M4, 10 cores, 16 GB; Postgres 16 in Docker Desktop 28.0.4's VM with 10 CPUs and about 8 GB; pgx's default pool). `go test -tags=integration -run '^$' -bench BenchmarkHoldCapture -benchtime=5s -count=3 ./internal/ledger/app/`. Median of 3: **1,360 hold+capture pairs/s on separate wallets** (735 µs; runs 1,514, 1,360, 1,335) and **761/s on one wallet** (1.31 ms; runs 631, 761, 793). Re-measure on production hardware in Phase 17.*
+- [ ] Finance has reviewed the worked examples and the reversal rules. *Open: Phase 3 merged without it (your call, 2026-11-10); the review is still owed, see STATUS Blockers.*
 - [ ] The v3 balance import dry run reproduces v3 totals per client to the cent. *Open: waits for 3.10's build (ADR 0011) and a v3 export or anonymised copy, like Phase 2's importer box.*
 
 **Kickoff prompt**
