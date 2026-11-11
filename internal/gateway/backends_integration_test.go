@@ -72,14 +72,21 @@ func (b *recordingBackend) count() int {
 	return len(b.calls)
 }
 
-func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver) http.Handler {
+// newBackendsGateway routes to fake backends. The ledger's is optional:
+// without one, a fresh recording backend stands in for it.
+func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, ledger ...*recordingBackend) http.Handler {
 	t.Helper()
 	root := repoRoot(t)
+	if len(ledger) == 0 {
+		ledger = []*recordingBackend{newRecordingBackend(t)}
+	}
 	cfg := Config{
 		IdentityBaseURL:     identity.URL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
 		AccountsBaseURL:     accounts.URL,
 		AccountsOpenAPIPath: filepath.Join(root, "docs/api/accounts.yaml"),
+		LedgerBaseURL:       ledger[0].URL,
+		LedgerOpenAPIPath:   filepath.Join(root, "docs/api/ledger.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, sessions)
 	if err != nil {
@@ -107,6 +114,79 @@ func send(t *testing.T, h http.Handler, method, path string, headers map[string]
 	var decoded map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
 	return rec.Code, decoded
+}
+
+// TestGatewayBackends_Ledger: /v1/ledger/ (task 3.4b) is routed like
+// /v1/accounts/: a session is required, the user and session are
+// forwarded and spoofed copies replaced, and requests are validated
+// against the ledger's own spec before the ledger sees them.
+func TestGatewayBackends_Ledger(t *testing.T) {
+	identity, accounts, ledger := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger)
+	price := map[string]string{"service_code": "sms", "currency": "KES", "minor_per_token": "80", "effective_from": "2026-01-01T00:00:00Z"}
+
+	t.Run("a staff price call reaches the ledger with the session's user, not the token or a spoofed user", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodPost, "/v1/ledger/staff/token-prices",
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kl1", headerUserID: "33333333-3333-3333-3333-333333333333"}, price)
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := ledger.last(t)
+		if req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" ||
+			req.Header.Get(headerSessionID) != "11111111-1111-1111-1111-111111111111" || req.Header.Get("Authorization") != "" {
+			t.Fatalf("forwarded user %q session %q auth %q", req.Header.Get(headerUserID), req.Header.Get(headerSessionID), req.Header.Get("Authorization"))
+		}
+	})
+	t.Run("no session is 401 and never reaches the ledger", func(t *testing.T) {
+		before := ledger.count()
+		status, body := send(t, gw, http.MethodGet, "/v1/ledger/staff/token-prices", nil, nil)
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || ledger.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("validated against the ledger's spec", func(t *testing.T) {
+		before := ledger.count()
+		bad := map[string]string{"service_code": "sms", "currency": "KES"}
+		status, body := send(t, gw, http.MethodPost, "/v1/ledger/staff/token-prices",
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kl2"}, bad)
+		if status != http.StatusBadRequest || body["code"] != "VAL-4000" || ledger.count() != before {
+			t.Fatalf("got %d %v, want 400 VAL-4000 before the ledger", status, body)
+		}
+	})
+	t.Run("a write without an Idempotency-Key is refused at the edge", func(t *testing.T) {
+		before := ledger.count()
+		status, _ := send(t, gw, http.MethodPost, "/v1/ledger/staff/token-prices/"+uuid.NewString()+"/approval",
+			map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status != http.StatusBadRequest || ledger.count() != before {
+			t.Fatalf("got %d", status)
+		}
+	})
+	t.Run("a dashboard wallet route reaches the ledger with the session's user (task 3.9)", func(t *testing.T) {
+		tenant := uuid.NewString()
+		status, _ := send(t, gw, http.MethodGet, "/v1/ledger/tenants/"+tenant+"/token-quote?service_code=sms&currency=KES&tokens=100",
+			map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := ledger.last(t)
+		if req.URL.Path != "/v1/ledger/tenants/"+tenant+"/token-quote" || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" {
+			t.Fatalf("forwarded %s as %q", req.URL.Path, req.Header.Get(headerUserID))
+		}
+		before := ledger.count()
+		status, body := send(t, gw, http.MethodGet, "/v1/ledger/tenants/"+tenant+"/token-quote?service_code=sms",
+			map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status != http.StatusBadRequest || body["code"] != "VAL-4000" || ledger.count() != before {
+			t.Fatalf("a quote without tokens: %d %v, want 400 before the ledger", status, body)
+		}
+	})
+	t.Run("ledger paths never fall through to identity", func(t *testing.T) {
+		before := identity.count()
+		_, _ = send(t, gw, http.MethodGet, "/v1/ledger/unknown", map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if identity.count() != before {
+			t.Fatal("a /v1/ledger/ request reached identity")
+		}
+	})
 }
 
 func TestGatewayBackends(t *testing.T) {

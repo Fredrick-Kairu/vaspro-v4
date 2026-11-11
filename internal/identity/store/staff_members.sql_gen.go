@@ -11,6 +11,25 @@ import (
 	"github.com/google/uuid"
 )
 
+const getStaffRole = `-- name: GetStaffRole :one
+SELECT EXISTS (SELECT 1 FROM identity.staff_members s WHERE s.user_id = $1) AS staff,
+       EXISTS (SELECT 1 FROM identity.staff_members s WHERE s.user_id = $1 AND s.finance_lead) AS finance_lead
+`
+
+type GetStaffRoleRow struct {
+	Staff       bool `json:"staff"`
+	FinanceLead bool `json:"finance_lead"`
+}
+
+// Task 3.7: staff and the finance-lead flag in one read; no row means
+// neither.
+func (q *Queries) GetStaffRole(ctx context.Context, userID uuid.UUID) (GetStaffRoleRow, error) {
+	row := q.db.QueryRow(ctx, getStaffRole, userID)
+	var i GetStaffRoleRow
+	err := row.Scan(&i.Staff, &i.FinanceLead)
+	return i, err
+}
+
 const grantStaff = `-- name: GrantStaff :exec
 INSERT INTO identity.staff_members (user_id, granted_by) VALUES ($1, $2)
 ON CONFLICT (user_id) DO NOTHING
@@ -44,6 +63,26 @@ DELETE FROM identity.staff_members WHERE user_id = $1
 
 func (q *Queries) RevokeStaff(ctx context.Context, userID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeStaff, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setFinanceLead = `-- name: SetFinanceLead :execrows
+UPDATE identity.staff_members SET finance_lead = $1
+WHERE user_id = $2 AND finance_lead <> $1
+`
+
+type SetFinanceLeadParams struct {
+	FinanceLead bool      `json:"finance_lead"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+// Only an existing staff member's flag changes; a no-op change counts
+// as no row, so callers can tell "already so" from "changed".
+func (q *Queries) SetFinanceLead(ctx context.Context, arg SetFinanceLeadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setFinanceLead, arg.FinanceLead, arg.UserID)
 	if err != nil {
 		return 0, err
 	}

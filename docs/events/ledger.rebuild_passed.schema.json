@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/ledger.rebuild_passed.schema.json",
+  "title": "ledger.rebuild_passed",
+  "description": "Published by the ledger when the nightly rebuild (task 3.8, OQ-19) finds the journal and every copy of it agree, so a missing night is visible. The envelope's tenant is the nil UUID: it's the system's, not a client's. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": [
+    "run_id",
+    "run_date",
+    "accounts_checked",
+    "transactions_checked"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "run_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "accounts_checked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "transactions_checked": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

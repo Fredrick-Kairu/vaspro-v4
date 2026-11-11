@@ -1,0 +1,1205 @@
+openapi: 3.1.0
+info:
+  title: VASPRO ledger API
+  version: "1"
+  description: >
+    The ledger's HTTP API (data model §5, system design §4). Every
+    operation is reached through the gateway, which checks the
+    dashboard session (sessionBearer) before the ledger sees the
+    request. Other services use the internal gRPC API
+    (proto/ledger/v1) instead.
+servers:
+  - url: /
+paths:
+  /v1/ledger/staff/token-prices:
+    post:
+      operationId: createTokenPrice
+      summary: Enter a token price (staff only)
+      description: >
+        A list price (no tenant_id) or a client's negotiated deal
+        (tenant_id and a deal_reference), with optional volume tier
+        (min_tokens) and end date (task 3.4, OQ-15). It starts
+        pending_approval and is never used until a different staff
+        member approves it (maker-checker). An active price is never
+        edited: enter a new one and withdraw the old. Staff only
+        (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenPriceCreateRequest'
+            example:
+              tenant_id: "0192c3a1-7f00-7000-8000-000000000001"
+              service_code: sms
+              currency: KES
+              minor_per_token: "50"
+              deal_reference: "Q-2026-114"
+              effective_from: "2026-11-01T00:00:00Z"
+      responses:
+        "201":
+          description: The pending price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPrice'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listTokenPrices
+      summary: Token prices across clients (staff only)
+      description: >
+        Oldest first, filtered by client, service and status (for
+        example the pending_approval queue), paged with next_cursor.
+        Without tenant_id, list prices and every client's deals are
+        listed; with it, only that client's deals.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: service_code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending_approval, active, withdrawn]
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of prices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPriceList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/token-prices/{priceId}/approval:
+    post:
+      operationId: approveTokenPrice
+      summary: Approve a pending token price (staff only, step-up)
+      description: >
+        The checker of maker-checker: a staff member other than the one
+        who entered the price (VAL-4013), with a fresh step-up
+        (AUTH-4012). Only a pending price can be approved (VAL-4014). A
+        price that would overlap an active one for the same client,
+        service, currency and tier is VAL-4012.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/PriceID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The active price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPrice'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/token-prices/{priceId}/withdrawal:
+    post:
+      operationId: withdrawTokenPrice
+      summary: Withdraw a pending or active token price (staff only, step-up)
+      description: >
+        A withdrawn deal stops applying at once; the client buys at the
+        list price from then on. Lots already bought keep their price.
+        A price already withdrawn is VAL-4014.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/PriceID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The withdrawn price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPrice'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals:
+    post:
+      operationId: createReversal
+      summary: Raise a reversal of a client's top-up (staff only, step-up)
+      description: >
+        The maker of maker-checker (system design §4.3, task 3.7,
+        OQ-18). Only a client's top-up can be reversed, in whole or in
+        parts; open and completed reversals of it never add up to more
+        than it (VAL-4015). kind payback pays the money back through
+        the rail; chargeback and operator skip the pay-back because the
+        rail already moved it. clawback_services names the service
+        wallets whose unused tokens may be clawed back, in order, if the
+        main wallet falls short. Nothing is posted until a different
+        staff member approves it. Staff only (AUTH-4025), with a fresh
+        step-up (AUTH-4012); a transaction that isn't the client's
+        top-up is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversalCreateRequest'
+            example:
+              tenant_id: "0192c3a1-7f00-7000-8000-000000000001"
+              original_transaction_id: "0192c3a1-7f00-7000-8000-0000000000a1"
+              kind: payback
+              amount_minor: 1300000
+              reason: "Client paid the same invoice twice"
+              clawback_services: [sms]
+      responses:
+        "201":
+          description: The requested reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    get:
+      operationId: listReversals
+      summary: Reversals across clients (staff only)
+      description: >
+        Oldest first, filtered by client and status (for example the
+        requested queue), paged with next_cursor.
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReversalStatus'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of reversals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReversalList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}:
+    get:
+      operationId: getReversal
+      summary: One reversal, with a live preview while it's requested (staff only)
+      description: >
+        While requested, preview shows where the money would come from
+        if it were approved now: the main wallet's available balance
+        first, then each named wallet's unused, unheld tokens, newest
+        lot first. covered false means approving now would be refused
+        (BAL-4007).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+      responses:
+        "200":
+          description: The reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}/approval:
+    post:
+      operationId: approveReversal
+      summary: Approve and post a requested reversal (staff only, step-up)
+      description: >
+        The checker of maker-checker: a staff member other than the
+        maker (VAL-4013), with a fresh step-up (AUTH-4012). At or above
+        the country pack's threshold (KES 2,000 in Kenya) only a finance
+        lead may approve (AUTH-4026). The reversal is posted at once:
+        payback lands in payback_pending, the others in posted. If the
+        main wallet and the named clawback can't cover it, nothing is
+        posted (BAL-4007) and it stays requested. Only a requested
+        reversal can be decided (VAL-4014).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The posted reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/reversals/{reversalId}/rejection:
+    post:
+      operationId: rejectReversal
+      summary: Reject a requested reversal (staff only, step-up)
+      description: >
+        A staff member other than the maker (VAL-4013), with a fresh
+        step-up, rejects it with a reason. Nothing is posted, and its
+        share of the top-up can be reversed again.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ReversalID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversalRejectRequest'
+            example:
+              reason: "The client's bank confirmed both payments were intended"
+      responses:
+        "200":
+          description: The rejected reversal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reversal'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/balances:
+    get:
+      operationId: listBalances
+      summary: The account's wallets and balances
+      description: >
+        Every ledger account of the client: the main wallet, each
+        service wallet with its tokens, bonus and receivable, with
+        balance, held and available amounts (task 3.9). Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement:
+    get:
+      operationId: getStatement
+      summary: One wallet's statement, newest first
+      description: >
+        The account's lines, newest first, each with the balance after
+        it (and, for a service wallet, the tokens after it), read in one
+        snapshot so the running balance is exact (task 3.9, OQ-20).
+        from and to filter on the posting time (to excluded); paged with
+        next_cursor. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of the statement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statement'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-prices:
+    get:
+      operationId: listTenantTokenPrices
+      summary: The prices the account buys tokens at now
+      description: >
+        Per service and currency, the tiers that apply now: the
+        client's negotiated deal while one is in force (source deal),
+        otherwise the list price's volume tiers (source list). A
+        purchase uses the highest tier not above its quantity; a deal
+        always applies, its lowest tier below all its tiers. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The prices in force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantTokenPriceList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-quote:
+    get:
+      operationId: quoteTokenPurchase
+      summary: What buying tokens would cost now
+      description: >
+        The price a purchase of this quantity would use now, its cost
+        (rounded half-up to the minor unit) and whether the main
+        wallet's available money covers it. Nothing is reserved: the
+        price can change before the purchase. No price for the service
+        is BAL-4005. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: service_code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: tokens
+          in: query
+          required: true
+          schema:
+            type: string
+          description: A positive decimal with up to 6 places.
+      responses:
+        "200":
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenQuote'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/token-purchases:
+    post:
+      operationId: createTokenPurchase
+      summary: Buy tokens for a service from the main wallet
+      description: >
+        Moves the cost from the main wallet into the service's token
+        wallet at the price in force, locked into a new lot (system
+        design §4.2). Buying is final: tokens never move back to the
+        main wallet. Not enough money is BAL-4001, no price BAL-4005.
+        The Idempotency-Key makes a retry return the same purchase. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenPurchaseRequest'
+            example:
+              service_code: sms
+              currency: KES
+              tokens: "10000"
+      responses:
+        "201":
+          description: The purchase.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPurchase'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "402":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/auto-buy-rules:
+    get:
+      operationId: listTenantAutoBuyRules
+      summary: The account's auto-buy rules
+      description: >
+        When a send would leave a service's tokens below below_tokens,
+        or couldn't go ahead at all, the rule first buys buy_tokens
+        from the main wallet (system design §4.2). Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoBuyRuleList'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}:
+    put:
+      operationId: setTenantAutoBuyRule
+      summary: Set the auto-buy rule for a service and currency
+      description: >
+        Replaces the rule for the service and currency; enabled false
+        turns it off. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: serviceCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoBuyRuleRequest'
+            example:
+              below_tokens: "500"
+              buy_tokens: "10000"
+              enabled: true
+      responses:
+        "200":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoBuyRule'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/ledger/staff/dev-top-ups:
+    post:
+      operationId: createDevTopUp
+      summary: Credit a main wallet from the sandbox rail (staff only, dev environments only)
+      description: >
+        For testers and the frontend team before Payments exists (task
+        3.9, OQ-20): posts an ordinary top-up from VASPRO's sandbox rail
+        clearing account into the account's main wallet. Only where the
+        ledger runs with LEDGER_DEV_TOPUPS=true; elsewhere VAL-4003, as
+        if the route didn't exist. Staff only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevTopUpRequest'
+            example:
+              tenant_id: "0192c3a1-7f00-7000-8000-000000000001"
+              currency: KES
+              amount_minor: 1300000
+      responses:
+        "201":
+          description: The top-up's transaction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevTopUp'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user and session to the ledger.
+  parameters:
+    PriceID:
+      name: priceId
+      in: path
+      required: true
+      schema:
+        type: string
+    TenantID:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    ReversalID:
+      name: reversalId
+      in: path
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    TokenPriceCreateRequest:
+      type: object
+      required: [service_code, currency, minor_per_token, effective_from]
+      properties:
+        tenant_id:
+          type: string
+          description: The client a deal is for; absent for a list price.
+        service_code:
+          type: string
+        currency:
+          type: string
+          description: ISO 4217, e.g. KES.
+        min_tokens:
+          type: string
+          description: Volume tier, a decimal with up to 6 places; the price applies to purchases of at least this many. Default "0".
+        minor_per_token:
+          type: string
+          description: Minor units per token, a positive decimal with up to 6 places ("80" is KES 0.80).
+        deal_reference:
+          type: string
+          description: The signed quote or agreement; required for a deal, absent for a list price.
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type: string
+          format: date-time
+          description: Optional end, after effective_from; the list price applies after a deal ends.
+    TokenPrice:
+      type: object
+      required: [id, service_code, currency, min_tokens, minor_per_token, status, effective_from, created_by]
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        min_tokens:
+          type: string
+        minor_per_token:
+          type: string
+        deal_reference:
+          type: string
+        status:
+          type: string
+          enum: [pending_approval, active, withdrawn]
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        approved_by:
+          type: string
+    TokenPriceList:
+      type: object
+      required: [prices]
+      properties:
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenPrice'
+        next_cursor:
+          type: string
+    Balance:
+      type: object
+      required: [account_id, type, currency, status, balance_minor, held_minor, available_minor]
+      properties:
+        account_id:
+          type: string
+        type:
+          type: string
+          enum: [main_wallet, service_wallet, bonus, receivable, revenue_share_payable, commission_payable]
+        service_code:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+        balance_minor:
+          type: integer
+          format: int64
+        held_minor:
+          type: integer
+          format: int64
+        available_minor:
+          type: integer
+          format: int64
+        tokens_remaining:
+          type: string
+          description: Service wallets only, a decimal.
+        held_tokens:
+          type: string
+        tokens_available:
+          type: string
+    BalanceList:
+      type: object
+      required: [balances]
+      properties:
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Balance'
+    StatementLine:
+      type: object
+      required: [entry_id, transaction_id, posted_at, type, description, direction, amount_minor, balance_after_minor]
+      properties:
+        entry_id:
+          type: integer
+          format: int64
+        transaction_id:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+        type:
+          type: string
+          description: topup, token_purchase, usage, refund, reversal, ...
+        description:
+          type: string
+        reference_type:
+          type: string
+        reference_id:
+          type: string
+        direction:
+          type: string
+          enum: [debit, credit]
+        amount_minor:
+          type: integer
+          format: int64
+        tokens:
+          type: string
+        balance_after_minor:
+          type: integer
+          format: int64
+        tokens_after:
+          type: string
+          description: Service wallets only.
+    Statement:
+      type: object
+      required: [account_id, type, currency, lines]
+      properties:
+        account_id:
+          type: string
+        type:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementLine'
+        next_cursor:
+          type: string
+    TenantTokenPrice:
+      type: object
+      required: [service_code, currency, source, min_tokens, minor_per_token]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        source:
+          type: string
+          enum: [deal, list]
+        min_tokens:
+          type: string
+        minor_per_token:
+          type: string
+          description: Minor units per token, a decimal ("80" is KES 0.80).
+        deal_reference:
+          type: string
+        effective_to:
+          type: string
+          format: date-time
+    TenantTokenPriceList:
+      type: object
+      required: [prices]
+      properties:
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantTokenPrice'
+    TokenQuote:
+      type: object
+      required: [service_code, currency, tokens, source, min_tokens, minor_per_token, cost_minor, main_available_minor, affordable]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+        source:
+          type: string
+          enum: [deal, list]
+        min_tokens:
+          type: string
+        minor_per_token:
+          type: string
+        cost_minor:
+          type: integer
+          format: int64
+        main_available_minor:
+          type: integer
+          format: int64
+        affordable:
+          type: boolean
+    TokenPurchaseRequest:
+      type: object
+      required: [service_code, currency, tokens]
+      properties:
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+          description: A positive decimal with up to 6 places.
+    TokenPurchase:
+      type: object
+      required: [transaction_id, lot_id, service_code, currency, tokens, minor_per_token, cost_minor]
+      properties:
+        transaction_id:
+          type: string
+        lot_id:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        tokens:
+          type: string
+        minor_per_token:
+          type: string
+        cost_minor:
+          type: integer
+          format: int64
+    AutoBuyRuleRequest:
+      type: object
+      required: [below_tokens, buy_tokens, enabled]
+      properties:
+        below_tokens:
+          type: string
+        buy_tokens:
+          type: string
+        enabled:
+          type: boolean
+    AutoBuyRule:
+      type: object
+      required: [id, service_code, currency, below_tokens, buy_tokens, enabled]
+      properties:
+        id:
+          type: string
+        service_code:
+          type: string
+        currency:
+          type: string
+        below_tokens:
+          type: string
+        buy_tokens:
+          type: string
+        enabled:
+          type: boolean
+        last_triggered_at:
+          type: string
+          format: date-time
+    AutoBuyRuleList:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AutoBuyRule'
+    DevTopUpRequest:
+      type: object
+      required: [tenant_id, currency, amount_minor]
+      properties:
+        tenant_id:
+          type: string
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+    DevTopUp:
+      type: object
+      required: [transaction_id]
+      properties:
+        transaction_id:
+          type: string
+    ReversalStatus:
+      type: string
+      enum: [requested, rejected, posted, payback_pending, paid_back]
+    ReversalCreateRequest:
+      type: object
+      required: [tenant_id, original_transaction_id, kind, amount_minor, reason]
+      properties:
+        tenant_id:
+          type: string
+        original_transaction_id:
+          type: string
+          description: The client's top-up being reversed.
+        kind:
+          type: string
+          enum: [payback, chargeback, operator]
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Minor units of the top-up's currency.
+        reason:
+          type: string
+        evidence_document_id:
+          type: string
+          description: A document the client uploaded (accounts' documents), stored as given.
+        clawback_services:
+          type: array
+          items:
+            type: string
+          description: Service wallets to claw unused tokens back from, in order.
+    ReversalRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+    Reversal:
+      type: object
+      required: [id, tenant_id, original_transaction_id, kind, currency, amount_minor, reason, clawback_services, status, requested_by, created_at, payback_attempts]
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        original_transaction_id:
+          type: string
+        kind:
+          type: string
+          enum: [payback, chargeback, operator]
+        currency:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        evidence_document_id:
+          type: string
+        clawback_services:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ReversalStatus'
+        requested_by:
+          type: string
+        approved_by:
+          type: string
+        rejected_by:
+          type: string
+        rejection_reason:
+          type: string
+        reversal_transaction_id:
+          type: string
+        payback_transaction_id:
+          type: string
+        payback_reference:
+          type: string
+        payback_attempts:
+          type: integer
+        last_payback_error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        preview:
+          $ref: '#/components/schemas/ReversalPreview'
+    ReversalPreview:
+      type: object
+      required: [covered, main_available_minor, from_main_minor, clawback]
+      properties:
+        covered:
+          type: boolean
+        main_available_minor:
+          type: integer
+          format: int64
+        from_main_minor:
+          type: integer
+          format: int64
+          description: What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back.
+        clawback:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReversalClawback'
+    ReversalClawback:
+      type: object
+      required: [service_code, clawable_minor, tokens, value_minor]
+      properties:
+        service_code:
+          type: string
+        clawable_minor:
+          type: integer
+          format: int64
+          description: The wallet's unused, unheld tokens' value.
+        tokens:
+          type: string
+          description: Tokens the reversal would take back, a decimal with up to 6 places.
+        value_minor:
+          type: integer
+          format: int64
+          description: Their value at their lots' prices.
+    ReversalList:
+      type: object
+      required: [reversals]
+      properties:
+        reversals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reversal'
+        next_cursor:
+          type: string
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

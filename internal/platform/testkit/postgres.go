@@ -55,7 +55,7 @@ func WithMigrations(dir string) PostgresOption {
 
 // StartPostgres starts a postgres:16-alpine container and returns a
 // Postgres connected as its superuser. Cleans itself up via t.Cleanup.
-func StartPostgres(t *testing.T, opts ...PostgresOption) *Postgres {
+func StartPostgres(t testing.TB, opts ...PostgresOption) *Postgres {
 	t.Helper()
 	var cfg postgresConfig
 	for _, opt := range opts {

@@ -13,6 +13,7 @@ numbering:
 tax:
   vat_rate_basis_points: 1600
   vat_inclusive_by_default: true
+  vat_effective_from: "2026-01-01"
 
 send_windows:
   promotional:

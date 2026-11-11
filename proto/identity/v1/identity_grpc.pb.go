@@ -59,6 +59,7 @@ type IdentityServiceClient interface {
 	// IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
 	// ask on every staff action, so a revocation takes effect at once.
 	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+	// It also says whether the user is a finance lead (task 3.7).
 	IsStaff(ctx context.Context, in *IsStaffRequest, opts ...grpc.CallOption) (*IsStaffResponse, error)
 }
 
@@ -162,6 +163,7 @@ type IdentityServiceServer interface {
 	// IsStaff reports whether a user is VASPRO staff (task 2.9). Callers
 	// ask on every staff action, so a revocation takes effect at once.
 	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
+	// It also says whether the user is a finance lead (task 3.7).
 	IsStaff(context.Context, *IsStaffRequest) (*IsStaffResponse, error)
 	mustEmbedUnimplementedIdentityServiceServer()
 }

@@ -148,6 +148,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4026
+    status: 403
+    title: Finance lead approval required
+    cause: The reversal is at or above the country pack's finance-lead threshold, and the approver isn't a finance lead (system design §4.3).
+    fix: Ask a finance lead to approve the reversal.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
@@ -260,11 +268,99 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4012
+    status: 409
+    title: Price would overlap an active one
+    cause: Approving this token price would leave two active prices for the same client, service, currency and volume tier at the same time.
+    fix: Withdraw the price in force, or end it before this one starts, then approve again.
+    retryable: false
+    billable: false
+
+  - code: VAL-4013
+    status: 403
+    title: A price's maker can't approve it
+    cause: Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price.
+    fix: Ask another staff member to approve it.
+    retryable: false
+    billable: false
+
+  - code: VAL-4014
+    status: 409
+    title: Price already decided
+    cause: The token price was already approved or withdrawn, so it can't be approved again.
+    fix: Read the price's status; to change an approved price, enter a new one and withdraw the old.
+    retryable: false
+    billable: false
+
+  - code: VAL-4015
+    status: 409
+    title: Reversal exceeds the original
+    cause: This reversal and the open or completed reversals of the same top-up together would be more than the top-up.
+    fix: Reverse at most what's left of the top-up; a rejected reversal frees its share.
+    retryable: false
+    billable: false
+
+  - code: VAL-4016
+    status: 409
+    title: Reversal isn't awaiting pay-back
+    cause: Only a pay-back reversal that's posted and not yet paid back can record a pay-back.
+    fix: Read the reversal's status; chargebacks and operator reversals have no pay-back.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance
-    cause: The service token wallet doesn't hold enough tokens for this send.
-    fix: Buy more tokens, turn on auto-buy, or reduce the request size.
+    cause: The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold).
+    fix: Top up the wallet, or reduce the request.
+    retryable: false
+    billable: false
+
+  - code: BAL-4002
+    status: 402
+    title: No tokens left for this service
+    cause: The service's token wallet doesn't have enough tokens left (beyond those already held) for this request (system design §8).
+    fix: Buy tokens for the service, or turn on auto-buy.
+    retryable: false
+    billable: false
+
+  - code: BAL-4003
+    status: 409
+    title: Hold can't change this way
+    cause: The hold was already captured, released or expired, or the capture is larger than the hold.
+    fix: Read the hold's status; capture at most its amount, and only while it's active.
+    retryable: false
+    billable: false
+
+  - code: BAL-4004
+    status: 422
+    title: Tokens can't move back to the main wallet
+    cause: Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal.
+    fix: Use the reversal flow, which needs a staff member's approval.
+    retryable: false
+    billable: false
+
+  - code: BAL-4005
+    status: 409
+    title: No token price for this service
+    cause: There is no approved list price or deal in force for this service and currency, so tokens can't be bought.
+    fix: Ask VASPRO to set a price for the service in this currency.
+    retryable: false
+    billable: false
+
+  - code: BAL-4006
+    status: 403
+    title: Account not open
+    cause: The ledger account is frozen or closed, so it takes no new postings or holds.
+    fix: Ask VASPRO support why the account was frozen or closed.
+    retryable: false
+    billable: false
+
+  - code: BAL-4007
+    status: 409
+    title: Reversal not covered
+    cause: The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal (system design §4.3).
+    fix: Name more service wallets to claw back from, release holds, or reverse a smaller amount.
     retryable: false
     billable: false
 

@@ -676,6 +676,77 @@ CREATE TABLE ledger.reversals (
 );
 ```
 
+> **Built in tasks 3.1–3.2 (4 Nov 2026, OQ-13, ADR 0010).** Additions to the schema above:
+> - **RLS:**
+>   - the five tables with `tenant_id NOT NULL` use the standard policy;
+>   - `accounts`, `token_prices` and `rate_cards`: a tenant reads its own rows and VASPRO's (tenant_id NULL), and writes only its own;
+>   - `transactions`: a tenant's own rows only;
+>   - `entries` follow their transaction; a client posting may use the tenant's accounts or VASPRO's;
+>   - `balances` follow their account, and `lot_consumptions` their lot;
+>   - VASPRO's rows are written only by the NOLOGIN role `ledger_system` (`WithRoleTx`).
+> - **Grants:** the service's role `ledger_service` has no UPDATE, DELETE or TRUNCATE on `transactions`, `entries` or `lot_consumptions`, and on `balances` may write only `held_minor`.
+> - **CHECKs on accounts:** client types have a tenant and VASPRO's don't; service wallets and revenue name a service; only provider clearing names a rail.
+> - **Signs and balance rows:**
+>   - balances are kept on each account's normal side (receivable and provider clearing debit-normal, all else credit-normal);
+>   - only client accounts have a balance row, kept by a trigger on `entries`;
+>   - VASPRO's accounts are summed from their entries (ADR 0010).
+> - **Guards:**
+>   - each transaction has a debit and a credit and balances per currency, checked at commit;
+>   - an entry's currency is its account's;
+>   - entries are inserted with their transaction (same database transaction and savepoint);
+>   - `transactions`, `entries` and `lot_consumptions` are append-only, TRUNCATE included;
+>   - main, service and bonus wallets keep `balance_minor >= 0` and `held_minor <= balance_minor` at commit.
+
+> **Built in task 3.3 (4 Nov 2026, OQ-14).**
+> - **`holds.captured_minor`:** set exactly when the hold is captured, from 1 to `amount_minor`.
+> - **What a hold contributes to `held_minor`:**
+>   - while active, its amount;
+>   - once captured, until settled (`settled_at`), the captured amount;
+>   - nothing after.
+> - **Settlement:** release and a capture carrying its own posting settle the hold at once; 3.5's settlement settles plain captures.
+> - **`ledger_system`** reads every line on VASPRO's own accounts, so their balances can be summed from the journal.
+
+> **Built in task 3.4 (4 Nov 2026, OQ-15).**
+> - **Rounding:** a purchase costs tokens × price, rounded half-up. A draw from a lot is valued by cumulative rounding, so a lot's draws always sum to its cost.
+> - **Token holds:**
+>   - service-wallet holds reserve tokens: `balances.held_tokens`, and `holds.captured_tokens` for a capture;
+>   - the wallet guard also refuses holding more tokens than the open lots have left, checked on `balances` and `token_lots`;
+>   - money holds (main and bonus wallets) keep using `held_minor`.
+> - **`token_lots` CHECKs:** bought > 0, remaining ≤ bought, price > 0.
+> - **Service wallets:** money moves only through lots, so the generic posting API can't touch them.
+
+> **Built in task 3.5 (4 Nov 2026, OQ-16).**
+> - **The batch:** settlement runs once per window (OD-07). Per service wallet, one `usage_batches` row and one `usage` posting cover every token hold captured and unsettled when it runs.
+> - **The posting:** it draws the captured tokens FIFO and splits the value drawn into revenue and VAT (the pack's rate in force, VAT-inclusive by the pack's default).
+> - **VAT excluded:** the VAT comes from the main wallet, and what it can't cover goes to the receivable.
+> - **New columns:**
+>   - `holds.captured_events` (the delivered events a token capture covers);
+>   - `holds.usage_batch_id`.
+> - **New CHECKs on batches:** the window runs forward, events ≥ 0, tokens > 0.
+> - **Money holds** are captured only with their posting.
+> - **Packs** carry `tax.vat_effective_from`.
+
+> **Built in task 3.6 (4 Nov 2026, OQ-17).**
+> - **Expiry:** the expiry job expires active holds past `expires_at` plus one settlement window, and releases what they held; a capture after expiry is refused.
+> - **Auto-buy** runs inside a token hold: the rule buys its amount first when the hold would leave fewer tokens than its level or can't be covered, and only if the purchase lets the hold through.
+> - **CHECKs:** `auto_buy_rules.below_tokens ≥ 0`, `buy_tokens > 0`.
+> - **`ledger_settlement`** also reads active holds, for the expiry job.
+
+> **Built in task 3.7 (9 Nov 2026, OQ-18).** Additions to `reversals`:
+> - **Columns:** `kind` (`payback`, `chargeback`, `operator`), `currency`, `clawback_services` (the wallets the maker named, in order), `rejected_by` and `rejection_reason`, `payback_transaction_id`, `payback_attempts`, `last_payback_error`.
+> - **CHECKs:** each status carries exactly its decision columns; a rejection is never by its maker; `payback_pending` and `paid_back` only for `payback`, `posted` only for the others; `paid_back` names its pay-back transaction.
+> - **Postings:** the reversal (`reverses_id` the top-up) debits the main wallet up to its available balance, then the named wallets' unused, unheld tokens, newest lot first (recorded in `lot_consumptions`); it credits reversal clearing for a pay-back, or the rail's provider clearing for a chargeback or operator reversal. The pay-back moves reversal clearing to provider clearing. No VAT moves: top-ups carry none.
+> - **Cap:** the live reversals of a top-up never exceed what it credited, checked under the main wallet's balance lock.
+> - **`ledger_reversal_review`** reads reversals across clients for the staff queue. `identity.staff_members.finance_lead` marks finance leads.
+
+> **Built in task 3.8 (9 Nov 2026, OQ-19).** The nightly rebuild compares every copy with the journal and corrects nothing.
+> - **`ledger.rebuild_runs`** (an addition): one row per date (`running`, `passed`, `failed`, with counts), claimed by the replica that runs it.
+> - **Checks:** every transaction and currency balances; balance rows against entries on the normal side; held money and tokens against holds; each lot's remaining against its consumptions; each service wallet's money against its lots' remaining value; the wallet floor.
+> - **Events:** `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`.
+> - **`ledger_audit`** reads every client's journal and copies, only for the rebuild.
+
+> **Built in task 3.9 (9 Nov 2026, OQ-20).** No schema change. The dashboard reads balances, statements (each line with the balance after it, from one snapshot), the prices in force and quotes, and buys tokens and sets auto-buy rules, with access checked by accounts (billing:read, billing:manage). Dev environments can credit main wallets from VASPRO's `sandbox` rail clearing (LEDGER_DEV_TOPUPS), as ordinary top-ups.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |
@@ -712,12 +783,12 @@ Buying tokens (steps 2 and 5) carries no VAT, because it only moves the client's
 
 | v3 table or column | v4 | Notes |
 | --- | --- | --- |
-| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client |
-| `client_balance.bonus`, `client_app_bonus` | Bonus account | Usable on any service unless restricted |
+| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client, against VASPRO's `migration_clearing` (OQ-21, ADR 0011) |
+| `client_balance.bonus`, `client_app_bonus` | Bonus account | Money, usable on any service unless restricted (OQ-21; system design §4.2's "bonus tokens" wording is superseded) |
 | `client_balance.subscription_balance` | `revenue_share_payable` | Assumed to be premium subscription revenue owed to the client; to confirm |
 | `client_balance.alert_threshold` | Client alert rule (Monitoring, Part 4) | Not ledger data |
 | `user_balance.commissions` | `commission_payable` | Reseller and agent commissions |
-| `transactions` (reference types 1 to 30) | `transactions` and `entries` | v3 history is imported read-only as `migration` transactions with the v3 reference kept. Balances are checked against v3 totals before cut-over |
+| `transactions` (reference types 1 to 30) | `ledger.v3_history` | v3 history is imported read-only, with the v3 reference kept, into its own table, never journal entries (OQ-21, ADR 0011: entries would count it twice alongside the opening balance). Balances are checked against v3 totals before cut-over |
 | `client_services.unit_cost`, `discount` | `token_prices` with `tenant_id` set | Each client's current SMS price (unit\_cost less discount) becomes its negotiated deal from cut-over |
 | `manual_payments` | `topup` transactions with `created_by` | v4 adds maker-checker for manual loads |
 | `invoices`, `invoice_status`, `mpesa_transactions` | Billing and Payments (Part 2) |  |

@@ -59,6 +59,11 @@ type Config struct {
 	AccountsBaseURL     string `env:"GATEWAY_ACCOUNTS_BASE_URL,required"`
 	AccountsOpenAPIPath string `env:"GATEWAY_ACCOUNTS_OPENAPI_PATH" envDefault:"docs/api/accounts.yaml"`
 
+	// LedgerBaseURL receives everything under /v1/ledger/ (staff token
+	// prices, task 3.4b), after the gateway has checked the session.
+	LedgerBaseURL     string `env:"GATEWAY_LEDGER_BASE_URL,required"`
+	LedgerOpenAPIPath string `env:"GATEWAY_LEDGER_OPENAPI_PATH" envDefault:"docs/api/ledger.yaml"`
+
 	// RedisURL backs rate-limit counters (RedisRateLimiter) — the
 	// gateway's own connection, not identity's; it owns no schema to
 	// share a service's Redis namespace with.
@@ -85,6 +90,10 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_ACCOUNTS_BASE_URL: %w", err)
 	}
+	ledgerTarget, err := url.Parse(cfg.LedgerBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_LEDGER_BASE_URL: %w", err)
+	}
 	identitySpec, identityRoutes, err := loadSpecAndRoutes(cfg.IdentityOpenAPIPath)
 	if err != nil {
 		return nil, err
@@ -93,11 +102,16 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, err
 	}
+	ledgerSpec, ledgerRoutes, err := loadSpecAndRoutes(cfg.LedgerOpenAPIPath)
+	if err != nil {
+		return nil, err
+	}
 
 	jwks := newJWKSCache(cfg.IdentityBaseURL+"/.well-known/jwks.json", clk)
 	limiter := NewRedisRateLimiter(c)
 	identityProxy := requireValidRequestShape(identitySpec)(newReverseProxy(identityTarget))
 	accountsProxy := newReverseProxy(accountsTarget)
+	ledgerProxy := newReverseProxy(ledgerTarget)
 
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
@@ -111,7 +125,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 
 	proxied := chi.NewRouter()
 	proxied.Use(stripForwardedIdentity)
-	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes}))
+	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes, ledgerRoutes}))
 	proxied.Use(rateLimit(limiter, rateLimitByIP, globalRateLimit, globalRateWindow))
 	proxied.Use(requireIdempotencyKeyHeader)
 
@@ -122,6 +136,13 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 		r.Use(requireSessionUnlessPublic(sessions, accountsRoutes))
 		r.Use(requireValidRequestShape(accountsSpec))
 		r.Handle("/*", accountsProxy)
+	})
+
+	// ledger: the same, against the ledger's spec (task 3.4b).
+	proxied.Route("/v1/ledger", func(r chi.Router) {
+		r.Use(requireSessionUnlessPublic(sessions, ledgerRoutes))
+		r.Use(requireValidRequestShape(ledgerSpec))
+		r.Handle("/*", ledgerProxy)
 	})
 
 	// identity: everything else. Identity checks its own sessions.

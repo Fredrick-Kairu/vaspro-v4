@@ -27,7 +27,7 @@ func runIdentity(args []string) int {
 	switch args[0] {
 	case "rotate-signing-key":
 		return rotateSigningKey(os.Stdout, os.Stderr)
-	case "grant-staff", "revoke-staff":
+	case "grant-staff", "revoke-staff", "grant-finance-lead", "revoke-finance-lead":
 		return changeStaff(args[0], args[1:], os.Stdout, os.Stderr)
 	default:
 		identityUsage()
@@ -39,11 +39,14 @@ func identityUsage() {
 	_, _ = fmt.Fprintln(os.Stderr, "usage: vaspro identity rotate-signing-key")
 	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity grant-staff -by <operator> <email>")
 	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity revoke-staff -by <operator> <email>")
+	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity grant-finance-lead -by <operator> <email>")
+	_, _ = fmt.Fprintln(os.Stderr, "       vaspro identity revoke-finance-lead -by <operator> <email>")
 	_, _ = fmt.Fprintln(os.Stderr, "  reads IDENTITY_DATABASE_URL (and, to rotate, IDENTITY_SIGNING_KEYS_KMS_KEY) from the environment")
 }
 
-// changeStaff grants or revokes VASPRO staff (task 2.9, OQ-10). It is
-// the only way anyone becomes staff: there is no API for it. -by names
+// changeStaff grants or revokes VASPRO staff (task 2.9, OQ-10) or a
+// staff member's finance-lead flag (task 3.7, OQ-18). It is the only
+// way anyone becomes either: there is no API for it. -by names
 // the operator running it, for the security event.
 func changeStaff(action string, args []string, stdout, stderr *os.File) int {
 	fs := flag.NewFlagSet(action, flag.ContinueOnError)
@@ -72,10 +75,10 @@ func changeStaff(action string, args []string, stdout, stderr *os.File) int {
 	defer pool.Close()
 
 	svc := app.New(app.Deps{Pool: pool, Clock: clock.Real{}})
-	change := svc.GrantStaff
-	if action == "revoke-staff" {
-		change = svc.RevokeStaff
-	}
+	change := map[string]func(context.Context, string, string) error{
+		"grant-staff": svc.GrantStaff, "revoke-staff": svc.RevokeStaff,
+		"grant-finance-lead": svc.GrantFinanceLead, "revoke-finance-lead": svc.RevokeFinanceLead,
+	}[action]
 	if err := change(ctx, email, *by); err != nil {
 		_, _ = fmt.Fprintf(stderr, "vaspro: %s: %v\n", action, err)
 		return 1

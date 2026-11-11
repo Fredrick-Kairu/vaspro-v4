@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/autobuy.triggered.schema.json",
+  "title": "autobuy.triggered",
+  "description": "Published by the ledger when a client's auto-buy rule bought tokens (data model §5's Events table, task 3.6), inside the token hold that needed them and in the same transaction. reason is below_level (the hold would have left fewer tokens than the rule's level) or cover_hold (the hold couldn't have been placed without the purchase). The purchase also publishes tokens.purchased. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "rule_id", "service_code", "currency", "tokens", "lot_id", "transaction_id", "reason", "hold_reference_type", "hold_reference_id"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "rule_id": {"type": "string", "format": "uuid"},
+    "service_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "tokens": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,6})?$"},
+    "lot_id": {"type": "string", "format": "uuid"},
+    "transaction_id": {"type": "string", "format": "uuid"},
+    "reason": {"type": "string", "enum": ["below_level", "cover_hold"]},
+    "hold_reference_type": {"type": "string"},
+    "hold_reference_id": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

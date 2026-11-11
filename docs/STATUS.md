@@ -1,9 +1,651 @@
 # Build status
 
-**Updated:** 2026-11-04
-**Current phase:** Phase 2: Accounts, KYC and onboarding (Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** Phase 2's tasks are done except 2.11's build, which is designed (ADR 0009) and waits for a v3 export (2026-11-04). Next: Phase 2's PR to `main` (needs your go-ahead), then Phase 3. Done: 2.1–2.10 (2.7's registry lookup deferred, OQ-08), the testkit readiness fix and parallelism cap, 1.16. Phase 2's onboarding e2e is green.
-**Branch:** `p2/phase-2`, one branch for the whole phase (your call, 2026-10-30): each task is its own conventional commit, no PR per task, one PR to `main` once Phase 2 is done. It also carries `p1/status-merged`'s STATUS commit, which isn't on `main` yet.
+**Updated:** 2026-11-10
+**Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** 3.1–3.9 done, 3.10 designed (2026-11-09), and the exit gate gone through (2026-11-10): ready for the PR to `main`, with finance's review and the v3 dry run still open (see Blockers).
+**Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
+
+## Done in Phase 3
+- 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
+  - **3.1** (`migrations/ledger/20261106090000_init.sql`):
+    - **Tables:** data model §5's 14 tables, copied exactly, plus `outbox_events` and `idempotency_keys`. There's no `processed_events`: ledger consumes no events yet.
+    - **Currencies** are seeded: KES 2, TZS 2, UGX 0. `tax_rates` isn't seeded; 3.5 syncs it from the pack, as 2.4 did for service rules.
+    - **Account-type CHECKs** (additions):
+      - client types have a tenant, and VASPRO's don't;
+      - `service_wallet` and `revenue` name a service;
+      - `provider_clearing`, and only it, names a rail.
+    - **Sign convention:** `internal/ledger/domain/accounttype.go` (`NormalSide`, `IsClientOwned`, `IsClientWallet`, `BalanceDelta`) is the one source. The SQL copies (`ledger.normal_side`, `is_client_owned`, `is_client_wallet`) are tested equal for every enum value. `normal_side` is a plpgsql CASE with no ELSE, so a new enum value without a side errors rather than defaulting.
+    - **RLS:**
+      - the standard policy on `token_lots`, `holds`, `usage_batches`, `auto_buy_rules`, `reversals`;
+      - `accounts`, `token_prices`, `rate_cards`: a tenant reads its own and NULL-tenant rows, and writes only its own;
+      - `transactions`: own rows only;
+      - `entries`: inserts need the tenant's own transaction and an own or VASPRO account;
+      - `balances` follow their account, and `lot_consumptions` their lot (it has no tenant_id; the plan missed it).
+      - **One point built tighter than your answer:** a tenant reads only the lines of its *own postings*, not every line on a VASPRO account. Otherwise tenant A could read tenant B's revenue and VAT lines on the shared revenue account.
+    - **Roles:**
+      - `ledger_system` (NOLOGIN) writes NULL-tenant rows only. It's granted `WITH INHERIT FALSE` to `ledger_service` and to the migration role, so it applies only inside `WithRoleTx`.
+      - `ledger_service` is the service's grant role. It has no UPDATE, DELETE or TRUNCATE on the journal, and on `balances` only `held_minor`/`version`/`updated_at`.
+      - **Deployment note:** the service's login role is granted `ledger_service` (with inheritance) and must not own the tables. Unlike accounts' four narrow roles, this needs only one grant.
+    - **sqlc:** third `sqlc.yaml` entry; one create plus one lookup per table. `numeric` comes out as `pgtype.Numeric`. `.claude/rules/go.md` already names `shopspring/decimal` for tokens; the sqlc mapping to it is for 3.4, when token arithmetic starts. Nullable UUIDs are `pgtype.UUID`, as in identity and accounts.
+  - **3.2** (`migrations/ledger/20261106100000_guards.sql`). Every guard raises `check_violation` (23514) unless noted.
+    - **Balance:** each transaction balances per currency and has a debit and a credit. These are deferred constraint triggers on `entries` and `transactions`, so a transaction with no lines fails too, at commit.
+    - **Currency match:** an entry's currency is its account's. An account the caller can't see is left to RLS and the foreign key, so their errors aren't masked.
+    - **Entries only with their transaction:** an entry's `xmin` must equal its transaction row's.
+      - **Changed from the plan:** the plan's transaction-local setting per transaction ID would have left one setting per posting on every pooled connection for its lifetime, a memory leak. Rows written by one (sub)transaction share an `xmin`, so the check needs no state.
+      - The consequence: a transaction and its lines go in the same savepoint. Lines in a different savepoint are refused, which is tested.
+    - **Append-only:** BEFORE UPDATE/DELETE row triggers and BEFORE TRUNCATE statement triggers on `transactions`, `entries` and `lot_consumptions` raise `P0001` (`... is append-only`) for the owner too. The service's role gets `42501` from the grants first.
+    - **Balance sync:**
+      - an AFTER INSERT trigger on `entries` moves client accounts' `balance_minor` on the normal side and bumps `version`;
+      - VASPRO accounts are skipped and have no balance row;
+      - a trigger on `accounts` creates the balance row for client accounts;
+      - both are `SECURITY DEFINER` with a pinned `search_path` and EXECUTE revoked from PUBLIC, because the service may not write `balance_minor`.
+    - **Wallet floor:** a deferred constraint trigger on `balances` refuses `balance_minor < 0` or `held_minor > balance_minor` on main, service and bonus wallets at commit, so a posting may dip a wallet between its lines. A row the check can't see fails closed.
+  - **Tests** (`internal/ledger/store/*_integration_test.go`). They run as `ledger_app`, a login role whose only privileges come from `ledger_service`; the immutability and constraint cases also run as the superuser table owner.
+    - **schema:** a goose Down-to-0-then-Up round trip (schema and both roles gone); the currency seed; the enum and SQL rules against `domain`; the canonical RLS check on the 5 standard tables.
+    - **shared tables** (`accounts`, `token_prices`, `rate_cards`): own + VASPRO's visible; no write to VASPRO's or another tenant's rows; `ledger_system` writes VASPRO's only; nobody writes them outside `WithRoleTx`.
+    - **RLS on the rest:** system postings are invisible to tenants and only `ledger_system` makes them; entries on another tenant's account are refused; `balances` and `lot_consumptions` follow their account and lot.
+    - **Constraints:** every CHECK and key in §5, including:
+      - **two overlapping active prices for one client, service, currency and tier refused (23P01)**, with adjacent dates, another tier, pending, withdrawn and another client's all allowed;
+      - **a reversal approved by its own maker refused**.
+    - sqlc round trip under RLS, with `numeric` keeping `80.123456` exactly.
+    - **guards:**
+      - an unbalanced transaction inserts and fails at commit;
+      - KES against UGX fails;
+      - an empty transaction fails;
+      - a wrong-currency line fails;
+      - a balanced pair added later fails (also as the owner), as do lines in another savepoint;
+      - UPDATE/DELETE/TRUNCATE on the three journal tables fail as the owner (`P0001`) and as the service (`42501`), and the lines are untouched;
+      - balance sync on both normal sides, with balances equal to the replay of their entries;
+      - the service can't write `balance_minor` or insert balance rows;
+      - each wallet type can't go below zero, held can't exceed the balance, a mid-posting dip is fine, and receivables, payables and VASPRO's accounts may go negative.
+    - **worked example** as raw postings (steps 1, 2 and 4): main 5,000.00, SMS wallet 7,696.00, revenue 262.07, VAT 41.93, with `money.SplitVATInclusive` giving the same split; the tax-exclusive variant debits 352.64. The golden test proper is 3.4/3.5's, once lots and settlement exist.
+    - UGX postings.
+    - **Order of work:** the domain test failed against a stub. The 3.1 tests failed with no migration, and the 3.2 tests with only 3.1's migration (the `ledger_service` grant cases already passed, as intended).
+    - **Two test fixes while writing them:** a fixture created the same account twice (duplicate key, not an RLS refusal), now reusing the tenant's posting; and a gosec G115 finding in a test helper.
+    - **Mutation-checked**, each failing its intended test, then reverted:
+      - loosening `accounts`' tenant insert check;
+      - letting tenants read VASPRO-account lines;
+      - making the balance check immediate;
+      - dropping the currency check;
+      - dropping the same-transaction check;
+      - guarding main wallets only;
+      - making the wallet check immediate.
+  - **`make check`:** green first time: gen-check, lint 0 issues, `ledger/store` fresh in 48s, and the other packages from Go's test cache, since nothing they depend on changed (the cache caveat from the parallelism task applies). No container retries fired. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.1–3.2:** the posting API (3.3); EXPLAIN of the EXISTS policies under load (OQ-13's fallback is a tenant_id column, measured with 3.3's benchmark); post-paid credit limits (ADR 0010).
+  - **Still open (OQ-13):** `tax_payable` is "one per tax and country" but `accounts` has no tax or country column, so it's one per currency today.
+
+- 3.3 The posting API over gRPC (OQ-14). The ledger's first service code: `internal/ledger/{app,grpc}`, `internal/ledger/ledger.go`, `cmd/ledger`, registered in `cmd/vaspro-all`.
+  - **Contract** (`proto/ledger/v1`, `LedgerService`):
+    - `PostTransaction`, `PlaceHold`, `CaptureHold`, `ReleaseHold`, `GetBalances`;
+    - lines name accounts by key (type, service, rail, currency);
+    - an empty tenant is a system posting, VASPRO's accounts only;
+    - errors are gRPC codes plus a `google.rpc.ErrorInfo` whose reason is the VASPRO code (domain `ledger.vaspro.io`);
+    - new codes **BAL-4002** (account not open), **BAL-4003** (hold can't change this way), **BAL-4004** (allocation is final);
+    - new event `wallet.credited` (a top-up or refund raising a main wallet).
+  - **Migration** `20261106110000_posting_api.sql` (additions to data model §5):
+    - `holds.captured_minor`, with two CHECKs;
+    - **a read policy letting `ledger_system` read every line on VASPRO's accounts.** It was found while building `GetBalances`: 3.1's policies hid client postings' lines from it, so VASPRO's revenue and VAT would have summed to almost nothing. Client accounts' lines stay hidden from it.
+  - **Rules** (`domain/posting.go`, `domain/holds.go`):
+    - `ValidateAccountKey` mirrors 3.1's account CHECKs;
+    - `ValidatePosting` checks at least two lines, positive amounts, **balanced per currency**, system postings on VASPRO accounts only, and allocation final (a net rise in a main wallet with a net fall in a service or bonus wallet, unless a reversal);
+    - `NetDeltas`;
+    - the hold state machine (`CaptureHold`, `ReleaseHold`), where a release of a released or expired hold is a replay, and `HoldContribution`.
+    - **Changed from the plan:** the plan left the balance check to the database only. That would have answered an unbalanced request with SYS-9000 at commit, so the domain now refuses it (VAL-4000) and the database guard is the backstop.
+  - **Use cases** (`app/`), each in one tenant transaction (`ledger_system` for system postings):
+    - **Post:** replay by key (same type and line multiset, in any order); accounts opened by key; status and available-balance checks under `FOR UPDATE` locks in `account_id` order; lines inserted in that order; `wallet.credited` to the outbox. A concurrent duplicate key loses on the unique index and is answered as a replay.
+    - **PlaceHold:** replay by reference (same account and amount); locks the balance row; raises `held_minor`.
+    - **CaptureHold:** without a posting, releases the unused part; with one, checks the posting takes exactly the captured amount net from the held wallet, locks every client balance it touches in one ordered statement, un-holds, settles and posts. A replay with a posting must find that posting by its key, or it's BAL-4003. A posting key already used elsewhere rolls the capture back (VAL-4001), so nothing is un-held without a charge.
+    - **ReleaseHold**, and **GetBalances** (VASPRO's summed from the journal).
+    - A database guard refusing what the app accepted is logged and answered SYS-9000.
+  - **Service:**
+    - `LEDGER_DATABASE_URL`, `LEDGER_NATS_URL`, `LEDGER_HTTP_ADDR` (`:8083`, health only), `LEDGER_GRPC_ADDR` (`:9092`, plaintext until Phase 17's mTLS);
+    - the relay publishes on `ledger.<event>` to stream `LEDGER_EVENTS`.
+    - **Deployment notes:** the gRPC port must be reachable only from VASPRO services, because the API trusts the tenant a request names; the login role is granted `ledger_service`. `vaspro-all` now needs the `LEDGER_*` variables.
+  - **platform/testkit:** `StartPostgres` (and the internal `startContainer`) take `testing.TB` instead of `*testing.T`, so a benchmark can use them; every existing caller is unchanged.
+  - **Tests:**
+    - **domain:** key validation, posting validation (including allocation final in both directions and through a third account, and the per-currency balance), `NetDeltas`, every hold state × request, and a check that a capture's release plus what stays held always equals the hold.
+    - **app** (real Postgres as `ledger_app`):
+      - top-up replay (and in another line order) writes nothing new;
+      - the same key with other lines or another type is VAL-4001;
+      - another tenant may reuse a key;
+      - spending more than available, or held money, is BAL-4001;
+      - allocation final; a reversal allowed;
+      - frozen client and VASPRO accounts are BAL-4002;
+      - unbalanced and system-on-client postings are VAL-4000;
+      - 20 concurrent first posts open each account once;
+      - 10 concurrent posts with one key make one transaction;
+      - `wallet.credited` matches its schema;
+      - `GetBalances` on the worked example (main 5,000.00, SMS 7,696.00; VASPRO: clearing 13,000.00, revenue 262.07, VAT 41.93).
+    - **holds:**
+      - **the worked example's 320.00 hold, 304.00 captured and 16.00 released at once, with 304.00 still held (available 7,696.00)**;
+      - replays; another amount is VAL-4001;
+      - capturing a released hold, or more than the hold, is BAL-4003;
+      - unknown and other tenants' holds are not found;
+      - bad requests;
+      - capture with a posting (airtime): a wrong amount is refused and leaves the hold; the posting replays; a plain capture later sent with a posting doesn't post; a reused posting key un-holds nothing.
+    - **Concurrency** (`-race`): 200 goroutines hold 1.00 each against 100.00; exactly 100 placed, 100 refused for balance, 100.00 held.
+    - **Property test:** 400 seeded random top-ups, purchases, usage, holds, captures (with and without a posting) and releases across 3 tenants in KES and UGX. After every step it checks debits = credits per currency, balance = replay, `held_minor` = the sum of hold contributions, and no wallet below zero. It logs per-operation counts and fails if any operation never succeeded.
+      - **Found while writing it:** the first generator (150 steps, equal amounts) rarely reached holds, so a pass meant little. It now tops up more than it spends.
+      - **A generator bug:** a tiny usage made a zero VAT line, which the ledger rightly refused. Found by seed `1793797629158284000`, which now passes. 8 fresh seeds were green afterwards.
+    - **gRPC** over bufconn: the full flow, and every error's code and ErrorInfo reason.
+    - **service:** `TestService_RunsAndRelaysWalletCredited` runs `ledger.New(...).Run` against real Postgres and NATS: `/readyz`, a gRPC top-up, `wallet.credited` read off `ledger.wallet.credited`, and a clean shutdown. This replaces the plan's `make run` check (the local stack is down; this needs no change to it).
+    - **store:** the `captured_minor` CHECKs; `ledger_system` reads the revenue line of a client posting, and nothing else, only inside `WithRoleTx`.
+    - **Order of work:**
+      - the domain, app and gRPC tests were seen failing against stubs first;
+      - the domain balance test, the service test and the two store tests were written after the code;
+      - the mutation checks below stand in for seeing them fail.
+    - **Mutation-checked**, each failing its intended test, then reverted:
+      - dropping `FOR UPDATE` on balances (concurrency);
+      - skipping Post's available check (refusals: the database guard still stops the overspend, but as SYS-9000, not BAL-4001);
+      - releasing the whole hold on a plain capture (worked example);
+      - skipping the replay comparison (VAL-4001);
+      - dropping the domain balance check;
+      - dropping the `ledger_system` lines policy;
+      - dropping the `captured_minor` range CHECK.
+  - **Benchmark** (`BenchmarkHoldCapture`, `-benchtime=5s`, Apple M4 with 10 cores and 16 GB, Postgres 16 in Docker Desktop's 8 GB VM, pgx's default pool):
+    - **1,504 hold+capture pairs/s on separate wallets** (665 µs per pair);
+    - **765/s on one wallet** (1.31 ms), where the balance row lock serialises them.
+    - This is a development-machine figure: the exit gate wants the reference machine, which isn't defined yet. *(Since defined as this machine; the baseline is in "Phase 3 exit gate" below.)*
+  - **`make check`:** the first run stopped at `gen-check` because the regenerated files weren't staged yet (the known working-tree-against-index behaviour in Notes, not stale code). After staging it was green: lint 0 issues, 36 packages fresh (testkit changed, so every integration package reran; `identity/app` 379s, `ledger/store` 81s), 32 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.3:** token holds and FIFO valuation (3.4/3.5); settling plain captures (3.5); hold expiry (3.6); `entries.tax_code` on VAT lines (3.5, where the tax is known); a per-tenant account cache (only if the benchmark calls for it).
+
+- 3.4a Token purchase, lots, FIFO use, and token holds (OQ-15). Two commits, like 2.9; 3.4b is the staff price API.
+  - **Rules** (`domain/tokens.go`, `domain/lots.go`):
+    - `ParseTokens` (plain decimal, positive, at most 6 places, at most 10¹²);
+    - micro-token conversion for the hold state machine, whose fields are renamed `Amount`/`Captured`/`Release` (units: minor for money holds, micro-tokens for token holds);
+    - `CostMinor` (half-up);
+    - **`SelectPrice`**: a deal in force always applies, its lowest tier below all its tiers; otherwise the list tier for the quantity; else `ErrNoPrice`;
+    - **`DrawFIFO`** with cumulative rounding, and `ValueAfter` for a hold's estimate.
+    - `ValidatePosting` refuses service-wallet lines unless the posting is internal, and allows `Tokens` only on them.
+    - **New dependency** `shopspring/decimal`, which `.claude/rules/go.md` already names for tokens. It's at **v1.5.0**, not the plan's v1.4.0: goose v3.29.0 already required v1.5.0, and asking for v1.4.0 downgraded goose. I undid that at once. v1.6.0 is 17 days old.
+  - **Migration** `20261106120000_tokens.sql`:
+    - `balances.held_tokens`, with an UPDATE grant;
+    - `holds.captured_tokens`, with three CHECKs;
+    - three `token_lots` CHECKs;
+    - the wallet guard extended to held tokens and also fired by `token_lots`.
+  - **App:**
+    - **`PurchaseTokens`:** price as of the clock, cost, an internal `token_purchase` posting with `entries.tokens`, the lot, and `tokens.purchased` (new schema). A replay reads the lot, so a price change since doesn't alter it.
+    - **Token holds** on service wallets: availability = lots' remaining − `held_tokens`; partial capture keeps the captured tokens held; release; a capture with a posting is refused for token holds.
+    - **`drawLots`/`recordDraws`**, unexported until 3.5's settlement. They lock the balance row, then the lots oldest first; draw; write `lot_consumptions`; and never draw tokens another hold reserves.
+    - `GetBalances` shows tokens remaining, held and available.
+  - **gRPC:** `PurchaseTokens` (BAL-4005 for no price), token fields on holds and balances.
+  - **3.3 tests changed to the agreed model, not weakened:**
+    - funding goes through `PurchaseTokens`;
+    - SMS holds are in tokens;
+    - the airtime capture-with-posting case is now a main-wallet fee hold;
+    - generic posts into a service wallet are now refusal cases;
+    - the worked-example balances test buys at a seeded deal.
+  - **Tests:**
+    - **domain:**
+      - `SelectPrice` (13 cases);
+      - `CostMinor` (KES, UGX, fractions, overflow);
+      - **draws sum to the lot's cost** across prices, sizes and draw steps (the plain per-draw rounding the plan rejected fails it);
+      - FIFO across lots, insufficient tokens, `ValueAfter`.
+    - **app:**
+      - **purchase worked example:** lot A 10,000 at 0.80 (8,000.00) before 1 Nov and lot B at 0.50 (5,000.00) after; SMS wallet 13,000.00 with 20,000 tokens;
+      - pricing: list tiers, deal precedence, ended, pending and withdrawn ignored, lots keep their price, half-up on fractions, UGX;
+      - refusals: no price, insufficient, cost under one minor unit, key conflict;
+      - token holds: the worked example's 400 held and 380 captured, values after earlier holds (8,000 then 5,000 across lots), refusals, fractional captures.
+    - **internal:**
+      - `TestDrawLots_WorkedExample`: 380 then 9,620 from lot A (304.00 and 7,696.00), then lot B at 0.50;
+      - held tokens aren't drawn;
+      - **a seeded property test of random purchases at changing deals and fractional draws**: about 95 purchases and 180 lot draws a run; after every step the wallet's money equals its lots' remaining value and an emptied lot's draws equal its cost.
+    - **concurrency:** 200 goroutines hold 1 token of 100: exactly 100.
+    - **property test** extended with token holds, money holds, purchases at two prices, and two new invariants (held tokens match their holds and fit in the lots; service-wallet money equals the lots' value).
+    - **store:** each new CHECK; the guard by `held_tokens` and by a lot drawn under it.
+    - **Order of work:** domain and app tests were seen failing against stubs; the store CHECK tests and the internal property test came after the code, covered by the mutations below.
+    - **Two test fixes while writing them:**
+      - a FIFO expectation was wrong (15 tokens from 4 + 10 + 10 spans three lots; the code was right);
+      - the internal helper skipped opening VASPRO's revenue account. A variable named `seed` also shadowed the `seed` helper.
+    - **Mutation-checked:**
+      - per-draw rounding;
+      - no deal precedence;
+      - newest lot first;
+      - no `held_tokens` guard;
+      - skipping a token hold's availability check.
+
+- 3.4b Staff token prices through the gateway (OQ-15). This finishes ROADMAP 3.4. The console screen itself is frontend track F4; this is its API.
+  - **Contract:**
+    - `docs/api/ledger.yaml`, the ledger's first HTTP API, under `/v1/ledger/staff/token-prices`:
+      - `createTokenPrice` (pending; Idempotency-Key);
+      - `listTokenPrices` (filters, an ID cursor; IDs are UUIDv7);
+      - `approveTokenPrice`;
+      - `withdrawTokenPrice`.
+    - New codes **VAL-4012** (overlaps an active price), **VAL-4013** (the maker can't approve), **VAL-4014** (already decided).
+    - Migration `20261106130000_price_review.sql`: NOLOGIN `ledger_price_review` reads every client's prices, only inside `WithRoleTx`, for the cross-client queue. That's the 2.9 pattern, and an addition to data model §5.
+  - **Rules:** `domain.ValidateNewPrice`:
+    - price > 0 and tier ≥ 0, each with at most 6 places;
+    - a deal needs its `deal_reference` and a list price has none;
+    - the end is after the start.
+  - **App:**
+    - `CreateTokenPrice` (staff);
+    - `ListTokenPrices` (staff, as `ledger_price_review`);
+    - `ApproveTokenPrice` (staff and a fresh step-up; pending only; never by its maker; overlap maps from the EXCLUDE's 23P01);
+    - `WithdrawTokenPrice` (staff and step-up).
+    - Deals are written in the client's own transaction and list prices as `ledger_system` (2.9: staff act through the target's transaction).
+    - Staff and step-up are asked of identity on every call; identity down fails closed.
+  - **Wiring:**
+    - `ledger/adapters.Identity` (`IsStaff`, `IsStepUpFresh`) over identity's gRPC, dialled lazily (`LEDGER_IDENTITY_GRPC_ADDR`, **new and required**);
+    - fake `tools/fakes/staffcheck`, a new small fake, because `identityusers` imports accounts' adapters;
+    - `LEDGER_HTTP_ADDR` now serves the API; like accounts, it trusts the gateway's `X-Vaspro-User-Id`, so it must be reachable only from the gateway.
+  - **Gateway:**
+    - `/v1/ledger/` goes to `GATEWAY_LEDGER_BASE_URL` (**new and required**), with a session required and validation against `docs/api/ledger.yaml`;
+    - its routes join the audit log's route templates.
+    - The gateway e2es point the ledger at an unused address, because they don't exercise it yet.
+  - **Tests:**
+    - **domain:** 15 price-entry cases.
+    - **app:** maker-checker end to end:
+      - a pending deal isn't used;
+      - the maker can't approve;
+      - a stale step-up and a non-staff user are refused;
+      - approval makes purchases use the deal;
+      - a second approval is VAL-4014;
+      - an overlapping deal is VAL-4012;
+      - withdrawal needs step-up and returns the client to the list price while lots keep 50;
+      - a list price written as `ledger_system` applies to a new client;
+      - the pending queue across clients, oldest first, paged;
+      - refusals (non-staff, revoked staff, missing reference, unknown currency, unknown price, bad cursor) write nothing;
+      - identity down fails closed.
+    - **API:** every code, the idempotent replay of a creation, the paged list, and **spec-driven:** every `/v1/ledger/staff/` operation is 401 AUTH-4010 with no user and 403 AUTH-4025 for a stepped-up non-staff user; the test fails if an operation has no case.
+    - **gateway:** `TestGatewayBackends_Ledger` (user forwarded, spoof replaced, token not forwarded, no session 401, spec validation, the Idempotency-Key gate, never falls through to identity).
+    - **store:** the review role reads all prices only inside `WithRoleTx` and can't write.
+    - **Order of work:**
+      - the domain, app and API tests were seen failing against stubs first;
+      - the gateway and store tests came after the code, covered by the mutations below.
+      - A shell write of the handlers failed on a transient tool-permission check and was redone through the file tool; nothing else was affected.
+    - **Mutation-checked:**
+      - self-approval allowed in the app (the database CHECK would still refuse it, but as SYS-9000);
+      - no step-up;
+      - listing without the staff check;
+      - no review policy;
+      - no gateway route.
+  - **`make check`** (after staging, for gen-check): green first time. Lint 0 issues; 24 packages fresh (`ledger/store` 91s, `gateway` 126s), 45 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the gateway needs `GATEWAY_LEDGER_BASE_URL`;
+    - the ledger needs `LEDGER_IDENTITY_GRPC_ADDR`;
+    - the ledger's login role reaches `ledger_price_review` through `ledger_service` (granted in the migration, `WITH INHERIT FALSE`).
+  - **Not in 3.4:** the dashboard's read of a client's own prices (3.9); auto-buy (3.6); settlement drawing the lots (3.5); who withdrew a price isn't recorded (no column; the gateway's audit log has the route and user).
+
+- 3.5 Usage settlement (OQ-16).
+  - **Packs:** `tax.vat_effective_from`, a required date (`platform/packs.Tax.VATEffectiveFrom`, parsed strictly). KE has `2026-01-01`, the earliest date v4 settles usage; Kenya's 16% is older.
+  - **Migration** `20261106140000_settlement.sql`:
+    - `holds.captured_events`, with two CHECKs;
+    - `holds.usage_batch_id`;
+    - three `usage_batches` CHECKs;
+    - NOLOGIN **`ledger_settlement`**, which sees only captured, unsettled token holds, only in `WithRoleTx`;
+    - INSERT on `tax_rates` for `ledger_system`.
+  - **Rules** (`domain/settlement.go`):
+    - **`SplitUsage`:** inclusive through `money.SplitVATInclusive`; exclusive through `AddVATExclusive`, with the VAT from the main wallet up to its available balance and the rest to the receivable;
+    - `WindowFor` (a UTC grid every replica shares).
+    - `domain.Line` gains `TaxCode`, allowed only on tax-payable lines; replays compare it.
+  - **App:**
+    - **`SyncTaxRates`:** packs → `tax_rates` as `ledger_system`; the same date with a new rate is refused; a shared currency is refused.
+    - **`SettleUsage(at)`:** finds wallets as `ledger_settlement`, then per wallet in its tenant's transaction:
+      1. lock captured holds (before balances, like a capture);
+      2. lock the client balances in order;
+      3. insert the batch (`ON CONFLICT` skips a window already done);
+      4. `drawLots` releasing the captured tokens;
+      5. split;
+      6. post `usage` (internal, key `usage:<batch>`, VAT line `tax_code` `VAT`);
+      7. record consumptions, set the batch's transaction, settle the holds;
+      8. write `usage.posted` (new schema, with the holds' references for per-message tagging).
+      A wallet worth under one minor unit is skipped and waits; one wallet's failure is logged without stopping the others.
+    - **`CaptureHold`:** `Events` for token captures (default 1; a replay with other events is BAL-4003); **a money hold without its posting is now VAL-4000.**
+    - **Changed from the plan: `postInTx` now validates every posting.** The "no VAT line" mutation showed the ledger's own postings (purchase, settlement) bypassed the domain check, which only the public `Post` ran. Only the database guard caught it, at commit. Now an internal bug is a clean error first.
+  - **Service:**
+    - `LEDGER_SETTLEMENT_WINDOW` (5m) and `LEDGER_PACKS_DIR` (`packs`);
+    - `Run` syncs tax rates, then a loop wakes just after each window boundary and settles the window that ended.
+    - **Deployment note:** UGX (and any currency without a pack) can't settle until its country's pack exists. Such wallets are logged as failed each window and their holds stay held.
+  - **gRPC:** `CaptureHoldRequest.events`.
+  - **Tests:**
+    - **domain:** `SplitUsage` (the worked example both ways, a shortfall, an empty main wallet, 1 minor unit, UGX) and `WindowFor`.
+    - **packs:** the date is required and must be a real date (`2026-02-30` refused).
+    - **app:**
+      - **Phase 3's golden worked example, end to end:** deal 0.80, top-up 13,000.00, buy 10,000 (8,000.00), hold 400, capture 380 → the SMS wallet pays 304.00 (380 tokens), revenue 262.07, VAT 41.93 (`tax_code` VAT), 20 released, batch events and tokens 380, the hold settled with the batch, 9,620 left, `usage.posted` valid. Then the 0.50 deal: 10,000 for 5,000.00; 9,620 settle at 769,600 from lot A, then 100 at 5,000 from lot B.
+      - **The tax-exclusive variant** (a test TZS pack): 304.00 from the SMS wallet and 48.64 from the main wallet; with only 10.00 in the main wallet, 38.64 goes to the receivable.
+      - Windows: one run settles every client; a rerun skips; a later capture waits; two concurrent runs make one batch per wallet; a sub-cent capture waits until it is worth a minor unit.
+      - Captures: events default to 1; a money capture without posting and events on a money hold are refused.
+      - `SyncTaxRates`: idempotent, a changed rate refused, a new date added, a shared currency refused.
+    - **Property test:** a settlement step (about 13 batches a run) with every invariant after each step. It first found that a UGX wallet can't settle without a UGX pack, which is a test-fixture gap; a test-only UGX pack fixed it.
+    - **store:** the CHECKs; `ledger_settlement` sees one captured, unsettled hold per client and nothing settled or active, only inside `WithRoleTx`, and can't write.
+    - **service:** `Run` with a 1-second window settles 380 of 400 on its own, and `usage.posted` (304.00 = 262.07 + 41.93) arrives on NATS.
+    - **Earlier tests changed to the agreed model, not weakened:**
+      - the "plain capture later sent with a posting" case is gone, because plain money captures are refused now;
+      - the property test lost its plain money capture op;
+      - a gRPC case moved to a token hold;
+      - a store fixture sets `captured_events`;
+      - `tokenWallet` uses its own price tier, so a second wallet doesn't hit the overlap constraint.
+    - **Order of work:** domain, packs and app tests were seen failing against stubs first; the store and service tests came after the code, covered by the mutations below.
+    - **Mutation-checked:**
+      - held tokens not released (golden);
+      - no VAT line (golden; first caught only by the database guard, then by the app);
+      - no `ON CONFLICT` skip (windows);
+      - exclusive VAT always from the main wallet (exclusive shortfall);
+      - settlement seeing every hold (store).
+  - **`make check`** (after staging): green first time. Lint 0 issues; 15 packages fresh (`accounts/app` 205s, because accounts loads the changed packs; `ledger/app` 138s; `ledger/store` 134s), 54 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.5:** rate-card VAT overrides per service and operator (Phase 7); hold expiry (3.6); per-message rows tagged with the batch (messaging, Phase 7).
+
+- 3.6 Hold expiry and auto-buy (OQ-17).
+  - **A correction to 3.3 first:** system design §8 defines **BAL-4002** as "no tokens left for this service; buy tokens or turn on auto-buy". 3.3 had given that number to "account not open" without checking §8.
+    - On this unmerged branch, BAL-4002 is now no tokens left (`app.ErrInsufficientTokens`, returned by token holds and draws, which used to return the generic BAL-4001);
+    - "account not open" is the new **BAL-4006**;
+    - BAL-4001's text now covers money only.
+    - 3.3's and 3.4's STATUS entries describe the codes as they were then.
+  - **Migration** `20261106150000_expiry_autobuy.sql`:
+    - CHECKs on `auto_buy_rules` (level ≥ 0, buy > 0);
+    - `ledger_settlement`, now the ledger's background-jobs role, also reads active holds.
+    - **Changed from the plan:** the policy no longer compares `expires_at` with the database's `now()`. That would have tied the job to wall-clock time rather than the app's clock (and the tests to the time of day they run); the job applies its own cutoff.
+  - **Rules** (`domain/autobuy.go`):
+    - `ExpireHold` (active → expired, releasing everything; anything else unchanged);
+    - **`AutoBuy`:** buy when the hold would leave fewer than the level or can't be covered, but never when the purchase still wouldn't cover it;
+    - `ValidateAutoBuyRule`.
+  - **App:**
+    - **`ExpireHolds(now)`:** finds active holds past `expires_at` plus one window as `ledger_settlement` (at most 1,000 a run), then expires each in its tenant's transaction (hold, then balance lock), releasing `held_tokens` or `held_minor`. `Run`'s window loop settles, then expires.
+    - **Auto-buy in `placeHoldInTx`:**
+      - with an enabled rule, the wallet and main wallet balances are locked together, in order;
+      - `domain.AutoBuy` decides; the purchase runs in the hold's transaction (key `autobuy:<type>:<id>`);
+      - refusals for money or price happen before anything is written, so the hold carries on without buying;
+      - a purchase sets `last_triggered_at` and writes `autobuy.triggered` (new schema) as well as `tokens.purchased`;
+      - a replayed hold returns before auto-buy, so it never buys twice.
+    - `SetAutoBuyRule` (an upsert per service and currency) and `ListAutoBuyRules`.
+  - **gRPC:** `SetAutoBuyRule` and `ListAutoBuyRules`; BAL-4002 and BAL-4006 mapped. An internal `TestToStatus` pins every app error's gRPC code and VASPRO code.
+  - **Tests:**
+    - **domain:** `ExpireHold` per state; the `AutoBuy` table (8 cases).
+    - **app expiry:**
+      - nothing within the grace;
+      - two clients' token holds and a money hold expired, with their tokens and money available again;
+      - the captured hold is left for settlement;
+      - capturing an expired hold is BAL-4003, and releasing one is a replay;
+      - a second run expires nothing;
+      - two concurrent runs expire 5 holds exactly once between them.
+    - **app auto-buy:**
+      - below the level, it buys 1,000 first (`autobuy.triggered` and `tokens.purchased` valid; a replay doesn't buy again);
+      - it covers a larger hold;
+      - a hold too large even then buys nothing;
+      - a main wallet that can't pay means no purchase, while the hold goes ahead if it fits;
+      - a disabled rule or no price buys nothing;
+      - **holds that auto-buy racing manual purchases never deadlock**;
+      - **50 concurrent holds**: exactly 2 purchases, 43 placed and 7 refused, nothing overspent.
+    - Rules: upsert, list, validation.
+    - **gRPC:** BAL-4002, the rules RPCs.
+    - **store:** the CHECKs; the role sees the active hold and no settled one. 3.5's role test now counts the active hold too.
+    - **Property test:** an expiry step and auto-buy rules on every tenant and currency (one off). About 5–9 auto-buys and 20–35 expiries a run, with every invariant after every step; it fails if either is never exercised.
+      - **While tuning it:** a single rule fired too rarely (0–1 a run), so a pass meant little. And a 0.02-token UGX purchase rightly refused as under one minor unit was treated as an error; it's now an accepted refusal.
+    - **Earlier tests changed for the code correction:** token shortfalls expect BAL-4002 / `ErrInsufficientTokens`, as system design §8 says.
+    - **Order of work:**
+      - domain, app and the `toStatus` table were seen failing against stubs;
+      - the deadlock test was added after the plan's mutation showed nothing else would catch a wrong lock order;
+      - the store tests came after the code.
+    - **Mutation-checked:**
+      - expiry without the grace;
+      - the main wallet not locked with the wallet (the deadlock test);
+      - expiry not releasing;
+      - auto-buy buying when it won't help, and a disabled rule buying (caught by the domain tests; in the app a useless purchase rolls back with the refused hold, and the domain re-checks `Enabled`, so both are defended twice).
+  - **`make check`** (after staging): green first time. Lint 0 issues; 26 packages fresh, 44 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 3.6:** the dashboard's rule routes (3.9); `tokens.low`/`tokens.depleted` alerts (monitoring, Phase 16).
+
+- 3.7 Reversals with maker-checker (OQ-18). Your answers of 9 Nov:
+  - a finance lead at or above a pack threshold (KES 2,000);
+  - pay-back reported over gRPC;
+  - clawback from the wallets the maker names;
+  - no debt (refuse what isn't covered);
+  - only top-ups, in parts up to the original;
+  - the token prices' rules for raising and deciding.
+  - **Contract:**
+    - **Migrations:** `migrations/ledger/20261106160000_reversals.sql` and `migrations/identity/20261109090000_finance_lead.sql`. Additions to data model §5 and §3:
+      - **`reversals` gains** `kind`, `currency`, `clawback_services`, `rejected_by`/`rejection_reason`, `payback_transaction_id`, `payback_attempts` and `last_payback_error`.
+      - **CHECKs** say which decision columns each status carries, and which statuses each kind can reach.
+      - **NOLOGIN `ledger_reversal_review`** reads the queue across clients (`WithRoleTx` only).
+      - **`identity.staff_members.finance_lead`** marks finance leads.
+    - **Packs:** an optional `ledger.reversal_finance_lead_minor`; KE has 200000. Without it, every reversal needs a finance lead (fails closed).
+    - **Codes:**
+      - **BAL-4007** not covered;
+      - **VAL-4015** over the original;
+      - **VAL-4016** not awaiting pay-back;
+      - **AUTH-4026** finance lead required.
+    - **HTTP:** `/v1/ledger/staff/reversals`: create, list, get with a live preview, approval, rejection.
+    - **gRPC:**
+      - ledger `RecordPayback`;
+      - identity's `IsStaffResponse.finance_lead`.
+    - **Events:** `reversal.requested`, `.approved`, `.posted` and `.paid_back`, plus **`reversal.rejected`** (an addition, so every decision is in the trail).
+    - **CLI:** `vaspro identity grant-finance-lead | revoke-finance-lead -by <operator> <email>` (staff only).
+  - **Rules** (`domain/reversals.go`):
+    - `ValidateNewReversal`, `CheckReversalCap`, `NeedsFinanceLead`, and the state machine (`CanDecideReversal`, `StatusAfterPosting`, `RecordPayback`).
+    - **`PlanReversal`:** the main wallet up to its available balance, then each named wallet's unheld tokens, newest lot first.
+      - Held tokens are reserved from the oldest lots, which settlement draws first.
+      - Each draw is valued by the lot's cumulative rounding, so a lot used and clawed back still sums to its cost.
+      - It takes the fewest tokens covering what's left. At half-up rounding, 2,500 at 0.50 is 49.99 tokens.
+      - A one-step overshoot comes back off the main wallet's line (a credit if it must; a reversal is exempt from "allocation is final").
+      - Tokens worth under a minor unit stay put, since no line can be zero.
+  - **App** (`app/reversals.go`):
+    - **`RequestReversal`:** staff and step-up; the tenant's own top-up only (anything else VAL-4003); the cap is checked under the main wallet's balance lock, the serialisation point, because the service can't lock the append-only transaction.
+    - **`ApproveReversal`:**
+      - not the maker (VAL-4013); a finance lead at or above the threshold;
+      - in the tenant's transaction: lock the reversal, re-check the cap, lock the balances and then the lots;
+      - plan, then post (type `reversal`, `reverses_id` the top-up, key `reversal:<id>`);
+      - draw the lots into `lot_consumptions`, set the status, and write the events.
+      - A shortfall writes nothing and the reversal stays requested.
+    - **`RejectReversal`** (a reason is required), **`GetReversal`** (an unlocked preview while requested) and **`ListReversals`**.
+    - **`RecordPayback`:** success posts the pay-back (Dr reversal clearing, Cr the top-up's provider clearing; key `payback:<id>`); a repeat is a replay; a failure records the attempt and the money stays in clearing.
+    - `PostRequest` gained an internal `reverses` for `transactions.reverses_id`.
+  - **Tests:**
+    - **domain:**
+      - validation, the cap, the threshold;
+      - `PlanReversal`: main only, newest lot first with the fewest tokens, spilling across lots and then wallets in order, held tokens excluded and reserved from the oldest lots, not covered, overshoot credited back;
+      - **a lot used then clawed back sums to its cost** (5 prices × 4 usages);
+      - **one micro-token fewer never covers it**;
+      - `ClawableValue` and the state machine table.
+    - **app:**
+      - **the worked example reversed:** 13,000.00 topped up and 8,000.00 in 10,000 SMS units. Reversing it all leaves main 0, SMS 0 with no tokens and clearing 13,000.00; lot consumptions are worth 8,000.00 and `reverses_id` is the top-up. A failed pay-back leaves clearing at 13,000.00; a successful one empties clearing and puts M-Pesa's clearing back to 0. A repeat posts nothing, and a later failure is VAL-4016.
+      - a chargeback credits M-Pesa's clearing and skips clearing;
+      - the cap with a rejection freeing its share; not-a-top-up, another tenant's and absent originals not found;
+      - **10 concurrent requests on one top-up: exactly 5 through**;
+      - clawback: main alone short, held tokens never clawed, exactly what's free, with the preview;
+      - newest lot first across two prices;
+      - maker-checker: non-staff, stale step-up, validation writing nothing, the maker can't approve or reject, plain staff refused at KES 2,000 and allowed at 1,999.99, a finance lead allowed, a second decision VAL-4014, a rejection needing a reason, unknown IDs, identity down fails closed;
+      - the list across clients, by status, paged.
+      - Every event is checked against its schema.
+    - **identity:** grant and revoke of finance lead (staff only, events, revoking staff drops it); the flag over gRPC.
+    - **packs:** KE's threshold; none without a block; 0, negative, fractional and string thresholds refused.
+    - **store:** every new CHECK both ways (5 allowed shapes, 13 refused); the review role only inside `WithRoleTx`, with no writes.
+    - **gRPC:** `RecordPayback` (failure, success, a chargeback VAL-4016, another tenant NOT_FOUND, a malformed ID); `TestToStatus` gains BAL-4007 and VAL-4016.
+    - **API:**
+      - the spec-driven 401/403 test now names all nine staff operations;
+      - `TestReversalsAPI` covers the codes (VAL-4003, VAL-4015, VAL-4000, VAL-4013, AUTH-4026, VAL-4014, BAL-4007), the replayed creation, the preview, rejection and the list.
+    - **Property test:**
+      - **New steps:** a reversal step (sometimes the client first spends most of its main wallet on tokens, so clawback is reached) and a pay-back step.
+      - **New invariants:** reversal clearing equals the pay-backs still owed, per currency; no top-up is reversed beyond itself.
+      - It fails if no reversal clawed tokens back. Six fresh seeds were green, with 8–16 clawbacks a run.
+    - **Earlier tests changed for the schema, not weakened:** the 3.1 store fixtures that insert reversals now give `kind` and `currency`, which are required now. Without them they would have failed on NOT NULL rather than the rule they test.
+    - **Order of work:**
+      - the packs, identity and app tests were seen failing first (the app's against stubs answering "not built");
+      - **the domain code was written before its tests were run**, and the store and gRPC tests came after the code. The mutation checks below stand in for seeing those fail.
+    - **Fixes while writing them:**
+      - two of my expectations forgot half-up rounding (19.99 and 49.99 tokens, not 20 and 50; the code was right);
+      - the property test's first draft overwrote a refused approval's reversal before rejecting it;
+      - it also reached clawback 0–1 times a run, so a pass meant little; it now tracks what's left of each top-up and spends the main wallet first.
+      - **A real bug the gRPC test found:** `RecordPayback` opened reversal clearing for the loaded packs' currencies, so a service without packs failed with SYS-9000. It now opens the reversal's own currency.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - per-draw rounding in clawback;
+      - oldest lot first;
+      - clawing held tokens;
+      - no finance-lead check;
+      - **no main-wallet lock at request** (6–10 of 10 through, not 5);
+      - a chargeback crediting reversal clearing;
+      - the maker deciding (the database's CHECK also refuses it, as SYS-9000);
+      - the rejected-status CHECK.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 39 packages fresh (`identity/app` 360s, `accounts/app` 190s, `ledger/app` 107s, `ledger/store` 87s), 31 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the ledger's login role reaches `ledger_reversal_review` through `ledger_service` (granted in the migration);
+    - run `vaspro identity grant-finance-lead` for finance leads;
+    - `docs/api/API.md` lives on `ops/dev-environment` and needs regenerating there after this merges.
+  - **Not in 3.7:**
+    - recorded debt (refused instead, your call);
+    - credit notes (billing, Phase 11, from `reversal.posted`);
+    - pay-back execution and retries (Payments, Phase 13);
+    - a `payment.reversed` event (system design §4.3 names it; it's Payments' event);
+    - bonus wallets as a clawback source;
+    - checking `evidence_document_id` against accounts (stored as given).
+
+- 3.8 Nightly rebuild with a P1 event (OQ-19). Your answers of 9 Nov:
+  - report only;
+  - check everything derivable;
+  - daily, one run per date;
+  - one event per run, passes included.
+  - **Contract:**
+    - **Migration** `20261106170000_rebuild.sql` (additions to data model §5):
+      - `ledger.rebuild_runs`: one row per date, `running`, `passed` or `failed`, with counts. The CHECKs tie each status to its columns, a pass to 0 differences and a failure to more. It's global, with no RLS.
+      - NOLOGIN **`ledger_audit`** reads every client's accounts, balances, transactions, entries, holds, lots and consumptions, only in `WithRoleTx`, and writes nothing.
+    - **Events:**
+      - `ledger.rebuild_failed`: severity P1, counts, the total, and up to 100 differences, each with its check, IDs, and expected and actual as strings;
+      - `ledger.rebuild_passed`, so a missing night is visible to monitoring.
+    - **Config:** `LEDGER_REBUILD_AT`, HH:MM UTC, default 21:30 (00:30 Nairobi). A bad value stops `Run` before anything starts.
+  - **Rules:** `domain.ParseTimeOfDay` and `NextRebuild` (the next run at or after now, and its UTC date).
+  - **App** (`app/rebuild.go`), `RebuildBalances(runDate)`:
+    1. **Claims the date:** an insert, or taking over a row still running an hour after it started. Otherwise it returns `Ran: false`.
+    2. **Runs ten checks as `ledger_audit`:** unbalanced and one-line transactions, unbalanced currencies, balance rows against the replay on the normal side, missing balance rows, held money, held tokens, lots' remaining, service-wallet value, and the wallet floor. Each is one statement, so each reads one snapshot while postings go on.
+    3. **Finishes the row and writes the event** in one transaction. Only the run that claimed the row finishes it, so a taken-over run that wakes late publishes nothing.
+    - **Never corrects anything.** A check that can't run is an error and the row stays `running`, never a pass.
+    - **`Run`** gains a loop that wakes at the time each day; a failure is logged as P1.
+  - **Tests:**
+    - **domain:** `ParseTimeOfDay` (3 good, 7 bad) and `NextRebuild` (before, at and after the time, after midnight, another zone).
+    - **app:**
+      - **clean ledger** (top-up, purchase, hold, capture, settlement, money hold, reversal paid back): passes with exactly 6 accounts and 5 transactions, and a valid `ledger.rebuild_passed`.
+      - **the ROADMAP's tamper test** (`TestRebuild_TamperedBalance`): a main wallet raised by 1 directly gives exactly one `balance_mismatch` with the right account, tenant, expected and actual, plus a valid `ledger.rebuild_failed` (P1) and a failed run row. **The row is still tampered afterwards** (report only).
+      - **each check** (`TestRebuild_EachCheck`): held money, held tokens, a lot's remaining, a service wallet's money (balance and value), a deleted balance row, a wallet below its floor, and a one-line unbalanced transaction slipped in with triggers off (transaction, thin, currency and balance). Each case finds exactly its expected checks.
+      - **over 100 differences:** 120 found, 100 listed, total 120.
+      - **once per date:** a second call skips; 5 concurrent calls run once; a row running for 61 minutes is taken over and one at 10 minutes isn't.
+    - **store:** the `rebuild_runs` CHECKs (3 allowed, 8 refused, including a second row for a date); `ledger_audit` reads both clients' rows in 5 tables only inside `WithRoleTx` and can't write.
+    - **service:** a bad `LEDGER_REBUILD_AT` stops `Run`.
+    - **property test:** at the end, the rebuild must pass on the random ledger: a second check, written independently of the test's own invariants. Four fresh seeds were green.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - the store and service tests came after the code, and the mutations below stand in for them.
+    - **Test fixes while writing them:**
+      - my first account-count expectation (at least 8) was wrong: the ledger has 6, now pinned exactly;
+      - the audit-role test first used a fixture with no token lot.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - **no held-tokens check;**
+      - **a run that passes with differences** (the tamper test);
+      - **every claim taking the date over:** caught by the fresh-run case. The same-date and concurrent cases were still guarded by the finish step only completing a running row, a second layer.
+      - **the replay on the wrong normal side** (the clean ledger);
+      - **an unchecked `LEDGER_REBUILD_AT`** (the service test).
+  - **`make check`** (after staging, dev stack down): the first run stopped at lint on one gosec G101 false positive. It read the check name `held_tokens_mismatch` as a credential; it's now marked `nolint` with the reason. The second run was green: lint 0 issues, 10 packages fresh (the ledger's: `ledger/app` 114s, `ledger/store` 79s), 61 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the ledger's login role reaches `ledger_audit` through `ledger_service` (granted in the migration);
+    - `deploy/compose/env.example` on `ops/dev-environment` should gain `LEDGER_REBUILD_AT` after this merges;
+    - one ledger replica runs each night's check.
+  - **Not in 3.8:**
+    - paging on the event (monitoring, Phase 16);
+    - a finance snapshot of VASPRO's account balances (ADR 0010's consequence, later);
+    - a manual "run now" command;
+    - per-message ClickHouse detail against usage batches.
+
+- 3.9 Wallet and token APIs for the dashboard (OQ-20). Your answers of 9 Nov:
+  - the tenant comes from the path, and accounts checks billing permissions on every call;
+  - a per-wallet statement with a running balance;
+  - prices, a quote and a purchase;
+  - a dev-only top-up.
+  - **Contract** (`docs/api/ledger.yaml`, no new codes):
+    - **Under `/v1/ledger/tenants/{tenantId}`:**
+      - `listBalances`, `getStatement` (`accounts/{accountId}/statement`, `from`/`to`/`cursor`/`limit`), `listTenantTokenPrices`, `quoteTokenPurchase` and `listTenantAutoBuyRules` need billing:read;
+      - `createTokenPurchase` and `setTenantAutoBuyRule` (PUT `auto-buy-rules/{serviceCode}/{currency}`) need billing:manage.
+      - No access is VAL-4003, as if the account didn't exist; a role without the permission is AUTH-4024.
+    - **Staff:** `createDevTopUp` (`/v1/ledger/staff/dev-top-ups`), 404 VAL-4003 unless dev top-ups are on.
+    - **Config:**
+      - **`LEDGER_ACCOUNTS_GRPC_ADDR`**: required, dialled lazily;
+      - **`LEDGER_DEV_TOPUPS`**: default false; startup logs a warning when it's on.
+  - **Rules:** `domain.PricesInForce`, the rows `SelectPrice` chooses from: the deal's tiers while one is in force, else the list's, lowest tier first.
+  - **App** (`app/dashboard.go`):
+    - **`requireTenant`** asks accounts on every call (`adapters.Accounts`; fake `tools/fakes/tenantcheck`, since identity's `tenantaccess` implements identity's own adapter). No access is `ErrNotFound`, no permission the new `ErrPermissionDenied`, and accounts down fails closed.
+    - **`TenantBalances`.**
+    - **`Statement`:** one SQL statement, so one snapshot. Each line's balance after it is the current balance, less the lines newer than the page, less those above it on the page; tokens run the same way from the lots. A VASPRO or other tenant's account is not found.
+    - **`TenantPrices`.**
+    - **`QuoteTokens`:** `SelectPrice` and `CostMinor`, as a purchase does, plus the main wallet's available balance and `affordable`.
+    - **`BuyTokens`:** the purchase key is `dashboard:` plus the client's Idempotency-Key.
+    - **`TenantAutoBuyRules` / `SetTenantAutoBuyRule`.**
+    - **`DevTopUp`:** staff first, then the flag; an ordinary `topup` from provider clearing on rail `sandbox`, so `wallet.credited` goes out and the nightly rebuild treats it like any other.
+  - **Tests:**
+    - **domain:** `PricesInForce` (5 cases); **2,000 random price sets: whatever `SelectPrice` picks is listed**, and with no price only list tiers above the quantity are.
+    - **app:**
+      - **the statement on the worked example:**
+        - main wallet: −8,000.00 (5,000.00 after), then +13,000.00 (13,000.00);
+        - SMS wallet: −304.00 and −380 tokens (7,696.00 and 9,620 after), then +8,000.00 and +10,000 tokens.
+        - Paged one line at a time, by date range, and refused for another tenant's, a VASPRO and an unknown account, a bad cursor, and a limit over 100.
+      - **while 40 top-ups land:** 30 pages read concurrently all add up, and the final 41 lines run 1,000 to 1,280.
+      - **prices and the quote:** prices show the deal's two tiers and not the list's, and UGX's list; the quote of 100.5 at the deal is 5,025, and the purchase right after costs the same; unaffordable and no-price quotes; a replayed purchase; the rules.
+      - **permissions:** a read-only member reads all five and is refused both writes; a member without billing gets AUTH-4024; a stranger and a removed member not found; accounts down fails closed.
+      - **dev top-up:** off is not found and writes nothing; non-staff refused; on, it credits 500,000 against sandbox clearing with `wallet.credited`; it replays by key; bad requests refused.
+    - **API:**
+      - **spec-driven `TestTenantOperations_NeedBillingPermissions`:** every tenant operation is 401 without a user, VAL-4003 for a stranger and AUTH-4024 for a member without billing; with billing:read, reads pass and writes are AUTH-4024. It fails if an operation has no case.
+      - `TestDashboardAPI`: dev top-up off, quote, purchase and replay, BAL-4001, BAL-4005, balances with tokens, a statement line, rules and VAL-4000, prices.
+      - The staff spec-driven test now covers `createDevTopUp`.
+    - **gateway:** a tenant quote reaches the ledger with the session's user; one without `tokens` is refused by spec validation before the ledger.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - the API and gateway tests came after the handlers; the mutations below stand in.
+    - **Test fixes while writing them:**
+      - the price agreement test's first assertion wrongly said "no price means nothing listed": list tiers above the quantity are listed but not chosen;
+      - `wallet.credited`'s aggregate is the wallet, not the transaction;
+      - the concurrency test now waits for its writer before failing.
+    - **Code fixes found by the tests:**
+      - the dev top-up first set a reference type without an ID, which `ValidatePosting` refuses;
+      - a statement column needed an explicit `::text` for sqlc.
+    - **Mutation-checked:**
+      - a purchase without the permission check (the app and spec-driven API tests);
+      - the statement's sign on the wrong side;
+      - dev top-ups ignoring the flag;
+      - the quote ignoring the deal;
+      - no access treated as access.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 12 packages fresh (`ledger/app` 156s, `gateway` 131s, `ledger/store` 96s), 59 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Notes:**
+    - **posting times are the database's `now()`**, not the app clock, so statement date ranges are database time;
+    - the statement's cost is the lines newer than the page, so very deep pages of a busy wallet get slower: an index or snapshot is the fix if it shows;
+    - the console screen and dashboard are frontend tracks F2 and F4.
+  - **Deployment notes:**
+    - the ledger needs `LEDGER_ACCOUNTS_GRPC_ADDR` (and `vaspro-all` with it);
+    - set `LEDGER_DEV_TOPUPS=true` only on the dev environment;
+    - on `ops/dev-environment` after this merges: `env.example` gains both variables, the compose file the accounts address, and `docs/api/API.md` is regenerated.
+  - **Not in 3.9:** CSV statements, real top-ups (Payments, Phase 4), and a quote that reserves its price.
+
+- 3.10 v3 ledger importer: **designed, not built** (OQ-21, ADR 0011). There's no v3 export or anonymised copy (OQ-02), so, per your answer of 9 Nov, it's designed now and built with the export, as 2.11 was.
+  - **Your answers:**
+    - design only;
+    - opening balances post against a new VASPRO account type, `migration_clearing`;
+    - v3 bonus is money in the bonus account;
+    - v3 history goes in its own read-only table, never the journal.
+  - **ADR 0011:**
+    - **Inputs:** the assumed v3 columns, and ADR 0009's `v3_client_map`, read through accounts' app.
+    - **Amounts:** parsed as decimals, and more places than the currency has are flagged, never rounded.
+    - **One `migration` posting per client:**
+      - credits main, bonus, commission payable, and revenue share behind `--include-subscription` until finance confirms what it is;
+      - debits `migration_clearing`;
+      - a negative balance goes to the receivable, flagged.
+    - **Commissions:** credited to the user's single reseller or agent client, else flagged.
+    - **Client SMS prices:** become deals, entered and approved by two staff members.
+    - **`ledger.v3_history`:** RLS, insert-only, unique per v3 ID, never counted in balances or the rebuild.
+    - **Idempotency:** a changed balance on re-run is refused and flagged.
+    - **The dry-run report**, and, after a real run, a read-back against v3 and a rebuild that must pass.
+    - **Cut-over** per wave.
+  - **The design sources reconciled:** data model §5's From-v3 rows now say bonus is money and history is `v3_history` (system design §4.2's "bonus tokens" is superseded).
+  - **ROADMAP:**
+    - 3.10 is `[>]`;
+    - Phase 3's v3 dry-run exit-gate box notes it waits for the build;
+    - **"All ledger invariants above are green" is ticked**, citing each test.
+  - No code. **`make check`** was green (lint 0 issues; 3 packages fresh, 68 from the cache: nothing changed but docs), and gitleaks found no leaks.
+
+- **Phase 3 exit gate** (2026-11-10). Your answers: the development machine is the reference machine; merge without finance's review; prepare the PR.
+  - **All ledger invariants green:** ticked with 3.10 (the tests are named in ROADMAP).
+  - **Benchmark baseline, ticked:**
+    - **The reference machine:** Apple M4 (Mac16,1), 10 cores, 16 GB; Postgres 16 in Docker Desktop 28.0.4's VM (10 CPUs, about 8 GB); pgx's default pool.
+    - **The command:** `go test -tags=integration -run '^$' -bench BenchmarkHoldCapture -benchtime=5s -count=3 ./internal/ledger/app/`.
+    - **Median of 3, separate wallets:** **1,360 hold+capture pairs/s**, 735 µs a pair (runs 1,514, 1,360, 1,335).
+    - **Median of 3, one wallet:** **761/s**, 1.31 ms (runs 631, 761, 793), serialised on the balance row lock.
+    - **Against 3.3's figures** (1,504 and 765): about the same, though holds now also check tokens and auto-buy rules. Run-to-run spread is about ±10% on Docker Desktop.
+    - Re-measure on production hardware in Phase 17.
+  - **Finance's review, open:** the worked examples (3.4 and 3.5's golden tests: `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`) and the reversal rules (OQ-18, `internal/ledger/domain/reversals.go`).
+  - **v3 dry run, open:** waits for 3.10's build and a v3 export, like Phase 2's.
+  - The Phase 3 heading isn't ticked while two boxes are open, as with Phase 2.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -524,6 +1166,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
     - what's out of scope (client services → 3.10, billing mode, leads, v3 tokens).
   - No code or migration. Phase 2's dry-run exit-gate box stays open.
 
+- **Merged to `main`** (2026-11-04): PR #4 `p2/phase-2` (21 commits: 1.16, 2.1–2.11, the testkit work, and `p1/status-merged`'s STATUS commit), merge commit `c867a87`, after its CI was green. CI's "End to end" job still runs nothing (`test/e2e/` is empty); the real e2es are in `internal/gateway` and ran in the Integration job. `identity/app` took 556s there, close to Go's 10-minute default per package, so `make test-int` should get a `-timeout`. `p2/phase-2` is deleted.
+
 **Carried over:** `respondProblem` logging unknown errors; folding `sessions.token_hash`/`user_totp.last_used_step` into data model §3; an `env.example` for application env vars.
 
 ## Done in Phase 0
@@ -563,11 +1207,19 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Task 2.1, then the Phase 2 plan above in order.
-2. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
+1. The PR of `p3/phase-3` to `main`; merge only after its CI is green and you confirm it.
+2. After the merge, on `ops/dev-environment`:
+   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
+   - the compose file gains the accounts address;
+   - `docs/api/API.md` is regenerated.
+3. Phase 4 (Payments I, wallet top-ups).
+4. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
+5. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
+6. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
 
 ## Blockers
-- 2.11's build and Phase 2's last exit-gate box (the importer dry run) need a v3 export or anonymised copy (OQ-02, OQ-12, ADR 0009).
+- 2.11's and 3.10's builds, and Phase 2's and Phase 3's importer dry-run exit-gate boxes, need a v3 export or anonymised copy (OQ-02, OQ-12, OQ-21, ADRs 0009 and 0011).
+- Phase 3's "finance has reviewed the worked examples and the reversal rules" box needs finance's review, which only you can arrange. It was merged without it (your call, 2026-11-10).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
 - (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)

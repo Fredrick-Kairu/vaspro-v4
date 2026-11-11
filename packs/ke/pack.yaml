@@ -27,6 +27,9 @@ tax:
   # example).
   vat_rate_basis_points: 1600
   vat_inclusive_by_default: true
+  # The earliest date v4 settles usage at this rate (task 3.5, OQ-16);
+  # Kenya's 16% itself is older. A new rate gets a new date.
+  vat_effective_from: "2026-01-01"
 
 send_windows:
   promotional:
@@ -48,6 +51,11 @@ kyb:
     - incorporation_cert
     - tax_certificate
     - proof_of_address
+
+# A reversal of KES 2,000 or more needs a finance lead's approval
+# (task 3.7, OQ-18; system design §4.3). Minor units.
+ledger:
+  reversal_finance_lead_minor: 200000
 
 # Each service's minimum KYC tier in Kenya (task 2.4, OQ-06): the
 # requirements' tier table. accounts syncs these into

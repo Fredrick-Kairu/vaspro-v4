@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/reversal.rejected.schema.json",
+  "title": "reversal.rejected",
+  "description": "Published by the ledger when a staff member other than the maker rejects a reversal (task 3.7; an addition to data model §5's Events, so the audit trail has every decision). Nothing was posted. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": [
+    "tenant_id",
+    "reversal_id",
+    "original_transaction_id",
+    "kind",
+    "currency",
+    "amount_minor",
+    "requested_by",
+    "rejected_by",
+    "reason"
+  ],
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reversal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "original_transaction_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "payback",
+        "chargeback",
+        "operator"
+      ]
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "amount_minor": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "requested_by": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "rejected_by": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

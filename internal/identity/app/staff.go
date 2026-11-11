@@ -75,6 +75,68 @@ func (s *Service) IsStaff(ctx context.Context, userID uuid.UUID) (bool, error) {
 	return staff, nil
 }
 
+// StaffRole is what a staff check returns (task 3.7): whether the user
+// is staff, and whether they are a finance lead, who approves reversals
+// at or above the pack's threshold (OQ-18).
+type StaffRole struct {
+	Staff       bool
+	FinanceLead bool
+}
+
+// StaffRole reports userID's staff role. An unknown user has none.
+func (s *Service) StaffRole(ctx context.Context, userID uuid.UUID) (StaffRole, error) {
+	r, err := store.New(s.pool).GetStaffRole(ctx, userID)
+	if err != nil {
+		return StaffRole{}, fmt.Errorf("app: checking staff: %w", err)
+	}
+	return StaffRole{Staff: r.Staff, FinanceLead: r.FinanceLead}, nil
+}
+
+// GrantFinanceLead makes the staff member with email a finance lead
+// (task 3.7, OQ-18). Only the ops CLI calls it. Someone who isn't staff
+// is ErrNotFound; granting a finance lead again changes nothing.
+func (s *Service) GrantFinanceLead(ctx context.Context, email, grantedBy string) error {
+	return s.setFinanceLead(ctx, email, grantedBy, true)
+}
+
+// RevokeFinanceLead stops the staff member with email being a finance
+// lead; they stay staff. Someone who isn't one is ErrNotFound.
+func (s *Service) RevokeFinanceLead(ctx context.Context, email, revokedBy string) error {
+	return s.setFinanceLead(ctx, email, revokedBy, false)
+}
+
+func (s *Service) setFinanceLead(ctx context.Context, email, by string, lead bool) error {
+	by = strings.TrimSpace(by)
+	if by == "" {
+		return fmt.Errorf("%w: the operator making the change must be named", ErrValidation)
+	}
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := store.New(tx)
+		user, err := userByEmail(ctx, q, email)
+		if err != nil {
+			return err
+		}
+		role, err := q.GetStaffRole(ctx, user.ID)
+		if err != nil {
+			return fmt.Errorf("app: checking staff: %w", err)
+		}
+		switch {
+		case !role.Staff, !lead && !role.FinanceLead:
+			return ErrNotFound
+		case lead && role.FinanceLead:
+			return nil
+		}
+		if _, err := q.SetFinanceLead(ctx, store.SetFinanceLeadParams{UserID: user.ID, FinanceLead: lead}); err != nil {
+			return fmt.Errorf("app: setting finance lead: %w", err)
+		}
+		event := "finance_lead_revoked"
+		if lead {
+			event = "finance_lead_granted"
+		}
+		return recordSecurityEvent(ctx, q, user.ID, event, nil, map[string]any{"by": by})
+	})
+}
+
 // UnlockByStaff lifts the sign-in lockout of the user with email (task
 // 2.9; Phase 1 deferred it). It records an unlocked_by_staff security
 // event naming the staff member; tooManyRecentFailures counts only

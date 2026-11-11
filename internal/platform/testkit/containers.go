@@ -21,7 +21,7 @@ const startAttempts = 3
 // usable, through startWithRetries: a container that never becomes
 // ready is torn down and a fresh one tried. The working container is
 // torn down when the test ends.
-func startContainer[T any](t *testing.T, what string, start func(context.Context) (T, testcontainers.Container, error)) T {
+func startContainer[T any](t testing.TB, what string, start func(context.Context) (T, testcontainers.Container, error)) T {
 	t.Helper()
 	// Retries go to the standard log, not t.Logf: Go only prints a
 	// passing test's t.Logf output under -v, and a retry that saved a

@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package ledger.v1;
+
+option go_package = "github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1;ledgerv1";
+
+// LedgerService is the ledger's internal posting API for other VASPRO
+// services (task 3.3, OQ-14). It is never exposed to clients.
+//
+// Every call is idempotent: a transaction by (tenant_id,
+// idempotency_key), a hold by (reference_type, reference_id). Repeating
+// a request returns the original result with replayed = true; reusing
+// a key or reference with different content is ALREADY_EXISTS.
+//
+// Errors carry a google.rpc.ErrorInfo detail whose reason is the
+// VASPRO error code (docs/errors/catalogue.yaml), e.g. BAL-4001 with
+// FAILED_PRECONDITION when the wallet's available balance is too low.
+//
+// Amounts are int64 minor units in the account's currency (data model
+// §1). tenant_id is a UUID; empty means VASPRO's own side.
+service LedgerService {
+  // PostTransaction posts one balanced transaction. With a tenant, its
+  // lines may use that tenant's accounts and VASPRO's; with no tenant
+  // (a system posting) only VASPRO's. Accounts are opened on first use.
+  rpc PostTransaction(PostTransactionRequest) returns (PostTransactionResponse);
+  // PurchaseTokens buys tokens for a service from the tenant's main
+  // wallet (task 3.4): at the tenant's deal if one is in force, else the
+  // list price's tier for the quantity; the cost is rounded half-up and
+  // the price locked in a new lot. No price is FAILED_PRECONDITION
+  // BAL-4005.
+  rpc PurchaseTokens(PurchaseTokensRequest) returns (PurchaseTokensResponse);
+  // PlaceHold reserves part of one of the tenant's wallets and posts
+  // nothing: tokens in a service wallet, money in a main or bonus wallet.
+  rpc PlaceHold(PlaceHoldRequest) returns (PlaceHoldResponse);
+  // CaptureHold records how much of an active hold was used and
+  // releases the rest at once. A token hold is captured in tokens, with
+  // the events it covers, and stays held until the window's settlement
+  // (task 3.5) posts its usage. A money hold is captured only with its
+  // posting, made in the same transaction, which must take exactly
+  // captured_minor, net, from the held account.
+  rpc CaptureHold(CaptureHoldRequest) returns (CaptureHoldResponse);
+  // ReleaseHold gives an active hold's whole amount back.
+  rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+  // SetAutoBuyRule sets the tenant's auto-buy rule for a service and
+  // currency (task 3.6): when a token hold would leave fewer tokens than
+  // below_tokens, or couldn't be covered, buy_tokens are bought from the
+  // main wallet first. enabled false turns it off.
+  rpc SetAutoBuyRule(SetAutoBuyRuleRequest) returns (SetAutoBuyRuleResponse);
+  // ListAutoBuyRules lists the tenant's auto-buy rules.
+  rpc ListAutoBuyRules(ListAutoBuyRulesRequest) returns (ListAutoBuyRulesResponse);
+  // RecordPayback reports the rail's outcome for a reversal's pay-back
+  // (task 3.7; Payments calls it from Phase 13). succeeded posts the
+  // pay-back from reversal clearing to the rail's provider clearing, and
+  // a repeat of it is a replay; a failure is recorded and the money stays
+  // in clearing for the retry. Only a pay-back reversal awaiting its
+  // pay-back can record one (VAL-4016).
+  rpc RecordPayback(RecordPaybackRequest) returns (RecordPaybackResponse);
+  // GetBalances lists a tenant's accounts with their balances, or, with
+  // no tenant, VASPRO's accounts with balances summed from the journal
+  // (ADR 0010).
+  rpc GetBalances(GetBalancesRequest) returns (GetBalancesResponse);
+}
+
+// AccountRef names a ledger account by its key (data model §5's unique
+// key). Client types belong to the request's tenant; VASPRO's types
+// (provider_clearing, suspense, reversal_clearing, revenue,
+// tax_payable) to VASPRO.
+message AccountRef {
+  string type = 1;          // ledger.account_type, e.g. main_wallet
+  string service_code = 2;  // service wallets, revenue, restricted bonus
+  string rail = 3;          // provider_clearing only, e.g. mpesa_ke
+  string currency = 4;      // ISO 4217, e.g. KES
+}
+
+message Line {
+  AccountRef account = 1;
+  string direction = 2;     // D or C
+  int64 amount_minor = 3;
+}
+
+message PostedLine {
+  string account_id = 1;
+  AccountRef account = 2;
+  string direction = 3;
+  int64 amount_minor = 4;
+}
+
+message Posting {
+  string idempotency_key = 1;
+  string type = 2;            // ledger.txn_type, e.g. topup
+  string description = 3;
+  string reference_type = 4;  // optional, e.g. payment_intent
+  string reference_id = 5;    // optional UUID
+  string created_by = 6;      // optional UUID; empty for system postings
+  repeated Line lines = 7;
+}
+
+message PostTransactionRequest {
+  string tenant_id = 1;
+  Posting posting = 2;
+}
+
+message PostTransactionResponse {
+  string transaction_id = 1;
+  repeated PostedLine lines = 2;
+  bool replayed = 3;
+}
+
+message PurchaseTokensRequest {
+  string tenant_id = 1;
+  string idempotency_key = 2;
+  string service_code = 3;    // e.g. sms
+  string currency = 4;        // the main wallet paying, and the service wallet's currency
+  string tokens = 5;          // decimal, up to 6 places, e.g. "10000" or "2.5"
+  string created_by = 6;      // optional UUID
+}
+
+message PurchaseTokensResponse {
+  string transaction_id = 1;
+  string lot_id = 2;
+  string token_price_id = 3;  // the list, tier or deal row used
+  string minor_per_token = 4; // decimal, the price locked in the lot
+  int64 cost_minor = 5;
+  bool replayed = 6;
+}
+
+message PlaceHoldRequest {
+  string tenant_id = 1;
+  AccountRef account = 2;
+  string reference_type = 3;  // message_request, campaign, payout, ussd_session
+  string reference_id = 4;    // UUID
+  int64 amount_minor = 5;     // a main or bonus wallet hold
+  int64 expires_at_unix = 6;  // seconds since the epoch, in the future
+  string tokens = 7;          // a service wallet hold, decimal
+}
+
+message CaptureHoldRequest {
+  string tenant_id = 1;
+  string reference_type = 2;
+  string reference_id = 3;
+  int64 captured_minor = 4;   // a money hold: 1 to the hold's amount
+  Posting posting = 5;        // optional, money holds only; see CaptureHold
+  string captured_tokens = 6; // a token hold: decimal, up to the hold's tokens
+  int64 events = 7;           // a token hold: delivered events the capture covers; 0 means 1
+}
+
+message ReleaseHoldRequest {
+  string tenant_id = 1;
+  string reference_type = 2;
+  string reference_id = 3;
+}
+
+message Hold {
+  string hold_id = 1;
+  string account_id = 2;
+  string reference_type = 3;
+  string reference_id = 4;
+  int64 amount_minor = 5;
+  int64 captured_minor = 6;   // 0 unless captured
+  string status = 7;          // active, captured, released, expired
+  bool settled = 8;
+  string transaction_id = 9;  // the capture's posting, if it carried one
+  string tokens = 10;         // a token hold's tokens; its amounts are estimates
+  string captured_tokens = 11;
+}
+
+message PlaceHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message CaptureHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message ReleaseHoldResponse {
+  Hold hold = 1;
+  bool replayed = 2;
+}
+
+message GetBalancesRequest {
+  string tenant_id = 1;
+}
+
+message AccountBalance {
+  string account_id = 1;
+  AccountRef account = 2;
+  string status = 3;
+  int64 balance_minor = 4;
+  int64 held_minor = 5;
+  int64 available_minor = 6;
+  string tokens_remaining = 7; // a service wallet's tokens left in its lots
+  string held_tokens = 8;
+  string tokens_available = 9;
+}
+
+message GetBalancesResponse {
+  repeated AccountBalance accounts = 1;
+}
+
+message AutoBuyRule {
+  string rule_id = 1;
+  string service_code = 2;
+  string currency = 3;
+  string below_tokens = 4;   // decimal
+  string buy_tokens = 5;     // decimal
+  bool enabled = 6;
+  int64 last_triggered_at_unix = 7; // 0 if it never ran
+}
+
+message SetAutoBuyRuleRequest {
+  string tenant_id = 1;
+  string service_code = 2;
+  string currency = 3;
+  string below_tokens = 4;
+  string buy_tokens = 5;
+  bool enabled = 6;
+}
+
+message SetAutoBuyRuleResponse {
+  AutoBuyRule rule = 1;
+}
+
+message ListAutoBuyRulesRequest {
+  string tenant_id = 1;
+}
+
+message ListAutoBuyRulesResponse {
+  repeated AutoBuyRule rules = 1;
+}
+
+message RecordPaybackRequest {
+  string tenant_id = 1;
+  string reversal_id = 2;
+  bool succeeded = 3;
+  // The rail's reference for the pay-back (an M-Pesa receipt, a refund ID).
+  string reference = 4;
+  // Why it failed, when it did.
+  string error = 5;
+}
+
+message RecordPaybackResponse {
+  // payback_pending or paid_back.
+  string status = 1;
+  // The pay-back posting, once paid back.
+  string payback_transaction_id = 2;
+  int32 payback_attempts = 3;
+}

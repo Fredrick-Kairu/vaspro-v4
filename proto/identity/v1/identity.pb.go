@@ -592,8 +592,11 @@ func (x *IsStaffRequest) GetUserId() string {
 }
 
 type IsStaffResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IsStaff       bool                   `protobuf:"varint,1,opt,name=is_staff,json=isStaff,proto3" json:"is_staff,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	IsStaff bool                   `protobuf:"varint,1,opt,name=is_staff,json=isStaff,proto3" json:"is_staff,omitempty"`
+	// A finance lead approves reversals at or above the country pack's
+	// threshold (task 3.7). Only staff can be one.
+	FinanceLead   bool `protobuf:"varint,2,opt,name=finance_lead,json=financeLead,proto3" json:"finance_lead,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -635,6 +638,13 @@ func (x *IsStaffResponse) GetIsStaff() bool {
 	return false
 }
 
+func (x *IsStaffResponse) GetFinanceLead() bool {
+	if x != nil {
+		return x.FinanceLead
+	}
+	return false
+}
+
 var File_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_identity_v1_identity_proto_rawDesc = "" +
@@ -670,9 +680,10 @@ const file_identity_v1_identity_proto_rawDesc = "" +
 	"\x10GetUsersResponse\x12'\n" +
 	"\x05users\x18\x01 \x03(\v2\x11.identity.v1.UserR\x05users\")\n" +
 	"\x0eIsStaffRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\",\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"O\n" +
 	"\x0fIsStaffResponse\x12\x19\n" +
-	"\bis_staff\x18\x01 \x01(\bR\aisStaff2\x86\x04\n" +
+	"\bis_staff\x18\x01 \x01(\bR\aisStaff\x12!\n" +
+	"\ffinance_lead\x18\x02 \x01(\bR\vfinanceLead2\x86\x04\n" +
 	"\x0fIdentityService\x12Y\n" +
 	"\x0eResolveSession\x12\".identity.v1.ResolveSessionRequest\x1a#.identity.v1.ResolveSessionResponse\x12V\n" +
 	"\rEnsureInvitee\x12!.identity.v1.EnsureInviteeRequest\x1a\".identity.v1.EnsureInviteeResponse\x12Y\n" +
