@@ -389,6 +389,11 @@ func TestGatewayBackends_PaymentsCallbacks(t *testing.T) {
 		t.Fatalf("forwarded %s with client IP %q, want the connection's 192.0.2.1", req.URL.Path, req.Header.Get(clientIPHeader))
 	}
 
+	confirmation := "/v1/payments/callbacks/daraja/" + uuid.NewString() + "/" + strings.Repeat("ab", 32) + "/c2b/confirmation"
+	if status, body := send(t, gw, http.MethodPost, confirmation, nil, map[string]any{"TransID": "RKTQDM7W6S"}); status != http.StatusOK || payments.last(t).URL.Path != confirmation {
+		t.Fatalf("a C2B confirmation (task 4.5): %d %v", status, body)
+	}
+
 	status, _ = send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details",
 		map[string]string{"Authorization": "Bearer sess_good", clientIPHeader: "10.0.0.1"}, nil)
 	if status != http.StatusOK || payments.last(t).Header.Get(clientIPHeader) != "192.0.2.1" {

@@ -36,6 +36,8 @@ func runPayments(args []string) int {
 		return setRailCredential(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "verify-rail-account":
 		return verifyRailAccount(args[1:], os.Stdout, os.Stderr)
+	case "register-c2b":
+		return registerC2B(args[1:], os.Stdout, os.Stderr)
 	default:
 		paymentsUsage()
 		return 2
@@ -46,16 +48,18 @@ func paymentsUsage() {
 	_, _ = fmt.Fprintln(os.Stderr, "usage: vaspro payments add-rail-account -by <staff email> -rail mpesa_ke -number <paybill> -name <registered name>")
 	_, _ = fmt.Fprintln(os.Stderr, "       vaspro payments set-rail-credential -by <staff email> -account <id> -kind app_key|app_secret|passkey < secret")
 	_, _ = fmt.Fprintln(os.Stderr, "       vaspro payments verify-rail-account -by <staff email> -account <id>")
+	_, _ = fmt.Fprintln(os.Stderr, "       vaspro payments register-c2b -by <staff email> -account <id>")
 	_, _ = fmt.Fprintln(os.Stderr, "  VASPRO's own top-up paybill (task 4.3). Reads PAYMENTS_DATABASE_URL and PAYMENTS_IDENTITY_GRPC_ADDR;")
 	_, _ = fmt.Fprintln(os.Stderr, "  set-rail-credential and verify-rail-account also PAYMENTS_CREDENTIALS_KMS_KEY, set-rail-credential")
-	_, _ = fmt.Fprintln(os.Stderr, "  PAYMENTS_CREDENTIAL_FINGERPRINT_KEY, and verify-rail-account DARAJA_BASE_URL. The secret is read")
+	_, _ = fmt.Fprintln(os.Stderr, "  PAYMENTS_CREDENTIAL_FINGERPRINT_KEY, verify-rail-account and register-c2b DARAJA_BASE_URL, and")
+	_, _ = fmt.Fprintln(os.Stderr, "  register-c2b PAYMENTS_CALLBACK_BASE_URL and PAYMENTS_CALLBACK_SECRET. The secret is read")
 	_, _ = fmt.Fprintln(os.Stderr, "  from stdin, never the command line, so it stays out of shell history and process lists.")
 }
 
 // paymentsService connects what the payments ops commands need. The
 // keys are base64 of 32 bytes; empty ones are left out, for commands
 // that don't use them.
-func paymentsService(ctx context.Context, stderr io.Writer, needKMS, needFingerprint, needRail bool) (*app.Service, func(), bool) {
+func paymentsService(ctx context.Context, stderr io.Writer, needKMS, needFingerprint, needRail bool, extra ...func(*app.Deps)) (*app.Service, func(), bool) {
 	env := func(name string, need bool) (string, bool) {
 		v := os.Getenv(name)
 		if need && v == "" {
@@ -112,6 +116,9 @@ func paymentsService(ctx context.Context, stderr io.Writer, needKMS, needFingerp
 		deps.Rails = map[string]app.RailClient{"mpesa_ke": adapters.NewDaraja(adapters.DarajaConfig{
 			BaseURL: darajaURL, Credentials: app.NewCredentialSource(pool, deps.KMS), Location: time.UTC, Clock: clock.Real{},
 		})}
+	}
+	for _, f := range extra {
+		f(&deps)
 	}
 	return app.New(deps), func() { _ = identity.Close(); pool.Close() }, true
 }
@@ -176,6 +183,43 @@ func setRailCredential(args []string, stdin io.Reader, stdout, stderr *os.File) 
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "ok   stored %s for %s; the account is pending until verify-rail-account succeeds\n", *kind, id)
+	return 0
+}
+
+// registerC2B registers VASPRO's paybill's C2B URLs with Daraja (task
+// 4.5): run it once the gateway's public URL is live.
+func registerC2B(args []string, stdout, stderr *os.File) int {
+	fs := flag.NewFlagSet("register-c2b", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	by := fs.String("by", "", "the staff member's email (required)")
+	account := fs.String("account", "", "the rail account's id (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	id, err := uuid.Parse(*account)
+	if *by == "" || err != nil || fs.NArg() != 0 {
+		paymentsUsage()
+		return 2
+	}
+	base, secretB64 := os.Getenv("PAYMENTS_CALLBACK_BASE_URL"), os.Getenv("PAYMENTS_CALLBACK_SECRET")
+	secret, err := base64.StdEncoding.DecodeString(secretB64)
+	if base == "" || err != nil || len(secret) != 32 {
+		_, _ = fmt.Fprintln(stderr, "vaspro: PAYMENTS_CALLBACK_BASE_URL and PAYMENTS_CALLBACK_SECRET (base64 of 32 bytes) are required")
+		return 2
+	}
+	ctx := context.Background()
+	svc, closeAll, ok := paymentsService(ctx, stderr, true, false, true, func(d *app.Deps) {
+		d.CallbackBaseURL, d.CallbackSecret = base, secret
+	})
+	if !ok {
+		return 1
+	}
+	defer closeAll()
+	if err := svc.RegisterC2B(ctx, *by, id); err != nil {
+		_, _ = fmt.Fprintln(stderr, "vaspro: registering the C2B URLs:", err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "ok   %s's C2B URLs registered\n", id)
 	return 0
 }
 

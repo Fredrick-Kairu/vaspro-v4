@@ -861,7 +861,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 4.2 Daraja adapter: OAuth token cached in Redis, STK push, STK query, C2B URL registration, validation and confirmation callbacks. Callbacks are checked by source and shared secret. *Done 2026-11-11 (OQ-22): the fake `tools/fakes/daraja` (every outcome, duplicate, early and lost callbacks, C2B, statements) and `internal/payments/adapters` (`TestDaraja_STKOutcomes`, `TestDaraja_TokenCache`, `TestParseSTKCallback`, `TestParseC2BCallback`). The source and shared-secret check sits on the callback routes, so it is built and tested with them in 4.4 and 4.5.*
 - [x] 4.3 VASPRO's own paybill as a rail account; a unique account number per client. *Done 2026-11-11 (OQ-22): the payments service, rails from the packs, the `vaspro payments` ops CLI (credentials sealed, active only after a test call), account numbers with two check characters, `getTopupDetails`; `TestValidAccountNumber_CatchesTyposAndSwaps`, `TestTopupDetails`, `TestRailAccountOps`.*
 - [x] 4.4 Top-up by STK: intent → callback → ledger top-up posting (debit provider clearing, credit main wallet). *Done 2026-11-11 (OQ-22): `createTopup`/`getTopup`, the Daraja callback through the gateway (source and path token), postings keyed by the collection notice, the sweep; `TestSTKTopup_Outcomes`, `TestSTKTopup_RepeatedAndEarlyCallbacks`, `TestSTKTopup_AmountMismatch`, `TestSTKTopup_LostCallbacks`, `TestService_TopsUpByStkEndToEnd`.*
-- [ ] 4.5 Top-up by paybill (C2B): match on account number; unmatched money goes to suspense; staff match it later, once.
+- [x] 4.5 Top-up by paybill (C2B): match on account number; unmatched money goes to suspense; staff match it later, once. *Done 2026-11-11 (OQ-22): C2B validation and confirmation through the gateway, suspense in the ledger, staff matching by account number with step-up, `vaspro payments register-c2b`; `TestC2B_Confirmations`, `TestC2B_StaffMatch`, `TestPost_PaymentsTopupShapes`.*
 - [ ] 4.6 Daily reconciliation of VASPRO's paybill against provider clearing in the ledger.
 - [>] 4.7 Airtel Money KE adapter, if the account is ready; otherwise left for later. **Deferred** (2026-11-11, OQ-22): the account isn't ready. The rail interface stays free of Daraja types so Airtel fits later.
 - [ ] 4.8 A minimal hosted checkout page, reused by Pay now in Phase 9.
@@ -870,7 +870,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 - Fake Daraja outcomes: success, cancelled by user, timeout, insufficient funds, wrong PIN. *(`TestDaraja_STKOutcomes`, 4.2; `TestSTKTopup_Outcomes`, 4.4)*
 - A duplicate callback is ignored. A callback that arrives before the STK request is stored is still handled. *(`TestSTKTopup_RepeatedAndEarlyCallbacks`, 4.4)*
-- An unmatched C2B payment lands in suspense; matching it credits the wallet exactly once.
+- An unmatched C2B payment lands in suspense; matching it credits the wallet exactly once. *(`TestC2B_Confirmations`, `TestC2B_StaffMatch`, 4.5)*
 - The amount on the callback differs from the intent: the callback amount wins and the mismatch is flagged. *(`TestSTKTopup_AmountMismatch`, 4.4)*
 - Reconciliation: a rail line missing from VASPRO, and a VASPRO record missing from the rail, each open an exception.
 - Nightly job against the real Daraja sandbox (not on every PR).

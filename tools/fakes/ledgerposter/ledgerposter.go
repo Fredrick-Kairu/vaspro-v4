@@ -76,13 +76,45 @@ func (f *Fake) Postings() []adapters.TopupPosting {
 	return out
 }
 
-// Credited is the total credited to tenant's main wallet.
+// Credited is the total credited to tenant's main wallet, directly or
+// out of suspense.
 func (f *Fake) Credited(tenant uuid.UUID) int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var sum int64
 	for _, p := range f.byKey {
-		if p.p.TenantID == tenant {
+		if p.p.Kind != adapters.TopupToSuspense && p.p.TenantID == tenant {
+			sum += p.p.AmountMinor
+		}
+	}
+	return sum
+}
+
+// Suspense is the suspense account's balance: what went in less what
+// staff matched out.
+func (f *Fake) Suspense() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var sum int64
+	for _, p := range f.byKey {
+		switch p.p.Kind {
+		case adapters.TopupToSuspense:
+			sum += p.p.AmountMinor
+		case adapters.TopupFromSuspense:
+			sum -= p.p.AmountMinor
+		}
+	}
+	return sum
+}
+
+// Clearing is provider clearing's total: every payment that arrived,
+// matched or not.
+func (f *Fake) Clearing() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var sum int64
+	for _, p := range f.byKey {
+		if p.p.Kind != adapters.TopupFromSuspense {
 			sum += p.p.AmountMinor
 		}
 	}

@@ -54,14 +54,27 @@ func newSTKHarness(t *testing.T, opts ...option) *stkHarness {
 		sh.callbacks = append(sh.callbacks, body)
 		sh.mu.Unlock()
 		acct, _ := uuid.Parse(parts[0])
-		err := svc.HandleSTKCallback(r.Context(), acct, parts[1], netip.MustParseAddr("127.0.0.1"), body)
+		local := netip.MustParseAddr("127.0.0.1")
+		var err error
+		accept, code := true, ""
+		switch strings.Join(parts[2:], "/") {
+		case "stk":
+			err = svc.HandleSTKCallback(r.Context(), acct, parts[1], local, body)
+		case "c2b/validation":
+			accept, code, err = svc.HandleC2BValidation(r.Context(), acct, parts[1], local, body)
+		case "c2b/confirmation":
+			err = svc.HandleC2BConfirmation(r.Context(), acct, parts[1], local, body)
+		default:
+			http.NotFound(w, r)
+			return
+		}
 		switch {
 		case errors.Is(err, app.ErrBadCallback):
 			w.WriteHeader(http.StatusUnauthorized)
 		case err != nil:
 			w.WriteHeader(http.StatusBadRequest)
 		default:
-			_, _ = w.Write(adapters.C2BResponse(true, ""))
+			_, _ = w.Write(adapters.C2BResponse(accept, code))
 		}
 	}))
 	t.Cleanup(cb.Close)
@@ -235,14 +248,18 @@ func TestSTKTopup_RepeatedAndEarlyCallbacks(t *testing.T) {
 		sh.daraja.Wait()
 		body := sh.lastCallback(t)
 		token := domain.CallbackToken(callbackSecret, sh.paybill)
+		warmPool(t, sh.app) // so the copies overlap (see TestC2B_StaffMatch)
+		start := make(chan struct{})
 		var wg sync.WaitGroup
 		for range 20 {
 			wg.Go(func() {
+				<-start
 				if err := sh.svc.HandleSTKCallback(ctx, sh.paybill, token, netip.MustParseAddr("127.0.0.1"), body); err != nil {
 					t.Errorf("replay: %v", err)
 				}
 			})
 		}
+		close(start)
 		wg.Wait()
 		if sh.ledger.Credited(tenant) != 150000 || sh.notices(t, top.ID) != 1 {
 			t.Fatalf("credited %d with %d notices", sh.ledger.Credited(tenant), sh.notices(t, top.ID))

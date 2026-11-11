@@ -104,24 +104,25 @@ func (ns NullPaymentsIntentStatus) Value() (driver.Value, error) {
 }
 
 type PaymentsCollectionNotice struct {
-	ID                  uuid.UUID   `json:"id"`
-	RailAccountID       uuid.UUID   `json:"rail_account_id"`
-	TenantID            pgtype.UUID `json:"tenant_id"`
-	RailReceipt         string      `json:"rail_receipt"`
-	TransactionType     pgtype.Text `json:"transaction_type"`
-	AmountMinor         int64       `json:"amount_minor"`
-	Currency            string      `json:"currency"`
-	BillRef             pgtype.Text `json:"bill_ref"`
-	PayerPhoneE164      pgtype.Text `json:"payer_phone_e164"`
-	PayerName           pgtype.Text `json:"payer_name"`
-	PaidAt              time.Time   `json:"paid_at"`
-	AccountBalanceMinor pgtype.Int8 `json:"account_balance_minor"`
-	PaymentIntentID     pgtype.UUID `json:"payment_intent_id"`
-	MatchStatus         string      `json:"match_status"`
-	MatchedTenantID     pgtype.UUID `json:"matched_tenant_id"`
-	LedgerTransactionID pgtype.UUID `json:"ledger_transaction_id"`
-	Raw                 []byte      `json:"raw"`
-	ReceivedAt          time.Time   `json:"received_at"`
+	ID                    uuid.UUID   `json:"id"`
+	RailAccountID         uuid.UUID   `json:"rail_account_id"`
+	TenantID              pgtype.UUID `json:"tenant_id"`
+	RailReceipt           string      `json:"rail_receipt"`
+	TransactionType       pgtype.Text `json:"transaction_type"`
+	AmountMinor           int64       `json:"amount_minor"`
+	Currency              string      `json:"currency"`
+	BillRef               pgtype.Text `json:"bill_ref"`
+	PayerPhoneE164        pgtype.Text `json:"payer_phone_e164"`
+	PayerName             pgtype.Text `json:"payer_name"`
+	PaidAt                time.Time   `json:"paid_at"`
+	AccountBalanceMinor   pgtype.Int8 `json:"account_balance_minor"`
+	PaymentIntentID       pgtype.UUID `json:"payment_intent_id"`
+	MatchStatus           string      `json:"match_status"`
+	MatchedTenantID       pgtype.UUID `json:"matched_tenant_id"`
+	LedgerTransactionID   pgtype.UUID `json:"ledger_transaction_id"`
+	Raw                   []byte      `json:"raw"`
+	ReceivedAt            time.Time   `json:"received_at"`
+	SuspenseTransactionID pgtype.UUID `json:"suspense_transaction_id"`
 }
 
 type PaymentsIdempotencyKey struct {

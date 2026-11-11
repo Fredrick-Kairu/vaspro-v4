@@ -292,18 +292,15 @@ func (s *Service) HandleSTKCallback(ctx context.Context, railAccountID uuid.UUID
 // railLocation is the time zone of the country whose pack lists rail:
 // Daraja's timestamps are local time.
 func (s *Service) railLocation(rail string) (*time.Location, error) {
-	for _, p := range s.packs {
-		for _, r := range p.Rails {
-			if r.Code == rail {
-				loc, err := time.LoadLocation(p.Timezone)
-				if err != nil {
-					return nil, fmt.Errorf("app: %s's time zone %q: %w", p.CountryCode, p.Timezone, err)
-				}
-				return loc, nil
-			}
-		}
+	p, err := s.railPack(rail)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("app: no pack lists rail %s", rail)
+	loc, err := time.LoadLocation(p.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("app: %s's time zone %q: %w", p.CountryCode, p.Timezone, err)
+	}
+	return loc, nil
 }
 
 // applyParkedCallback applies a recorded, unapplied callback for a
@@ -513,16 +510,20 @@ func (s *Service) writeIntentEvent(ctx context.Context, tx pgx.Tx, intent store.
 	return outbox.Write(ctx, tx, "payment_intent", intent.ID, env)
 }
 
-// postNotice credits a matched notice to its tenant's main wallet (Dr
-// provider clearing, Cr main wallet, keyed by the notice) and records
-// the transaction. A failure is logged and left for the sweep; the
+// postNotice credits a matched notice to its tenant's main wallet:
+// from provider clearing, or out of suspense for one staff matched
+// (task 4.5), keyed by the notice; and records the transaction. A failure is logged and left for the sweep; the
 // ledger's key idempotency makes a repeat return the same transaction.
 func (s *Service) postNotice(ctx context.Context, n store.PaymentsCollectionNotice, rail string) bool {
 	if s.ledger == nil || !n.MatchedTenantID.Valid {
 		return false
 	}
+	kind := adapters.TopupDirect
+	if n.SuspenseTransactionID.Valid { // matched by staff: out of suspense
+		kind = adapters.TopupFromSuspense
+	}
 	txn, err := s.ledger.PostTopup(ctx, adapters.TopupPosting{
-		TenantID: uuid.UUID(n.MatchedTenantID.Bytes), NoticeID: n.ID, Rail: rail, Currency: n.Currency,
+		Kind: kind, TenantID: uuid.UUID(n.MatchedTenantID.Bytes), NoticeID: n.ID, Rail: rail, Currency: n.Currency,
 		AmountMinor: n.AmountMinor, Description: "M-Pesa top-up " + n.RailReceipt,
 	})
 	if err != nil {
@@ -546,8 +547,9 @@ type SweepSummary struct {
 	Posted, Applied, Expired, Queried int
 }
 
-// Sweep finishes what callbacks left (task 4.4): it posts matched
-// notices not yet in the ledger, applies callbacks whose push is now
+// Sweep finishes what callbacks left (task 4.4): it posts payments in
+// suspense not yet in the ledger's suspense account (task 4.5) and
+// matched notices not yet credited, applies callbacks whose push is now
 // recorded, and settles top-ups past their expiry. A created top-up was
 // never sent and expires. A pending one is asked about: a failure is
 // applied; a payment the rail reports without a confirmation is flagged
@@ -557,6 +559,7 @@ func (s *Service) Sweep(ctx context.Context) (SweepSummary, error) {
 	var (
 		sum      SweepSummary
 		notices  []store.PaymentsCollectionNotice
+		unposted []store.PaymentsCollectionNotice // in suspense, not yet in the ledger's
 		parked   []store.PaymentsStkCallback
 		expiring []store.PaymentsPaymentIntent
 		rails    = map[uuid.UUID]string{}
@@ -568,13 +571,16 @@ func (s *Service) Sweep(ctx context.Context) (SweepSummary, error) {
 		if notices, err = q.ListUnpostedNotices(ctx, sweepBatch); err != nil {
 			return err
 		}
+		if unposted, err = q.ListUnpostedSuspense(ctx, sweepBatch); err != nil {
+			return err
+		}
 		if parked, err = q.ListUnappliedSTKCallbacks(ctx, sweepBatch); err != nil {
 			return err
 		}
 		if expiring, err = q.ListPaymentIntentsToExpire(ctx, store.ListPaymentIntentsToExpireParams{ExpiresAt: now, Limit: sweepBatch}); err != nil {
 			return err
 		}
-		for _, n := range notices {
+		for _, n := range append(append([]store.PaymentsCollectionNotice{}, notices...), unposted...) {
 			if _, ok := rails[n.RailAccountID]; !ok {
 				acct, err := q.GetRailAccount(ctx, n.RailAccountID)
 				if err != nil {
@@ -587,6 +593,11 @@ func (s *Service) Sweep(ctx context.Context) (SweepSummary, error) {
 	})
 	if err != nil {
 		return sum, fmt.Errorf("app: listing the sweep's work: %w", err)
+	}
+	for _, n := range unposted {
+		if s.postSuspense(ctx, n, rails[n.RailAccountID]) {
+			sum.Posted++
+		}
 	}
 	for _, n := range notices {
 		if s.postNotice(ctx, n, rails[n.RailAccountID]) {

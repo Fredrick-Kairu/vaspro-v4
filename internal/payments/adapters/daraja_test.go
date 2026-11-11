@@ -1,12 +1,15 @@
 package adapters_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/payments/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/problem"
@@ -130,4 +133,27 @@ func TestC2BResponse(t *testing.T) {
 	if err := json.Unmarshal(adapters.C2BResponse(false, "C2B00012"), &out); err != nil || out["ResultCode"] != "C2B00012" || out["ResultDesc"] != "Rejected" {
 		t.Fatalf("reject: %v %v", out, err)
 	}
+}
+
+// Without a cache (the ops CLI has none) every call fetches its own
+// token (task 4.5).
+func TestDaraja_NoCache(t *testing.T) {
+	app := daraja.App{ConsumerKey: "fake-key-nocache", ConsumerSecret: "fake-secret-nocache", ShortCode: "600100", Passkey: "fake-passkey-nocache"}
+	f := daraja.New(app)
+	t.Cleanup(f.Close)
+	d := adapters.NewDaraja(adapters.DarajaConfig{BaseURL: f.URL(), Credentials: fixedCreds(app), Location: nairobi})
+	for range 2 {
+		if err := d.RegisterC2BURLs(context.Background(), uuid.New(), "http://127.0.0.1:1/c", "http://127.0.0.1:1/v"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.TokenIssues() != 2 {
+		t.Fatalf("tokens issued %d, want one per call", f.TokenIssues())
+	}
+}
+
+type fixedCreds daraja.App
+
+func (c fixedCreds) DarajaCredentials(context.Context, uuid.UUID) (adapters.DarajaCredentials, error) {
+	return adapters.DarajaCredentials{ConsumerKey: c.ConsumerKey, ConsumerSecret: c.ConsumerSecret, ShortCode: c.ShortCode, Passkey: c.Passkey}, nil
 }

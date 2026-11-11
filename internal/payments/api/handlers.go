@@ -60,6 +60,83 @@ func (h *Handlers) ReceiveStkCallback(ctx context.Context, request ReceiveStkCal
 	return ReceiveStkCallback200JSONResponse{"ResultCode": 0, "ResultDesc": "Accepted"}, nil
 }
 
+func (h *Handlers) ReceiveC2bValidation(ctx context.Context, request ReceiveC2bValidationRequestObject) (ReceiveC2bValidationResponseObject, error) {
+	cr, ok := callbackFromContext(ctx)
+	if !ok {
+		return nil, errors.New("api: the callback body wasn't kept (keepCallbackBody isn't wired)")
+	}
+	accept, code, err := h.app.HandleC2BValidation(ctx, parseOrNil(request.RailAccountId), request.Token, cr.clientIP, cr.body)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	if !accept {
+		return ReceiveC2bValidation200JSONResponse{"ResultCode": code, "ResultDesc": "Rejected"}, nil
+	}
+	return ReceiveC2bValidation200JSONResponse{"ResultCode": "0", "ResultDesc": "Accepted"}, nil
+}
+
+func (h *Handlers) ReceiveC2bConfirmation(ctx context.Context, request ReceiveC2bConfirmationRequestObject) (ReceiveC2bConfirmationResponseObject, error) {
+	cr, ok := callbackFromContext(ctx)
+	if !ok {
+		return nil, errors.New("api: the callback body wasn't kept (keepCallbackBody isn't wired)")
+	}
+	if err := h.app.HandleC2BConfirmation(ctx, parseOrNil(request.RailAccountId), request.Token, cr.clientIP, cr.body); err != nil {
+		return nil, toProblem(err)
+	}
+	return ReceiveC2bConfirmation200JSONResponse{"ResultCode": "0", "ResultDesc": "Accepted"}, nil
+}
+
+func (h *Handlers) ListSuspense(ctx context.Context, request ListSuspenseRequestObject) (ListSuspenseResponseObject, error) {
+	cursor, limit := "", 0
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
+	if request.Params.Limit != nil {
+		limit = *request.Params.Limit
+	}
+	notices, next, err := h.app.ListSuspense(ctx, callerFromContext(ctx), cursor, limit)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	out := ListSuspense200JSONResponse{Notices: make([]SuspenseNotice, len(notices))}
+	for i, n := range notices {
+		out.Notices[i] = noticeResponse(n)
+	}
+	if next != "" {
+		out.NextCursor = &next
+	}
+	return out, nil
+}
+
+func (h *Handlers) MatchCollectionNotice(ctx context.Context, request MatchCollectionNoticeRequestObject) (MatchCollectionNoticeResponseObject, error) {
+	n, err := h.app.MatchNotice(ctx, callerFromContext(ctx), sessionFromContext(ctx), parseOrNil(request.NoticeId),
+		request.Body.AccountNumber, request.Body.Reason)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return MatchCollectionNotice200JSONResponse(noticeResponse(n)), nil
+}
+
+func noticeResponse(n app.Notice) SuspenseNotice {
+	out := SuspenseNotice{
+		Id: n.ID.String(), Receipt: n.Receipt, AmountMinor: n.AmountMinor, Currency: n.Currency,
+		PaidAt: n.PaidAt, Status: SuspenseNoticeStatus(n.Status),
+		BillRef: nonEmpty(n.BillRef), PayerName: nonEmpty(n.PayerName), PayerPhone: nonEmpty(n.PayerPhone),
+	}
+	if n.TenantID != nil {
+		id := n.TenantID.String()
+		out.TenantId = &id
+	}
+	return out
+}
+
+func nonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func topupResponse(t app.Topup) Topup {
 	out := Topup{
 		Id: t.ID.String(), Status: TopupStatus(t.Status), AmountMinor: t.AmountMinor, Currency: t.Currency,
@@ -91,6 +168,12 @@ func toProblem(err error) error {
 		return problem.New(problem.AUTH4013, "the callback isn't from the rail")
 	case errors.Is(err, app.ErrIdempotencyConflict):
 		return problem.New(problem.VAL4001, err.Error())
+	case errors.Is(err, app.ErrStepUpRequired):
+		return problem.New(problem.AUTH4012, "verify again (step-up) first")
+	case errors.Is(err, app.ErrNoticeDecided):
+		return problem.New(problem.VAL4014, "the payment was already matched")
+	case errors.Is(err, app.ErrSuspenseNotPosted):
+		return problem.New(problem.PAY6507, "the payment isn't in suspense in the ledger yet; try again shortly")
 	case errors.Is(err, app.ErrValidation):
 		return problem.New(problem.VAL4000, err.Error())
 	}

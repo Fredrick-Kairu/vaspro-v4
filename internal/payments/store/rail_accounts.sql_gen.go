@@ -159,6 +159,23 @@ func (q *Queries) GetRailAccountForUpdate(ctx context.Context, id uuid.UUID) (Pa
 	return i, err
 }
 
+const setRailAccountC2BRegistered = `-- name: SetRailAccountC2BRegistered :execrows
+UPDATE payments.rail_accounts SET c2b_registered_at = $2, version = version + 1 WHERE id = $1
+`
+
+type SetRailAccountC2BRegisteredParams struct {
+	ID              uuid.UUID          `json:"id"`
+	C2bRegisteredAt pgtype.Timestamptz `json:"c2b_registered_at"`
+}
+
+func (q *Queries) SetRailAccountC2BRegistered(ctx context.Context, arg SetRailAccountC2BRegisteredParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setRailAccountC2BRegistered, arg.ID, arg.C2bRegisteredAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setRailAccountPending = `-- name: SetRailAccountPending :execrows
 UPDATE payments.rail_accounts SET status = 'pending_verification', verified_at = NULL, version = version + 1
 WHERE id = $1 AND status = 'active'

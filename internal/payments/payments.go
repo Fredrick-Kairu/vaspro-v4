@@ -55,6 +55,11 @@ type Config struct {
 	// account's country (task 4.3). Dialled lazily; dashboard calls fail
 	// closed while accounts is down.
 	AccountsGRPCAddr string `env:"PAYMENTS_ACCOUNTS_GRPC_ADDR,required"`
+	// IdentityGRPCAddr is identity's internal gRPC API, asked on every
+	// staff call whether the user is staff and, before a match, whether
+	// their step-up is fresh (task 4.5). Dialled lazily; staff calls fail
+	// closed while identity is down.
+	IdentityGRPCAddr string `env:"PAYMENTS_IDENTITY_GRPC_ADDR,required"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country: the
 	// rails, and which one takes top-ups.
 	PacksDir string `env:"PAYMENTS_PACKS_DIR" envDefault:"packs"`
@@ -92,6 +97,7 @@ type Config struct {
 // Clients are the outside services payments calls.
 type Clients struct {
 	Accounts adapters.Accounts
+	Identity adapters.Identity
 	Ledger   adapters.Ledger
 	Cache    *cache.Cache
 }
@@ -144,7 +150,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, c Clients, loaded map[string]*pa
 		}
 	}
 	a := app.New(app.Deps{
-		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Accounts: c.Accounts, Packs: loaded,
+		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Accounts: c.Accounts, Identity: c.Identity, Packs: loaded,
 		KMS: kms, Rails: rails, Ledger: c.Ledger,
 		CallbackBaseURL: cfg.CallbackBaseURL, CallbackSecret: secret, CallbackCIDRs: cidrs,
 		STKExpiry: cfg.STKExpiry, STKGiveUp: cfg.STKGiveUp,
@@ -171,6 +177,10 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("payments: %w", err)
 	}
+	identity, err := adapters.DialIdentity(cfg.IdentityGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("payments: %w", err)
+	}
 	ledger, err := adapters.DialLedger(cfg.LedgerGRPCAddr)
 	if err != nil {
 		return nil, fmt.Errorf("payments: %w", err)
@@ -183,7 +193,7 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return New(cfg, pool, b, Clients{Accounts: accounts, Ledger: ledger, Cache: cache.New(redisOpts)}, loaded)
+	return New(cfg, pool, b, Clients{Accounts: accounts, Identity: identity, Ledger: ledger, Cache: cache.New(redisOpts)}, loaded)
 }
 
 // LoadPacks loads every <dir>/<cc>/pack.yaml against <dir>/schema.json.

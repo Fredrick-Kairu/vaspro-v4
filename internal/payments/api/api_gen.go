@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,6 +15,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 )
+
+// Defines values for SuspenseNoticeStatus.
+const (
+	Matched  SuspenseNoticeStatus = "matched"
+	Suspense SuspenseNoticeStatus = "suspense"
+)
+
+// Valid indicates whether the value is a known member of the SuspenseNoticeStatus enum.
+func (e SuspenseNoticeStatus) Valid() bool {
+	switch e {
+	case Matched:
+		return true
+	case Suspense:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for TopupStatus.
 const (
@@ -45,6 +64,15 @@ func (e TopupStatus) Valid() bool {
 	}
 }
 
+// MatchRequest defines model for MatchRequest.
+type MatchRequest struct {
+	// AccountNumber The client's account number on VASPRO's paybill.
+	AccountNumber string `json:"account_number"`
+
+	// Reason Why this payment is the client's; kept with the match.
+	Reason string `json:"reason"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code      string  `json:"code"`
@@ -55,6 +83,33 @@ type Problem struct {
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
 }
+
+// SuspenseList defines model for SuspenseList.
+type SuspenseList struct {
+	NextCursor *string          `json:"next_cursor,omitempty"`
+	Notices    []SuspenseNotice `json:"notices"`
+}
+
+// SuspenseNotice defines model for SuspenseNotice.
+type SuspenseNotice struct {
+	AmountMinor int64 `json:"amount_minor"`
+
+	// BillRef The account number as the payer typed it.
+	BillRef    *string              `json:"bill_ref,omitempty"`
+	Currency   string               `json:"currency"`
+	Id         string               `json:"id"`
+	PaidAt     time.Time            `json:"paid_at"`
+	PayerName  *string              `json:"payer_name,omitempty"`
+	PayerPhone *string              `json:"payer_phone,omitempty"`
+	Receipt    string               `json:"receipt"`
+	Status     SuspenseNoticeStatus `json:"status"`
+
+	// TenantId The client credited, once matched.
+	TenantId *string `json:"tenant_id,omitempty"`
+}
+
+// SuspenseNoticeStatus defines model for SuspenseNotice.Status.
+type SuspenseNoticeStatus string
 
 // Topup defines model for Topup.
 type Topup struct {
@@ -108,14 +163,38 @@ type TopupRequest struct {
 	PayerPhone string `json:"payer_phone"`
 }
 
+// CallbackToken defines model for CallbackToken.
+type CallbackToken = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
+
+// RailAccountID defines model for RailAccountID.
+type RailAccountID = string
 
 // TenantID defines model for TenantID.
 type TenantID = string
 
+// ReceiveC2bConfirmationJSONBody defines parameters for ReceiveC2bConfirmation.
+type ReceiveC2bConfirmationJSONBody = map[string]interface{}
+
+// ReceiveC2bValidationJSONBody defines parameters for ReceiveC2bValidation.
+type ReceiveC2bValidationJSONBody = map[string]interface{}
+
 // ReceiveStkCallbackJSONBody defines parameters for ReceiveStkCallback.
 type ReceiveStkCallbackJSONBody = map[string]interface{}
+
+// MatchCollectionNoticeParams defines parameters for MatchCollectionNotice.
+type MatchCollectionNoticeParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ListSuspenseParams defines parameters for ListSuspense.
+type ListSuspenseParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // CreateTopupParams defines parameters for CreateTopup.
 type CreateTopupParams struct {
@@ -123,17 +202,38 @@ type CreateTopupParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ReceiveC2bConfirmationJSONRequestBody defines body for ReceiveC2bConfirmation for application/json ContentType.
+type ReceiveC2bConfirmationJSONRequestBody = ReceiveC2bConfirmationJSONBody
+
+// ReceiveC2bValidationJSONRequestBody defines body for ReceiveC2bValidation for application/json ContentType.
+type ReceiveC2bValidationJSONRequestBody = ReceiveC2bValidationJSONBody
+
 // ReceiveStkCallbackJSONRequestBody defines body for ReceiveStkCallback for application/json ContentType.
 type ReceiveStkCallbackJSONRequestBody = ReceiveStkCallbackJSONBody
+
+// MatchCollectionNoticeJSONRequestBody defines body for MatchCollectionNotice for application/json ContentType.
+type MatchCollectionNoticeJSONRequestBody = MatchRequest
 
 // CreateTopupJSONRequestBody defines body for CreateTopup for application/json ContentType.
 type CreateTopupJSONRequestBody = TopupRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ReceiveC2bConfirmation Receive a paybill payment's confirmation (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation)
+	ReceiveC2bConfirmation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken)
+	// ReceiveC2bValidation Validate a paybill payment (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation)
+	ReceiveC2bValidation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken)
 	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
 	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
 	ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string)
+	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
+	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
+	MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams)
+	// ListSuspense Payments in suspense (staff only)
+	// (GET /v1/payments/staff/suspense)
+	ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(w http.ResponseWriter, r *http.Request, tenantId TenantID)
@@ -149,9 +249,33 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// ReceiveC2bConfirmation Receive a paybill payment's confirmation (Safaricom only)
+// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation)
+func (_ Unimplemented) ReceiveC2bConfirmation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReceiveC2bValidation Validate a paybill payment (Safaricom only)
+// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation)
+func (_ Unimplemented) ReceiveC2bValidation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
 // (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
 func (_ Unimplemented) ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
+// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
+func (_ Unimplemented) MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListSuspense Payments in suspense (staff only)
+// (GET /v1/payments/staff/suspense)
+func (_ Unimplemented) ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -182,6 +306,76 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// ReceiveC2bConfirmation operation middleware
+func (siw *ServerInterfaceWrapper) ReceiveC2bConfirmation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "railAccountId" -------------
+	var railAccountId RailAccountID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "railAccountId", chi.URLParam(r, "railAccountId"), &railAccountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "railAccountId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "token" -------------
+	var token CallbackToken
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReceiveC2bConfirmation(w, r, railAccountId, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReceiveC2bValidation operation middleware
+func (siw *ServerInterfaceWrapper) ReceiveC2bValidation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "railAccountId" -------------
+	var railAccountId RailAccountID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "railAccountId", chi.URLParam(r, "railAccountId"), &railAccountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "railAccountId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "token" -------------
+	var token CallbackToken
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReceiveC2bValidation(w, r, railAccountId, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReceiveStkCallback operation middleware
 func (siw *ServerInterfaceWrapper) ReceiveStkCallback(w http.ResponseWriter, r *http.Request) {
 
@@ -208,6 +402,106 @@ func (siw *ServerInterfaceWrapper) ReceiveStkCallback(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReceiveStkCallback(w, r, railAccountId, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MatchCollectionNotice operation middleware
+func (siw *ServerInterfaceWrapper) MatchCollectionNotice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "noticeId" -------------
+	var noticeId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "noticeId", chi.URLParam(r, "noticeId"), &noticeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "noticeId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params MatchCollectionNoticeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MatchCollectionNotice(w, r, noticeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSuspense operation middleware
+func (siw *ServerInterfaceWrapper) ListSuspense(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSuspenseParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSuspense(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -457,11 +751,165 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/payments/callbacks/daraja/{railAccountId}/{token}/stk", wrapper.ReceiveStkCallback)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation", wrapper.ReceiveC2bValidation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation", wrapper.ReceiveC2bConfirmation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/payments/staff/suspense", wrapper.ListSuspense)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/staff/collection-notices/{noticeId}/match", wrapper.MatchCollectionNotice)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ReceiveC2bConfirmationRequestObject struct {
+	RailAccountId RailAccountID `json:"railAccountId"`
+	Token         CallbackToken `json:"token"`
+	Body          *ReceiveC2bConfirmationJSONRequestBody
+}
+
+type ReceiveC2bConfirmationResponseObject interface {
+	VisitReceiveC2bConfirmationResponse(w http.ResponseWriter) error
+}
+
+type ReceiveC2bConfirmation200JSONResponse map[string]interface{}
+
+func (response ReceiveC2bConfirmation200JSONResponse) VisitReceiveC2bConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bConfirmation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ReceiveC2bConfirmation400ApplicationProblemPlusJSONResponse) VisitReceiveC2bConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bConfirmation401ApplicationProblemPlusJSONResponse Problem
+
+func (response ReceiveC2bConfirmation401ApplicationProblemPlusJSONResponse) VisitReceiveC2bConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bConfirmationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReceiveC2bConfirmationdefaultApplicationProblemPlusJSONResponse) VisitReceiveC2bConfirmationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bValidationRequestObject struct {
+	RailAccountId RailAccountID `json:"railAccountId"`
+	Token         CallbackToken `json:"token"`
+	Body          *ReceiveC2bValidationJSONRequestBody
+}
+
+type ReceiveC2bValidationResponseObject interface {
+	VisitReceiveC2bValidationResponse(w http.ResponseWriter) error
+}
+
+type ReceiveC2bValidation200JSONResponse map[string]interface{}
+
+func (response ReceiveC2bValidation200JSONResponse) VisitReceiveC2bValidationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bValidation400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ReceiveC2bValidation400ApplicationProblemPlusJSONResponse) VisitReceiveC2bValidationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bValidation401ApplicationProblemPlusJSONResponse Problem
+
+func (response ReceiveC2bValidation401ApplicationProblemPlusJSONResponse) VisitReceiveC2bValidationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveC2bValidationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReceiveC2bValidationdefaultApplicationProblemPlusJSONResponse) VisitReceiveC2bValidationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ReceiveStkCallbackRequestObject struct {
 	RailAccountId string `json:"railAccountId"`
@@ -523,6 +971,216 @@ type ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNoticeRequestObject struct {
+	NoticeId string `json:"noticeId"`
+	Params   MatchCollectionNoticeParams
+	Body     *MatchCollectionNoticeJSONRequestBody
+}
+
+type MatchCollectionNoticeResponseObject interface {
+	VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error
+}
+
+type MatchCollectionNotice200JSONResponse SuspenseNotice
+
+func (response MatchCollectionNotice200JSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response MatchCollectionNotice400ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice401ApplicationProblemPlusJSONResponse Problem
+
+func (response MatchCollectionNotice401ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice403ApplicationProblemPlusJSONResponse Problem
+
+func (response MatchCollectionNotice403ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice404ApplicationProblemPlusJSONResponse Problem
+
+func (response MatchCollectionNotice404ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice409ApplicationProblemPlusJSONResponse Problem
+
+func (response MatchCollectionNotice409ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNotice503ApplicationProblemPlusJSONResponse Problem
+
+func (response MatchCollectionNotice503ApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MatchCollectionNoticedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response MatchCollectionNoticedefaultApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSuspenseRequestObject struct {
+	Params ListSuspenseParams
+}
+
+type ListSuspenseResponseObject interface {
+	VisitListSuspenseResponse(w http.ResponseWriter) error
+}
+
+type ListSuspense200JSONResponse SuspenseList
+
+func (response ListSuspense200JSONResponse) VisitListSuspenseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSuspense400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListSuspense400ApplicationProblemPlusJSONResponse) VisitListSuspenseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSuspense401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSuspense401ApplicationProblemPlusJSONResponse) VisitListSuspenseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSuspense403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListSuspense403ApplicationProblemPlusJSONResponse) VisitListSuspenseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSuspensedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListSuspensedefaultApplicationProblemPlusJSONResponse) VisitListSuspenseResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -830,9 +1488,21 @@ func (response GetTopupdefaultApplicationProblemPlusJSONResponse) VisitGetTopupR
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ReceiveC2bConfirmation Receive a paybill payment's confirmation (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation)
+	ReceiveC2bConfirmation(ctx context.Context, request ReceiveC2bConfirmationRequestObject) (ReceiveC2bConfirmationResponseObject, error)
+	// ReceiveC2bValidation Validate a paybill payment (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation)
+	ReceiveC2bValidation(ctx context.Context, request ReceiveC2bValidationRequestObject) (ReceiveC2bValidationResponseObject, error)
 	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
 	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
 	ReceiveStkCallback(ctx context.Context, request ReceiveStkCallbackRequestObject) (ReceiveStkCallbackResponseObject, error)
+	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
+	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
+	MatchCollectionNotice(ctx context.Context, request MatchCollectionNoticeRequestObject) (MatchCollectionNoticeResponseObject, error)
+	// ListSuspense Payments in suspense (staff only)
+	// (GET /v1/payments/staff/suspense)
+	ListSuspense(ctx context.Context, request ListSuspenseRequestObject) (ListSuspenseResponseObject, error)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(ctx context.Context, request GetTopupDetailsRequestObject) (GetTopupDetailsResponseObject, error)
@@ -883,6 +1553,74 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// ReceiveC2bConfirmation operation middleware
+func (sh *strictHandler) ReceiveC2bConfirmation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken) {
+	var request ReceiveC2bConfirmationRequestObject
+
+	request.RailAccountId = railAccountId
+	request.Token = token
+
+	var body ReceiveC2bConfirmationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReceiveC2bConfirmation(ctx, request.(ReceiveC2bConfirmationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReceiveC2bConfirmation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReceiveC2bConfirmationResponseObject); ok {
+		if err := validResponse.VisitReceiveC2bConfirmationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReceiveC2bValidation operation middleware
+func (sh *strictHandler) ReceiveC2bValidation(w http.ResponseWriter, r *http.Request, railAccountId RailAccountID, token CallbackToken) {
+	var request ReceiveC2bValidationRequestObject
+
+	request.RailAccountId = railAccountId
+	request.Token = token
+
+	var body ReceiveC2bValidationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReceiveC2bValidation(ctx, request.(ReceiveC2bValidationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReceiveC2bValidation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReceiveC2bValidationResponseObject); ok {
+		if err := validResponse.VisitReceiveC2bValidationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReceiveStkCallback operation middleware
 func (sh *strictHandler) ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string) {
 	var request ReceiveStkCallbackRequestObject
@@ -910,6 +1648,66 @@ func (sh *strictHandler) ReceiveStkCallback(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReceiveStkCallbackResponseObject); ok {
 		if err := validResponse.VisitReceiveStkCallbackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MatchCollectionNotice operation middleware
+func (sh *strictHandler) MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams) {
+	var request MatchCollectionNoticeRequestObject
+
+	request.NoticeId = noticeId
+	request.Params = params
+
+	var body MatchCollectionNoticeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MatchCollectionNotice(ctx, request.(MatchCollectionNoticeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MatchCollectionNotice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MatchCollectionNoticeResponseObject); ok {
+		if err := validResponse.VisitMatchCollectionNoticeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSuspense operation middleware
+func (sh *strictHandler) ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams) {
+	var request ListSuspenseRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSuspense(ctx, request.(ListSuspenseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSuspense")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSuspenseResponseObject); ok {
+		if err := validResponse.VisitListSuspenseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -11,11 +11,21 @@ import (
 	ledgerv1 "github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1"
 )
 
+// TopupKind is how a payment's money moves (tasks 4.4, 4.5).
+type TopupKind int
+
+const (
+	TopupDirect       TopupKind = iota // provider clearing → the client's main wallet
+	TopupToSuspense                    // provider clearing → suspense, no client yet
+	TopupFromSuspense                  // suspense → the client's main wallet, a staff match
+)
+
 // TopupPosting is one confirmed payment into VASPRO's paybill credited
 // to a client's main wallet (task 4.4): Dr provider clearing on the
 // rail, Cr main wallet.
 type TopupPosting struct {
-	TenantID uuid.UUID
+	Kind     TopupKind
+	TenantID uuid.UUID // ignored for TopupToSuspense
 	// NoticeID is the collection notice the money arrived on: the
 	// posting's reference, and its idempotency key topup:<notice>, so a
 	// repeat returns the same transaction.
@@ -26,8 +36,33 @@ type TopupPosting struct {
 	Description string
 }
 
-// IdempotencyKey is the ledger key for p.
-func (p TopupPosting) IdempotencyKey() string { return "topup:" + p.NoticeID.String() }
+// IdempotencyKey is the ledger key for p: one per notice and kind.
+func (p TopupPosting) IdempotencyKey() string {
+	switch p.Kind {
+	case TopupToSuspense:
+		return "suspense:" + p.NoticeID.String()
+	case TopupFromSuspense:
+		return "match:" + p.NoticeID.String()
+	default:
+		return "topup:" + p.NoticeID.String()
+	}
+}
+
+// legs are the accounts p debits and credits, and the tenant it posts
+// for ("" is a system posting).
+func (p TopupPosting) legs() (tenant string, from, to *ledgerv1.AccountRef) {
+	clearing := &ledgerv1.AccountRef{Type: "provider_clearing", Rail: p.Rail, Currency: p.Currency}
+	suspense := &ledgerv1.AccountRef{Type: "suspense", Currency: p.Currency}
+	main := &ledgerv1.AccountRef{Type: "main_wallet", Currency: p.Currency}
+	switch p.Kind {
+	case TopupToSuspense:
+		return "", clearing, suspense
+	case TopupFromSuspense:
+		return p.TenantID.String(), suspense, main
+	default:
+		return p.TenantID.String(), clearing, main
+	}
+}
 
 // Ledger posts top-ups to the ledger.
 type Ledger interface {
@@ -58,8 +93,9 @@ func NewGRPCLedger(conn *gogrpc.ClientConn) *GRPCLedger {
 
 // PostTopup implements Ledger.
 func (l *GRPCLedger) PostTopup(ctx context.Context, p TopupPosting) (uuid.UUID, error) {
+	tenant, from, to := p.legs()
 	resp, err := l.client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{
-		TenantId: p.TenantID.String(),
+		TenantId: tenant,
 		Posting: &ledgerv1.Posting{
 			IdempotencyKey: p.IdempotencyKey(),
 			Type:           "topup",
@@ -67,8 +103,8 @@ func (l *GRPCLedger) PostTopup(ctx context.Context, p TopupPosting) (uuid.UUID, 
 			ReferenceType:  "collection_notice",
 			ReferenceId:    p.NoticeID.String(),
 			Lines: []*ledgerv1.Line{
-				{Account: &ledgerv1.AccountRef{Type: "provider_clearing", Rail: p.Rail, Currency: p.Currency}, Direction: "D", AmountMinor: p.AmountMinor},
-				{Account: &ledgerv1.AccountRef{Type: "main_wallet", Currency: p.Currency}, Direction: "C", AmountMinor: p.AmountMinor},
+				{Account: from, Direction: "D", AmountMinor: p.AmountMinor},
+				{Account: to, Direction: "C", AmountMinor: p.AmountMinor},
 			},
 		},
 	})

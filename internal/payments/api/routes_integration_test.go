@@ -25,6 +25,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffdirectory"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantinfo"
 )
 
@@ -32,6 +33,7 @@ type harness struct {
 	srv    *httptest.Server
 	super  *vasdb.Pool
 	access *tenantinfo.Fake
+	staff  *staffdirectory.Fake
 }
 
 var callbackSecret = bytes.Repeat([]byte{5}, 32)
@@ -57,9 +59,9 @@ func newHarness(t *testing.T) harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := tenantinfo.New()
+	access, staff := tenantinfo.New(), staffdirectory.New()
 	svc := app.New(app.Deps{
-		Pool: pool, Accounts: access, Packs: map[string]*packs.Pack{"KE": ke},
+		Pool: pool, Accounts: access, Identity: staff, Packs: map[string]*packs.Pack{"KE": ke},
 		CallbackSecret: callbackSecret, CallbackCIDRs: []netip.Prefix{netip.MustParsePrefix("196.201.214.0/24")},
 	})
 	if err := svc.SyncRails(ctx); err != nil {
@@ -67,7 +69,7 @@ func newHarness(t *testing.T) harness {
 	}
 	srv := httptest.NewServer(api.Routes(api.NewHandlers(svc), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, idempotency.NewPostgresStore(pool)))
 	t.Cleanup(srv.Close)
-	return harness{srv: srv, super: super, access: access}
+	return harness{srv: srv, super: super, access: access, staff: staff}
 }
 
 func (h harness) seedPaybill(t *testing.T, status string) {
@@ -250,4 +252,90 @@ func TestGetTopupDetails(t *testing.T) {
 
 	status, body = h.get(t, "/v1/payments/tenants/not-a-uuid/topup-details", reader)
 	wantProblem(t, status, body, http.StatusNotFound, "VAL-4003")
+}
+
+// TestStaffOperations_NeedStaff: every /v1/payments/staff/ operation is
+// 401 without a user and 403 AUTH-4025 for a user who isn't staff, and
+// changes nothing. It fails if an operation has no case.
+func TestStaffOperations_NeedStaff(t *testing.T) {
+	h := newHarness(t)
+	spec, err := openapi3.NewLoader().LoadFromFile("../../../docs/api/payments.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := map[string]any{"matchCollectionNotice": map[string]any{"account_number": "ABC23456", "reason": "payer called"}}
+	var ops []string
+	for path, item := range spec.Paths.Map() {
+		if !strings.HasPrefix(path, "/v1/payments/staff/") {
+			continue
+		}
+		for method, op := range item.Operations() {
+			ops = append(ops, op.OperationID)
+			concrete := strings.ReplaceAll(path, "{noticeId}", uuid.NewString())
+			body := bodies[op.OperationID]
+			t.Run(op.OperationID, func(t *testing.T) {
+				status, got := h.do(t, method, concrete, uuid.Nil, body, nil)
+				wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4010")
+				status, got = h.do(t, method, concrete, uuid.New(), body, nil)
+				wantProblem(t, status, got, http.StatusForbidden, "AUTH-4025")
+			})
+		}
+	}
+	sort.Strings(ops)
+	if want := "listSuspense,matchCollectionNotice"; strings.Join(ops, ",") != want {
+		t.Fatalf("staff operations in the spec %v, cases written for %s: add the new one's case", ops, want)
+	}
+}
+
+// TestMatchCollectionNotice_Codes: a match needs a fresh step-up
+// (AUTH-4012) and names a payment that exists (VAL-4003); the queue
+// pages.
+func TestMatchCollectionNotice_Codes(t *testing.T) {
+	h := newHarness(t)
+	staffID := h.staff.Add("ops@example.com")
+	session := uuid.New()
+	path := "/v1/payments/staff/collection-notices/" + uuid.NewString() + "/match"
+	body := map[string]any{"account_number": "ABC23456", "reason": "payer called"}
+
+	status, got := h.do(t, http.MethodPost, path, staffID, body, map[string]string{api.HeaderSessionID: session.String()})
+	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4012")
+	h.staff.StepUp(staffID, session)
+	status, got = h.do(t, http.MethodPost, path, staffID, body, map[string]string{api.HeaderSessionID: session.String()})
+	wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
+	status, got = h.do(t, http.MethodPost, path, staffID, map[string]any{"account_number": "ABC23456", "reason": " "}, map[string]string{api.HeaderSessionID: session.String()})
+	wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+
+	status, got = h.get(t, "/v1/payments/staff/suspense?limit=10", staffID)
+	if status != http.StatusOK || got["notices"] == nil {
+		t.Fatalf("the queue: %d %v", status, got)
+	}
+	status, got = h.get(t, "/v1/payments/staff/suspense?cursor=garbage", staffID)
+	wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+}
+
+// TestReceiveC2bCallbacks: Daraja's C2B calls need no session or
+// Idempotency-Key; a bad token or source is AUTH-4013; a malformed body
+// is VAL-4000; nothing is recorded.
+func TestReceiveC2bCallbacks(t *testing.T) {
+	h := newHarness(t)
+	h.seedPaybill(t, "active")
+	var paybill uuid.UUID
+	if err := h.super.QueryRow(context.Background(), `SELECT id FROM rail_accounts LIMIT 1`).Scan(&paybill); err != nil {
+		t.Fatal(err)
+	}
+	good := "/v1/payments/callbacks/daraja/" + paybill.String() + "/" + domain.CallbackToken(callbackSecret, paybill) + "/c2b/"
+	bad := "/v1/payments/callbacks/daraja/" + paybill.String() + "/" + strings.Repeat("0", 64) + "/c2b/"
+	safaricom := map[string]string{api.HeaderClientIP: "196.201.214.200", "Idempotency-Key": ""}
+	for _, call := range []string{"validation", "confirmation"} {
+		status, got := h.do(t, http.MethodPost, good+call, uuid.Nil, map[string]any{"TransID": ""}, safaricom)
+		wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+		status, got = h.do(t, http.MethodPost, bad+call, uuid.Nil, map[string]any{}, safaricom)
+		wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4013")
+		status, got = h.do(t, http.MethodPost, good+call, uuid.Nil, map[string]any{}, map[string]string{api.HeaderClientIP: "8.8.8.8", "Idempotency-Key": ""})
+		wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4013")
+	}
+	var n int
+	if err := h.super.QueryRow(context.Background(), `SELECT count(*) FROM collection_notices`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d notices recorded, %v", n, err)
+	}
 }

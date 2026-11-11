@@ -55,12 +55,13 @@ var (
 )
 
 // RailClient is one rail's API (adapters.Daraja for mpesa_ke): proving
-// a rail account's credentials with a test call (task 4.3), and STK
-// push and query (task 4.4).
+// a rail account's credentials with a test call (task 4.3), STK push
+// and query (task 4.4), and C2B URL registration (task 4.5).
 type RailClient interface {
 	CheckCredentials(ctx context.Context, railAccountID uuid.UUID) error
 	STKPush(ctx context.Context, req adapters.STKPushRequest) (adapters.STKPushResponse, error)
 	STKQuery(ctx context.Context, railAccountID uuid.UUID, checkoutRequestID string) (adapters.STKResult, error)
+	RegisterC2BURLs(ctx context.Context, railAccountID uuid.UUID, confirmationURL, validationURL string) error
 }
 
 // Deps are the Service's dependencies.

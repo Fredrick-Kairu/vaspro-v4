@@ -28,6 +28,11 @@ import (
 // (Config's doc), not something payments can check.
 const HeaderUserID = "X-Vaspro-User-Id"
 
+// HeaderSessionID is the session the gateway resolved, forwarded with
+// the user; payments asks identity whether its step-up is fresh before
+// staff match a payment (task 4.5).
+const HeaderSessionID = "X-Vaspro-Session-Id"
+
 // HeaderClientIP is the caller's address as the gateway saw it on the
 // connection, set on every request it forwards (client-sent copies are
 // stripped). A rail's callback is checked against it (OQ-22).
@@ -36,6 +41,15 @@ const HeaderClientIP = "X-Vaspro-Client-Ip"
 const idempotencyKeyTTL = 24 * time.Hour
 
 type callerKey struct{}
+
+type sessionKey struct{}
+
+// sessionFromContext is the forwarded session, or uuid.Nil (which is
+// never stepped up).
+func sessionFromContext(ctx context.Context) uuid.UUID {
+	id, _ := ctx.Value(sessionKey{}).(uuid.UUID)
+	return id
+}
 
 func callerFromContext(ctx context.Context) uuid.UUID {
 	id, _ := ctx.Value(callerKey{}).(uuid.UUID)
@@ -54,6 +68,9 @@ func requireCaller(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), callerKey{}, userID)
+		if sessionID, err := uuid.Parse(r.Header.Get(HeaderSessionID)); err == nil {
+			ctx = context.WithValue(ctx, sessionKey{}, sessionID)
+		}
 		ctx = vaslog.WithTenantID(ctx, userID.String())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

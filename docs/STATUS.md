@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.2, 4.1, 4.3 and 4.4 done (2026-11-11). Next: 4.5, top-up by paybill (C2B).
+**Current task:** 4.2, 4.1, 4.3, 4.4 and 4.5 done (2026-11-11). Next: 4.6, daily reconciliation.
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -381,6 +381,97 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
     - Changing `PAYMENTS_CALLBACK_SECRET` breaks the URLs of pushes in flight.
     - `vaspro-all` needs the new variables.
   - **Not in 4.4:** C2B confirmations (4.5); reconciliation (4.6); the hosted checkout (4.8).
+
+- 4.5 Top-up by paybill (C2B), with suspense and staff matching (OQ-22).
+  - **Contract:**
+    - **Callbacks** (`security: []`, checked by source and path token like STK):
+      - `receiveC2bValidation` accepts every payment that could be VASPRO's and refuses only another shortcode (`C2B00016`);
+      - `receiveC2bConfirmation` records it.
+    - **Staff:**
+      - `listSuspense` (oldest first, a cursor, 1–100);
+      - `matchCollectionNotice` (`{account_number, reason}`, staff and a fresh step-up, Idempotency-Key): VAL-4003 for an unissued number, **VAL-4014 once matched**, PAY-6507 before its suspense posting exists.
+    - **Events:** `topup.unmatched` (§7) and `collection_notice.matched` (OQ-22's addition).
+    - **Migration** `20261111100000_suspense.sql` (an addition to data model §7): `collection_notices.suspense_transaction_id`, and its UPDATE grant.
+    - **Ledger:** no change. Three posting shapes, all type `topup`, all referencing the notice:
+      - direct, `topup:<notice>`;
+      - **into suspense**, a system posting, `suspense:<notice>`;
+      - **out of suspense** to the client, `match:<notice>`.
+    - **`TestPost_PaymentsTopupShapes`** in the ledger pins all three against the real ledger: suspense goes up and back to 0, the wallet gets 200,000, clearing 200,000, `wallet.credited` only for client postings, and a repeated match key is a replay.
+  - **Rules:** `domain.MatchC2B`. Another shortcode, a blank reference or an invalid one (any typo fails the check characters) names no client; otherwise it gives the normalised number.
+  - **App** (`app/c2b.go`):
+    - **`HandleC2BValidation`** writes nothing.
+    - **`HandleC2BConfirmation`:**
+      - looks the number up as `payments_system`;
+      - records the notice once per receipt (a repeat, or an STK receipt, stops there): `matched` with the client, or `suspense` with `topup.unmatched`;
+      - posts direct or into suspense.
+    - **`MatchNotice`:**
+      - staff and step-up through identity, on every call; a reason; an issued number;
+      - the notice locked as `payments_system`, and the update only moves a payment still in suspense, so either guard alone matches once;
+      - `collection_notice.matched`, then the posting out of suspense.
+    - **`ListSuspense`** reads as `payments_operations`.
+    - **`RegisterC2B`** registers the two URLs (ResponseType Completed) and sets `c2b_registered_at`.
+    - **`Sweep`** also posts suspense notices into suspense; a matched notice is posted out of suspense when it has a suspense posting, directly otherwise.
+    - **A match is refused until the suspense posting exists**, so money is never both in suspense and credited from clearing.
+  - **Adapters and fakes:**
+    - `TopupPosting.Kind` (`TopupDirect`, `TopupToSuspense`, `TopupFromSuspense`), with the lines, tenant and key per kind;
+    - **the Daraja adapter works without Redis** (a token per call), for the CLI;
+    - payments' `adapters.Identity` gains `IsStaff`/`IsStepUpFresh`, as does the `staffdirectory` fake;
+    - `ledgerposter` gains `Suspense()` and `Clearing()`;
+    - `RailClient` gains `RegisterC2BURLs`.
+  - **Service and CLI:**
+    - **`PAYMENTS_IDENTITY_GRPC_ADDR`** is now required by the service (staff routes);
+    - `vaspro payments register-c2b -by <staff email> -account <id>` (also needs `PAYMENTS_CALLBACK_BASE_URL` and `PAYMENTS_CALLBACK_SECRET`);
+    - the session the gateway forwards reaches payments again (`X-Vaspro-Session-Id`), for step-up.
+  - **Tests:**
+    - **domain:** the `MatchC2B` table (as issued; lower case and spaced; a one-character typo; blank; an invoice number; a phone number; another paybill) and a neighbour swap.
+    - **app**, with the Daraja fake's `Pay` going through our registered URLs:
+      - registration sets `c2b_registered_at`;
+      - **a valid number credits the client**, typed messily too;
+      - **an unmatched payment lands in suspense** (suspense posting, valid `topup.unmatched`);
+      - **a typo lands in suspense, never on the client it nearly matches**;
+      - a valid number nobody holds lands in suspense;
+      - a repeated confirmation is one notice and one posting;
+      - **an STK payment confirmed again by C2B credits once**;
+      - validation accepts an unknown reference, refuses another shortcode, and writes nothing;
+      - a bad token or source is refused, with nothing written.
+    - **Staff match:**
+      - non-staff, stale step-up, a blank reason, an unissued number and an unknown payment change nothing;
+      - **a match credits once** (suspense back to 0, a valid event); a second is VAL-4014;
+      - **20 concurrent matches: 1 wins, 19 get VAL-4014, one credit, one event**;
+      - a match before the suspense posting is PAY-6507, then works after the sweep;
+      - a matched payment the ledger missed is posted once;
+      - the queue pages, refusing non-staff and a bad cursor;
+      - identity down fails closed.
+    - **API:**
+      - the spec-driven staff test (both operations 401 and AUTH-4025);
+      - match codes over HTTP (AUTH-4012, VAL-4003, VAL-4000) and the queue;
+      - C2B callbacks: malformed 400, bad token and outside address 401, nothing recorded.
+    - **adapter:** the ledger request for all three kinds; Daraja without a cache.
+    - **gateway:** a C2B confirmation reaches payments with no session or key.
+    - **Order of work:**
+      - the domain, app and adapter tests were seen failing against stubs (no-cache by a nil-pointer panic);
+      - the ledger contract test passed on its first run, as expected (it pins behaviour the ledger already had);
+      - the API tests came with the handlers; the mutations below stand in.
+    - **Found by the mutation review, two test weaknesses fixed:**
+      - **The concurrent-match test wasn't concurrent.** With both the lock and the guarded update removed it still passed, even at 100 goroutines. The cause: the pool opens connections lazily, so the first match committed on the one idle connection while the rest were still connecting. The test now opens every pooled connection first (`warmPool`) and releases 20 goroutines together; with both guards removed, 7–9 of 20 matches then "win" and the test fails.
+      - **4.4's 20-concurrent STK callbacks test had the same weakness;** it now warms the pool too, and deciding the intent without its lock fails it (2 success events).
+      - Fixed with it: a match that loses the guarded update now answers VAL-4014 rather than a bare "no rows" error.
+      - One earlier mutation run was void, because a shell-quoting slip meant the SQL edit never applied; the substitution was confirmed with a diff before the runs above.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - **both the notice lock and the guarded update removed** (either alone still matches once, as designed);
+      - no check characters on the typed number;
+      - a match before the suspense posting;
+      - no step-up;
+      - suspense not posted;
+      - a match credited from clearing rather than out of suspense;
+      - (4.4) deciding an STK callback without the intent's lock, now with real overlap.
+    - The app suite ran twice with `-race`, green.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 15 packages fresh, 66 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the service needs `PAYMENTS_IDENTITY_GRPC_ADDR`;
+    - run `vaspro payments register-c2b` once the gateway's public URL is live (Daraja's production registration needs HTTPS);
+    - Safaricom calls the validation URL only if external validation is enabled on the paybill: without it, confirmations still arrive, and unknown numbers still go to suspense.
+  - **Not in 4.5:** reconciliation (4.6); linking a query-reported STK payment to a C2B confirmation of it (the confirmation credits by account number; the STK top-up stays flagged for staff).
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1584,8 +1675,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.5 top-up by paybill (C2B) (plan above).
-2. Then 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. 4.6 daily reconciliation (plan above).
+2. Then 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;

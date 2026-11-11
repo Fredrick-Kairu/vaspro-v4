@@ -109,7 +109,7 @@ func TestService_TopsUpByStkEndToEnd(t *testing.T) {
 		DarajaCallbackCIDRs: "127.0.0.1/32", SweepInterval: 200 * time.Millisecond,
 	}
 	accounts, ledger := tenantinfo.New(), ledgerposter.New()
-	svc, err := payments.New(cfg, pool, b, payments.Clients{Accounts: accounts, Ledger: ledger, Cache: testkit.StartRedis(t)}, loaded)
+	svc, err := payments.New(cfg, pool, b, payments.Clients{Accounts: accounts, Identity: staffdirectory.New(), Ledger: ledger, Cache: testkit.StartRedis(t)}, loaded)
 	if err != nil {
 		t.Fatal(err)
 	}

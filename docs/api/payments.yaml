@@ -186,6 +186,162 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation:
+    post:
+      operationId: receiveC2bValidation
+      summary: Validate a paybill payment (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja before a payment to VASPRO's paybill
+        completes, when external validation is enabled (task 4.5). It
+        accepts every payment that could be VASPRO's, unknown account
+        numbers included (they go to suspense, OQ-22); only a payment to
+        another shortcode or of no amount is refused (C2B00016). Checked
+        by source and path token like the STK callback (AUTH-4013).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RailAccountID'
+        - $ref: '#/components/parameters/CallbackToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Accepted, or refused with a C2B result code.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation:
+    post:
+      operationId: receiveC2bConfirmation
+      summary: Receive a paybill payment's confirmation (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja when a payment to VASPRO's paybill
+        completes (task 4.5). A valid account number credits that
+        account's main wallet; anything else goes to suspense for staff.
+        A repeated confirmation, or one for a receipt an STK callback
+        already recorded, changes nothing. Checked by source and path
+        token (AUTH-4013).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RailAccountID'
+        - $ref: '#/components/parameters/CallbackToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/suspense:
+    get:
+      operationId: listSuspense
+      summary: Payments in suspense (staff only)
+      description: >
+        Payments to VASPRO's paybill that named no client, oldest first
+        (task 4.5), for staff to match. Paged with next_cursor. Staff
+        only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspenseList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/collection-notices/{noticeId}/match:
+    post:
+      operationId: matchCollectionNotice
+      summary: Credit a payment in suspense to a client (staff only)
+      description: >
+        Moves a payment out of suspense into the main wallet of the
+        client whose account number staff name (task 4.5): an issued
+        number only (VAL-4003 otherwise), with a reason. A payment is
+        matched once: a second match is VAL-4014. One not yet in the
+        ledger's suspense account is PAY-6507; try again shortly. Staff
+        only (AUTH-4025), with a fresh step-up (AUTH-4012).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: noticeId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRequest'
+            example:
+              account_number: ABC23456
+              reason: Payer called; typed 0 for O in the account number
+      responses:
+        "200":
+          description: The payment, now matched.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspenseNotice'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -209,6 +365,18 @@ components:
       schema:
         type: string
       description: Required on every write (.claude/rules/api.md).
+    RailAccountID:
+      name: railAccountId
+      in: path
+      required: true
+      schema:
+        type: string
+    CallbackToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
   responses:
     Problem:
       description: application/problem+json error (system design §8).
@@ -283,6 +451,55 @@ components:
         completed_at:
           type: string
           format: date-time
+    SuspenseNotice:
+      type: object
+      required: [id, receipt, amount_minor, currency, paid_at, status]
+      properties:
+        id:
+          type: string
+        receipt:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        bill_ref:
+          type: string
+          description: The account number as the payer typed it.
+        payer_name:
+          type: string
+        payer_phone:
+          type: string
+        paid_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [suspense, matched]
+        tenant_id:
+          type: string
+          description: The client credited, once matched.
+    SuspenseList:
+      type: object
+      required: [notices]
+      properties:
+        notices:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuspenseNotice'
+        next_cursor:
+          type: string
+    MatchRequest:
+      type: object
+      required: [account_number, reason]
+      properties:
+        account_number:
+          type: string
+          description: The client's account number on VASPRO's paybill.
+        reason:
+          type: string
+          description: Why this payment is the client's; kept with the match.
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

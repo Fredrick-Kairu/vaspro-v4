@@ -27,3 +27,6 @@ RETURNING *;
 -- name: SetRailAccountPending :execrows
 UPDATE payments.rail_accounts SET status = 'pending_verification', verified_at = NULL, version = version + 1
 WHERE id = $1 AND status = 'active';
+
+-- name: SetRailAccountC2BRegistered :execrows
+UPDATE payments.rail_accounts SET c2b_registered_at = $2, version = version + 1 WHERE id = $1;

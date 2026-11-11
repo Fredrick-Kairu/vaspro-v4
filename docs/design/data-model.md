@@ -1397,6 +1397,10 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 > - **A confirmed payment** becomes a `matched` notice (the rail's amount, not the intent's) and one ledger `topup`, keyed `topup:<notice id>` and referencing the notice.
 > - **Exceptions about a client's top-up** (`amount_mismatch`, `status_mismatch`) carry that client's `tenant_id` and reference the intent; reconciliation's own exceptions on VASPRO's paybill (4.6) have none.
 > - **A success after a reported failure or expiry** is still credited, and flagged. **A payment reported only by STK query** (no receipt, no amount) is never credited: it's flagged once and waits for a confirmation.
+>
+> **Built in task 4.5 (11 Nov 2026, OQ-22).** Migration `20261111100000_suspense.sql` adds **`collection_notices.suspense_transaction_id`**, the ledger posting that put an unmatched payment into suspense. `ledger_transaction_id` stays the posting that credited a client's wallet.
+> - **Paybill payments:** a valid, issued account number credits that client's main wallet (Dr provider clearing, Cr main wallet, key `topup:<notice>`). Anything else (blank, mistyped, unissued) is a `suspense` notice and a system posting into suspense (Dr provider clearing, Cr `suspense`, key `suspense:<notice>`), with `topup.unmatched`.
+> - **Staff matching:** staff name the client's account number; with staff role and a fresh step-up, the notice is locked and moved out of suspense once, and only after its suspense posting exists (Dr `suspense`, Cr main wallet, key `match:<notice>`), with `collection_notice.matched`. Every posting is type `topup` and references the notice.
 
 **Where the money goes**
 

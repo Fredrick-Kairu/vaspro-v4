@@ -44,7 +44,7 @@ type CredentialSource interface {
 // DarajaConfig configures the Daraja client.
 type DarajaConfig struct {
 	BaseURL     string
-	Cache       *cache.Cache
+	Cache       *cache.Cache // nil: no caching, a token per call (the ops CLI)
 	Credentials CredentialSource
 	// Location is the country pack's time zone, which Daraja's
 	// timestamps are in (Africa/Nairobi for KE). Required.
@@ -348,6 +348,10 @@ func tokenKey(railAccountID uuid.UUID, creds DarajaCredentials) string {
 // this process share one fetch. Redis being down costs a fetch per
 // call, not the payment.
 func (d *Daraja) token(ctx context.Context, key string, creds DarajaCredentials) (string, error) {
+	if d.cfg.Cache == nil { // the ops CLI: a token per call
+		token, _, err := d.fetchToken(ctx, creds)
+		return token, err
+	}
 	if t, err := d.cfg.Cache.Get(ctx, key).Result(); err == nil {
 		return t, nil
 	}
@@ -392,6 +396,9 @@ func (d *Daraja) fetchToken(ctx context.Context, creds DarajaCredentials) (strin
 var dropScript = redis.NewScript(`if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`)
 
 func (d *Daraja) dropToken(ctx context.Context, key, token string) {
+	if d.cfg.Cache == nil {
+		return
+	}
 	_ = dropScript.Run(ctx, d.cfg.Cache, []string{key}, token).Err()
 }
 

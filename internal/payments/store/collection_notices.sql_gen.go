@@ -14,7 +14,7 @@ import (
 )
 
 const getCollectionNotice = `-- name: GetCollectionNotice :one
-SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at FROM payments.collection_notices WHERE id = $1
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices WHERE id = $1
 `
 
 func (q *Queries) GetCollectionNotice(ctx context.Context, id uuid.UUID) (PaymentsCollectionNotice, error) {
@@ -39,12 +39,13 @@ func (q *Queries) GetCollectionNotice(ctx context.Context, id uuid.UUID) (Paymen
 		&i.LedgerTransactionID,
 		&i.Raw,
 		&i.ReceivedAt,
+		&i.SuspenseTransactionID,
 	)
 	return i, err
 }
 
 const getCollectionNoticeByReceipt = `-- name: GetCollectionNoticeByReceipt :one
-SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at FROM payments.collection_notices WHERE rail_account_id = $1 AND rail_receipt = $2
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices WHERE rail_account_id = $1 AND rail_receipt = $2
 `
 
 type GetCollectionNoticeByReceiptParams struct {
@@ -74,6 +75,38 @@ func (q *Queries) GetCollectionNoticeByReceipt(ctx context.Context, arg GetColle
 		&i.LedgerTransactionID,
 		&i.Raw,
 		&i.ReceivedAt,
+		&i.SuspenseTransactionID,
+	)
+	return i, err
+}
+
+const getCollectionNoticeForUpdate = `-- name: GetCollectionNoticeForUpdate :one
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetCollectionNoticeForUpdate(ctx context.Context, id uuid.UUID) (PaymentsCollectionNotice, error) {
+	row := q.db.QueryRow(ctx, getCollectionNoticeForUpdate, id)
+	var i PaymentsCollectionNotice
+	err := row.Scan(
+		&i.ID,
+		&i.RailAccountID,
+		&i.TenantID,
+		&i.RailReceipt,
+		&i.TransactionType,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.BillRef,
+		&i.PayerPhoneE164,
+		&i.PayerName,
+		&i.PaidAt,
+		&i.AccountBalanceMinor,
+		&i.PaymentIntentID,
+		&i.MatchStatus,
+		&i.MatchedTenantID,
+		&i.LedgerTransactionID,
+		&i.Raw,
+		&i.ReceivedAt,
+		&i.SuspenseTransactionID,
 	)
 	return i, err
 }
@@ -84,7 +117,7 @@ INSERT INTO payments.collection_notices (id, rail_account_id, tenant_id, rail_re
   payment_intent_id, match_status, matched_tenant_id, raw)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (rail_account_id, rail_receipt) DO NOTHING
-RETURNING id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at
+RETURNING id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id
 `
 
 type InsertCollectionNoticeParams struct {
@@ -147,12 +180,68 @@ func (q *Queries) InsertCollectionNotice(ctx context.Context, arg InsertCollecti
 		&i.LedgerTransactionID,
 		&i.Raw,
 		&i.ReceivedAt,
+		&i.SuspenseTransactionID,
 	)
 	return i, err
 }
 
+const listSuspense = `-- name: ListSuspense :many
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices
+WHERE match_status = 'suspense' AND (paid_at, id) > ($1::timestamptz, $2::uuid)
+ORDER BY paid_at, id
+LIMIT $3
+`
+
+type ListSuspenseParams struct {
+	AfterPaidAt time.Time `json:"after_paid_at"`
+	AfterID     uuid.UUID `json:"after_id"`
+	MaxRows     int32     `json:"max_rows"`
+}
+
+// ListSuspense is the staff queue: oldest first, after a (paid_at, id)
+// cursor (payments_operations).
+func (q *Queries) ListSuspense(ctx context.Context, arg ListSuspenseParams) ([]PaymentsCollectionNotice, error) {
+	rows, err := q.db.Query(ctx, listSuspense, arg.AfterPaidAt, arg.AfterID, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsCollectionNotice
+	for rows.Next() {
+		var i PaymentsCollectionNotice
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.TenantID,
+			&i.RailReceipt,
+			&i.TransactionType,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.BillRef,
+			&i.PayerPhoneE164,
+			&i.PayerName,
+			&i.PaidAt,
+			&i.AccountBalanceMinor,
+			&i.PaymentIntentID,
+			&i.MatchStatus,
+			&i.MatchedTenantID,
+			&i.LedgerTransactionID,
+			&i.Raw,
+			&i.ReceivedAt,
+			&i.SuspenseTransactionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnpostedNotices = `-- name: ListUnpostedNotices :many
-SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at FROM payments.collection_notices
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices
 WHERE tenant_id IS NULL AND match_status = 'matched' AND ledger_transaction_id IS NULL
 ORDER BY received_at
 LIMIT $1
@@ -188,6 +277,7 @@ func (q *Queries) ListUnpostedNotices(ctx context.Context, limit int32) ([]Payme
 			&i.LedgerTransactionID,
 			&i.Raw,
 			&i.ReceivedAt,
+			&i.SuspenseTransactionID,
 		); err != nil {
 			return nil, err
 		}
@@ -197,6 +287,95 @@ func (q *Queries) ListUnpostedNotices(ctx context.Context, limit int32) ([]Payme
 		return nil, err
 	}
 	return items, nil
+}
+
+const listUnpostedSuspense = `-- name: ListUnpostedSuspense :many
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices
+WHERE tenant_id IS NULL AND match_status = 'suspense' AND suspense_transaction_id IS NULL
+ORDER BY received_at
+LIMIT $1
+`
+
+// ListUnpostedSuspense is every payment in suspense on VASPRO's paybill
+// not yet posted into the ledger's suspense account (payments_system).
+func (q *Queries) ListUnpostedSuspense(ctx context.Context, limit int32) ([]PaymentsCollectionNotice, error) {
+	rows, err := q.db.Query(ctx, listUnpostedSuspense, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsCollectionNotice
+	for rows.Next() {
+		var i PaymentsCollectionNotice
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.TenantID,
+			&i.RailReceipt,
+			&i.TransactionType,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.BillRef,
+			&i.PayerPhoneE164,
+			&i.PayerName,
+			&i.PaidAt,
+			&i.AccountBalanceMinor,
+			&i.PaymentIntentID,
+			&i.MatchStatus,
+			&i.MatchedTenantID,
+			&i.LedgerTransactionID,
+			&i.Raw,
+			&i.ReceivedAt,
+			&i.SuspenseTransactionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const matchCollectionNotice = `-- name: MatchCollectionNotice :one
+UPDATE payments.collection_notices SET match_status = 'matched', matched_tenant_id = $2
+WHERE id = $1 AND match_status = 'suspense'
+RETURNING id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id
+`
+
+type MatchCollectionNoticeParams struct {
+	ID              uuid.UUID   `json:"id"`
+	MatchedTenantID pgtype.UUID `json:"matched_tenant_id"`
+}
+
+// MatchCollectionNotice moves a payment out of suspense to a client:
+// only from suspense, so a second match changes nothing.
+func (q *Queries) MatchCollectionNotice(ctx context.Context, arg MatchCollectionNoticeParams) (PaymentsCollectionNotice, error) {
+	row := q.db.QueryRow(ctx, matchCollectionNotice, arg.ID, arg.MatchedTenantID)
+	var i PaymentsCollectionNotice
+	err := row.Scan(
+		&i.ID,
+		&i.RailAccountID,
+		&i.TenantID,
+		&i.RailReceipt,
+		&i.TransactionType,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.BillRef,
+		&i.PayerPhoneE164,
+		&i.PayerName,
+		&i.PaidAt,
+		&i.AccountBalanceMinor,
+		&i.PaymentIntentID,
+		&i.MatchStatus,
+		&i.MatchedTenantID,
+		&i.LedgerTransactionID,
+		&i.Raw,
+		&i.ReceivedAt,
+		&i.SuspenseTransactionID,
+	)
+	return i, err
 }
 
 const setNoticeLedgerTransaction = `-- name: SetNoticeLedgerTransaction :execrows
@@ -211,6 +390,24 @@ type SetNoticeLedgerTransactionParams struct {
 
 func (q *Queries) SetNoticeLedgerTransaction(ctx context.Context, arg SetNoticeLedgerTransactionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setNoticeLedgerTransaction, arg.ID, arg.LedgerTransactionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setNoticeSuspenseTransaction = `-- name: SetNoticeSuspenseTransaction :execrows
+UPDATE payments.collection_notices SET suspense_transaction_id = $2
+WHERE id = $1 AND suspense_transaction_id IS NULL
+`
+
+type SetNoticeSuspenseTransactionParams struct {
+	ID                    uuid.UUID   `json:"id"`
+	SuspenseTransactionID pgtype.UUID `json:"suspense_transaction_id"`
+}
+
+func (q *Queries) SetNoticeSuspenseTransaction(ctx context.Context, arg SetNoticeSuspenseTransactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNoticeSuspenseTransaction, arg.ID, arg.SuspenseTransactionID)
 	if err != nil {
 		return 0, err
 	}
