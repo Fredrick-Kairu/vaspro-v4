@@ -27,6 +27,11 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
 - STK amounts in whole shillings.
 
 ## Done in Phase 4
+- **Go 1.26.11** (2026-11-11, before the Phase 4 PR). CI's Security job had failed on `main` since Phase 3 merged: govulncheck reported GO-2026-6859 (an HTTP/1 server crash from a `MaxBytesReader` header race in `net/http`, fixed in go1.26.11), published between #5's passing PR run and its merge. gitleaks and trivy, later steps in the same job, were skipped behind it.
+  - `go.mod` `go 1.26.10` → `go 1.26.11` (CI reads its Go version from it); PR #6, merged `036b0b9`, then `main` merged into `p4/phase-4`.
+  - Checked: govulncheck v1.9.0 finds nothing the code calls; `make check` green (71 packages fresh); #6's CI green, the Security job's gitleaks included.
+  - gitleaks over the **whole history** finds 11 example tokens in old commits, each since marked `gitleaks:allow`. CI checks out one commit, so it scans only that tree, which is clean (as is `ops/dev-environment`'s).
+  - `ops/dev-environment` fails the same check until `main` is merged into it.
 - 4.2 Daraja fake and adapter (OQ-22). There's no payments service yet: the adapter package stands alone until 4.1 scaffolds the service around it.
   - **Codes:** **PAY-6502** (rail timeout, status being checked, as system design §8 names it), **PAY-6503** cancelled by the payer (1032), **PAY-6504** no response (1037), **PAY-6505** insufficient funds (1), **PAY-6506** wrong PIN (2001), **PAY-6507** refused or unavailable (any other result).
   - **Fake** (`tools/fakes/daraja`), a real HTTP server like `kycvendor`:
