@@ -199,7 +199,7 @@ Grants made after the migrations:
   - for `identity_app`: `identity_token_exchange` and `identity_sso_domain_lookup`;
   - for `accounts_app`: `accounts_membership_lookup`, `accounts_kyc_webhook`, `accounts_registration_lookup` and `accounts_staff_review`.
 
-  The ledger's `ledger_system`, `ledger_price_review` and `ledger_settlement` reach `ledger_app` through `ledger_service`.
+  The ledger's `ledger_system`, `ledger_price_review`, `ledger_settlement`, `ledger_reversal_review` and `ledger_audit` reach `ledger_app` through `ledger_service`.
 
 To look at the data: `$DC exec postgres psql -U vaspro`.
 
@@ -217,6 +217,8 @@ All of them are in `deploy/compose/env.example`, grouped by service with what ea
 | `IDENTITY_WEBAUTHN_ORIGINS` | the two localhost origins | The dashboard's exact origins, comma-separated |
 | `IDENTITY_GOOGLE_*` | empty (off) | Google sign-in needs a Google OAuth client, and a redirect URL registered with Google |
 | `LEDGER_SETTLEMENT_WINDOW` | `5m` | How often usage settles |
+| `LEDGER_REBUILD_AT` | `21:30` | The nightly rebuild check, HH:MM UTC |
+| `LEDGER_DEV_TOPUPS` | `true` | Staff-only sandbox top-ups (`/v1/ledger/staff/dev-top-ups`). Only ever true here |
 | `KYCVENDOR_PUBLIC_URL` | `http://kyc-vendor:8090` | Base of the "hosted flow" link `createKycCheck` returns |
 
 The database URLs aren't in `.env`: compose builds them from the `*_DB_PASSWORD` values. Keep those passwords URL-safe (`dev-secrets.sh` uses hex).
@@ -278,7 +280,16 @@ make dev-staff EMAIL=<user's email> BY=<your name>
 $DC run --rm vaspro identity revoke-staff -by <your name> <email>
 ```
 
-Staff can then use `/v1/accounts/staff/...` (the KYB review queue, tier changes, resellers) and `/v1/ledger/staff/token-prices`. Approving a token price needs a second staff member (maker-checker) and a fresh step-up.
+Staff can then use `/v1/accounts/staff/...` (the KYB review queue, tier changes, resellers) and `/v1/ledger/staff/...` (token prices, reversals, dev top-ups). Approving a token price or a reversal needs a second staff member (maker-checker) and a fresh step-up.
+
+**Finance leads** approve reversals of KES 2,000 or more. A staff member is made one by an operator:
+
+```sh
+$DC run --rm vaspro identity grant-finance-lead -by <your name> <email>
+$DC run --rm vaspro identity revoke-finance-lead -by <your name> <email>
+```
+
+**Money for testing.** There are no real top-ups yet (Payments, Phase 4). Staff credit a client's main wallet from the sandbox rail with `POST /v1/ledger/staff/dev-top-ups`; the client then buys tokens through `/v1/ledger/tenants/{tenantId}/token-purchases`, which needs a token price (list or deal) for the service first.
 
 **Documents** (KYB) are scanned by ClamAV, encrypted, and stored in SeaweedFS. Uploads are capped at 10 MB, as PDF, JPEG or PNG. Nginx refuses any request body over 11 MB (`client_max_body_size 11m`, the gateway's own largest limit) with its plain 413 page, not the API's problem+json. The gateway answers anything smaller itself (VAL-4008 for a file over 10 MB).
 

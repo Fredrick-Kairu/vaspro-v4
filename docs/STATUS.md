@@ -739,6 +739,15 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
     - `createApiClient`, `listSecurityEvents` and `createOAuthToken` said things from Phase 1 that are no longer true ("nothing enforces them", "no gateway");
     - the `sessionBearer` scheme still called itself temporary.
   - **`.gitleaks.toml`** (default rules) allowlists `docs/api/API.md` only: it repeats the specs' example tokens, which are marked `gitleaks:allow` in the specs and still scanned there.
+- **Phase 3 brought in (11 Nov):** `main` (PR #5) merged into `ops/dev-environment`. The only conflict was this file: both sides added a section in the same place, and both are kept.
+  - **New ledger settings** in `env.example` and the compose file:
+    - `LEDGER_ACCOUNTS_GRPC_ADDR=accounts:9091` (required since 3.9);
+    - `LEDGER_REBUILD_AT=21:30`;
+    - `LEDGER_DEV_TOPUPS=true`: staff-only sandbox top-ups, so testers have money to buy tokens with.
+  - **The runbook:** the two new narrow roles, finance leads (`grant-finance-lead`), and how testers fund a wallet.
+  - **`docs/api/API.md`:** regenerated with 3.7's and 3.9's routes.
+  - **Checks:** `make gen-check` is clean, the compose file renders the new variables, and gitleaks finds no leaks in the working tree.
+  - **Not checked here:** a live `make dev-up` on the host.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.

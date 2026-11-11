@@ -343,6 +343,22 @@ The data is test data and may be reset at any time.
 - [`POST /v1/ledger/staff/token-prices`](#op-createtokenprice) Enter a token price (staff only)
 - [`POST /v1/ledger/staff/token-prices/{priceId}/approval`](#op-approvetokenprice) Approve a pending token price (staff only, step-up)
 - [`POST /v1/ledger/staff/token-prices/{priceId}/withdrawal`](#op-withdrawtokenprice) Withdraw a pending or active token price (staff only, step-up)
+- [`GET /v1/ledger/staff/reversals`](#op-listreversals) Reversals across clients (staff only)
+- [`POST /v1/ledger/staff/reversals`](#op-createreversal) Raise a reversal of a client's top-up (staff only, step-up)
+- [`GET /v1/ledger/staff/reversals/{reversalId}`](#op-getreversal) One reversal, with a live preview while it's requested (staff only)
+- [`POST /v1/ledger/staff/reversals/{reversalId}/approval`](#op-approvereversal) Approve and post a requested reversal (staff only, step-up)
+- [`POST /v1/ledger/staff/reversals/{reversalId}/rejection`](#op-rejectreversal) Reject a requested reversal (staff only, step-up)
+- [`POST /v1/ledger/staff/dev-top-ups`](#op-createdevtopup) Credit a main wallet from the sandbox rail (staff only, dev environments only)
+
+*Other*
+
+- [`GET /v1/ledger/tenants/{tenantId}/balances`](#op-listbalances) The account's wallets and balances
+- [`GET /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement`](#op-getstatement) One wallet's statement, newest first
+- [`GET /v1/ledger/tenants/{tenantId}/token-prices`](#op-listtenanttokenprices) The prices the account buys tokens at now
+- [`GET /v1/ledger/tenants/{tenantId}/token-quote`](#op-quotetokenpurchase) What buying tokens would cost now
+- [`POST /v1/ledger/tenants/{tenantId}/token-purchases`](#op-createtokenpurchase) Buy tokens for a service from the main wallet
+- [`GET /v1/ledger/tenants/{tenantId}/auto-buy-rules`](#op-listtenantautobuyrules) The account's auto-buy rules
+- [`PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}`](#op-settenantautobuyrule) Set the auto-buy rule for a service and currency
 
 
 ---
@@ -5171,6 +5187,1120 @@ A withdrawn deal stops applying at once; the client buys at the list price from 
 | `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
 
 
+<a id="op-listreversals"></a>
+#### Reversals across clients (staff only)
+
+```
+GET /v1/ledger/staff/reversals
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `listReversals`
+
+Oldest first, filtered by client and status (for example the requested queue), paged with next_cursor.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenant_id` | query | no | string |  |
+| `status` | query | no | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` |  |
+| `cursor` | query | no | string |  |
+| `limit` | query | no | integer |  |
+
+**Response `200`**: A page of reversals.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reversals` | array of object | yes |  |
+| `reversals[].id` | string | yes |  |
+| `reversals[].tenant_id` | string | yes |  |
+| `reversals[].original_transaction_id` | string | yes |  |
+| `reversals[].kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `reversals[].currency` | string | yes |  |
+| `reversals[].amount_minor` | integer (int64) | yes |  |
+| `reversals[].reason` | string | yes |  |
+| `reversals[].evidence_document_id` | string | no |  |
+| `reversals[].clawback_services` | array of string | yes |  |
+| `reversals[].status` | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` | yes |  |
+| `reversals[].requested_by` | string | yes |  |
+| `reversals[].approved_by` | string | no |  |
+| `reversals[].rejected_by` | string | no |  |
+| `reversals[].rejection_reason` | string | no |  |
+| `reversals[].reversal_transaction_id` | string | no |  |
+| `reversals[].payback_transaction_id` | string | no |  |
+| `reversals[].payback_reference` | string | no |  |
+| `reversals[].payback_attempts` | integer | yes |  |
+| `reversals[].last_payback_error` | string | no |  |
+| `reversals[].created_at` | string (date-time) | yes |  |
+| `reversals[].decided_at` | string (date-time) | no |  |
+| `reversals[].preview` | object | no |  |
+| `reversals[].preview.covered` | boolean | yes |  |
+| `reversals[].preview.main_available_minor` | integer (int64) | yes |  |
+| `reversals[].preview.from_main_minor` | integer (int64) | yes | What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back. |
+| `reversals[].preview.clawback` | array of object | yes |  |
+| `reversals[].preview.clawback[].service_code` | string | yes |  |
+| `reversals[].preview.clawback[].clawable_minor` | integer (int64) | yes | The wallet's unused, unheld tokens' value. |
+| `reversals[].preview.clawback[].tokens` | string | yes | Tokens the reversal would take back, a decimal with up to 6 places. |
+| `reversals[].preview.clawback[].value_minor` | integer (int64) | yes | Their value at their lots' prices. |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "reversals": [
+    {
+      "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "original_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "kind": "payback",
+      "currency": "KES",
+      "amount_minor": 1,
+      "reason": "Documents checked against the registry",
+      "evidence_document_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "clawback_services": [
+        "string"
+      ],
+      "status": "requested",
+      "requested_by": "string",
+      "approved_by": "string",
+      "rejected_by": "string",
+      "rejection_reason": "Documents checked against the registry",
+      "reversal_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "payback_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "payback_reference": "string",
+      "payback_attempts": 1,
+      "last_payback_error": "string",
+      "created_at": "2026-11-05T09:30:00Z",
+      "decided_at": "2026-11-05T09:30:00Z",
+      "preview": {
+        "covered": true,
+        "main_available_minor": 1,
+        "from_main_minor": 1,
+        "clawback": [
+          {
+            "service_code": "string",
+            "clawable_minor": 1,
+            "tokens": "opaque-token",
+            "value_minor": 1
+          }
+        ]
+      }
+    }
+  ],
+  "next_cursor": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createreversal"></a>
+#### Raise a reversal of a client's top-up (staff only, step-up)
+
+```
+POST /v1/ledger/staff/reversals
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + a fresh step-up + VASPRO staff only  
+**Operation ID:** `createReversal`
+
+The maker of maker-checker. Only a client's top-up can be reversed, in whole or in parts; open and completed reversals of it never add up to more than it (VAL-4015). kind payback pays the money back through the rail; chargeback and operator skip the pay-back because the rail already moved it. clawback_services names the service wallets whose unused tokens may be clawed back, in order, if the main wallet falls short. Nothing is posted until a different staff member approves it. Staff only (AUTH-4025), with a fresh step-up (AUTH-4012); a transaction that isn't the client's top-up is VAL-4003.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tenant_id` | string | yes |  |
+| `original_transaction_id` | string | yes | The client's top-up being reversed. |
+| `kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `amount_minor` | integer (int64) | yes | Minor units of the top-up's currency. |
+| `reason` | string | yes |  |
+| `evidence_document_id` | string | no | A document the client uploaded (accounts' documents), stored as given. |
+| `clawback_services` | array of string | no | Service wallets to claw unused tokens back from, in order. |
+
+Example:
+
+```json
+{
+  "tenant_id": "0192c3a1-7f00-7000-8000-000000000001",
+  "original_transaction_id": "0192c3a1-7f00-7000-8000-0000000000a1",
+  "kind": "payback",
+  "amount_minor": 1300000,
+  "reason": "Client paid the same invoice twice",
+  "clawback_services": [
+    "sms"
+  ]
+}
+```
+
+**Response `201`**: The requested reversal.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `tenant_id` | string | yes |  |
+| `original_transaction_id` | string | yes |  |
+| `kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `currency` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+| `reason` | string | yes |  |
+| `evidence_document_id` | string | no |  |
+| `clawback_services` | array of string | yes |  |
+| `status` | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` | yes |  |
+| `requested_by` | string | yes |  |
+| `approved_by` | string | no |  |
+| `rejected_by` | string | no |  |
+| `rejection_reason` | string | no |  |
+| `reversal_transaction_id` | string | no |  |
+| `payback_transaction_id` | string | no |  |
+| `payback_reference` | string | no |  |
+| `payback_attempts` | integer | yes |  |
+| `last_payback_error` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `decided_at` | string (date-time) | no |  |
+| `preview` | object | no |  |
+| `preview.covered` | boolean | yes |  |
+| `preview.main_available_minor` | integer (int64) | yes |  |
+| `preview.from_main_minor` | integer (int64) | yes | What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back. |
+| `preview.clawback` | array of object | yes |  |
+| `preview.clawback[].service_code` | string | yes |  |
+| `preview.clawback[].clawable_minor` | integer (int64) | yes | The wallet's unused, unheld tokens' value. |
+| `preview.clawback[].tokens` | string | yes | Tokens the reversal would take back, a decimal with up to 6 places. |
+| `preview.clawback[].value_minor` | integer (int64) | yes | Their value at their lots' prices. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "original_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "kind": "payback",
+  "currency": "KES",
+  "amount_minor": 1,
+  "reason": "Documents checked against the registry",
+  "evidence_document_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "clawback_services": [
+    "string"
+  ],
+  "status": "requested",
+  "requested_by": "string",
+  "approved_by": "string",
+  "rejected_by": "string",
+  "rejection_reason": "Documents checked against the registry",
+  "reversal_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_reference": "string",
+  "payback_attempts": 1,
+  "last_payback_error": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "decided_at": "2026-11-05T09:30:00Z",
+  "preview": {
+    "covered": true,
+    "main_available_minor": 1,
+    "from_main_minor": 1,
+    "clawback": [
+      {
+        "service_code": "string",
+        "clawable_minor": 1,
+        "tokens": "opaque-token",
+        "value_minor": 1
+      }
+    ]
+  }
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4015` | 409 | Reversal exceeds the original | This reversal and the open or completed reversals of the same top-up together would be more than the top-up. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4012` | 401 | Step-up verification required | The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list). |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getreversal"></a>
+#### One reversal, with a live preview while it's requested (staff only)
+
+```
+GET /v1/ledger/staff/reversals/{reversalId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `getReversal`
+
+While requested, preview shows where the money would come from if it were approved now: the main wallet's available balance first, then each named wallet's unused, unheld tokens, newest lot first. covered false means approving now would be refused (BAL-4007).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `reversalId` | path | yes | string |  |
+
+**Response `200`**: The reversal.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `tenant_id` | string | yes |  |
+| `original_transaction_id` | string | yes |  |
+| `kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `currency` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+| `reason` | string | yes |  |
+| `evidence_document_id` | string | no |  |
+| `clawback_services` | array of string | yes |  |
+| `status` | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` | yes |  |
+| `requested_by` | string | yes |  |
+| `approved_by` | string | no |  |
+| `rejected_by` | string | no |  |
+| `rejection_reason` | string | no |  |
+| `reversal_transaction_id` | string | no |  |
+| `payback_transaction_id` | string | no |  |
+| `payback_reference` | string | no |  |
+| `payback_attempts` | integer | yes |  |
+| `last_payback_error` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `decided_at` | string (date-time) | no |  |
+| `preview` | object | no |  |
+| `preview.covered` | boolean | yes |  |
+| `preview.main_available_minor` | integer (int64) | yes |  |
+| `preview.from_main_minor` | integer (int64) | yes | What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back. |
+| `preview.clawback` | array of object | yes |  |
+| `preview.clawback[].service_code` | string | yes |  |
+| `preview.clawback[].clawable_minor` | integer (int64) | yes | The wallet's unused, unheld tokens' value. |
+| `preview.clawback[].tokens` | string | yes | Tokens the reversal would take back, a decimal with up to 6 places. |
+| `preview.clawback[].value_minor` | integer (int64) | yes | Their value at their lots' prices. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "original_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "kind": "payback",
+  "currency": "KES",
+  "amount_minor": 1,
+  "reason": "Documents checked against the registry",
+  "evidence_document_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "clawback_services": [
+    "string"
+  ],
+  "status": "requested",
+  "requested_by": "string",
+  "approved_by": "string",
+  "rejected_by": "string",
+  "rejection_reason": "Documents checked against the registry",
+  "reversal_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_reference": "string",
+  "payback_attempts": 1,
+  "last_payback_error": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "decided_at": "2026-11-05T09:30:00Z",
+  "preview": {
+    "covered": true,
+    "main_available_minor": 1,
+    "from_main_minor": 1,
+    "clawback": [
+      {
+        "service_code": "string",
+        "clawable_minor": 1,
+        "tokens": "opaque-token",
+        "value_minor": 1
+      }
+    ]
+  }
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `BAL-4007` | 409 | Reversal not covered | The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal (system design §4.3). |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-approvereversal"></a>
+#### Approve and post a requested reversal (staff only, step-up)
+
+```
+POST /v1/ledger/staff/reversals/{reversalId}/approval
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + a fresh step-up + VASPRO staff only  
+**Operation ID:** `approveReversal`
+
+The checker of maker-checker: a staff member other than the maker (VAL-4013), with a fresh step-up (AUTH-4012). At or above the country pack's threshold (KES 2,000 in Kenya) only a finance lead may approve (AUTH-4026). The reversal is posted at once: payback lands in payback_pending, the others in posted. If the main wallet and the named clawback can't cover it, nothing is posted (BAL-4007) and it stays requested. Only a requested reversal can be decided (VAL-4014).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `reversalId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `200`**: The posted reversal.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `tenant_id` | string | yes |  |
+| `original_transaction_id` | string | yes |  |
+| `kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `currency` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+| `reason` | string | yes |  |
+| `evidence_document_id` | string | no |  |
+| `clawback_services` | array of string | yes |  |
+| `status` | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` | yes |  |
+| `requested_by` | string | yes |  |
+| `approved_by` | string | no |  |
+| `rejected_by` | string | no |  |
+| `rejection_reason` | string | no |  |
+| `reversal_transaction_id` | string | no |  |
+| `payback_transaction_id` | string | no |  |
+| `payback_reference` | string | no |  |
+| `payback_attempts` | integer | yes |  |
+| `last_payback_error` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `decided_at` | string (date-time) | no |  |
+| `preview` | object | no |  |
+| `preview.covered` | boolean | yes |  |
+| `preview.main_available_minor` | integer (int64) | yes |  |
+| `preview.from_main_minor` | integer (int64) | yes | What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back. |
+| `preview.clawback` | array of object | yes |  |
+| `preview.clawback[].service_code` | string | yes |  |
+| `preview.clawback[].clawable_minor` | integer (int64) | yes | The wallet's unused, unheld tokens' value. |
+| `preview.clawback[].tokens` | string | yes | Tokens the reversal would take back, a decimal with up to 6 places. |
+| `preview.clawback[].value_minor` | integer (int64) | yes | Their value at their lots' prices. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "original_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "kind": "payback",
+  "currency": "KES",
+  "amount_minor": 1,
+  "reason": "Documents checked against the registry",
+  "evidence_document_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "clawback_services": [
+    "string"
+  ],
+  "status": "requested",
+  "requested_by": "string",
+  "approved_by": "string",
+  "rejected_by": "string",
+  "rejection_reason": "Documents checked against the registry",
+  "reversal_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_reference": "string",
+  "payback_attempts": 1,
+  "last_payback_error": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "decided_at": "2026-11-05T09:30:00Z",
+  "preview": {
+    "covered": true,
+    "main_available_minor": 1,
+    "from_main_minor": 1,
+    "clawback": [
+      {
+        "service_code": "string",
+        "clawable_minor": 1,
+        "tokens": "opaque-token",
+        "value_minor": 1
+      }
+    ]
+  }
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4013` | 403 | A price's maker can't approve it | Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price. |
+| `AUTH-4012` | 401 | Step-up verification required | The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list). |
+| `AUTH-4026` | 403 | Finance lead approval required | The reversal is at or above the country pack's finance-lead threshold, and the approver isn't a finance lead (system design §4.3). |
+| `BAL-4007` | 409 | Reversal not covered | The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal (system design §4.3). |
+| `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-rejectreversal"></a>
+#### Reject a requested reversal (staff only, step-up)
+
+```
+POST /v1/ledger/staff/reversals/{reversalId}/rejection
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `rejectReversal`
+
+A staff member other than the maker (VAL-4013), with a fresh step-up, rejects it with a reason. Nothing is posted, and its share of the top-up can be reversed again.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `reversalId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | yes |  |
+
+Example:
+
+```json
+{
+  "reason": "The client's bank confirmed both payments were intended"
+}
+```
+
+**Response `200`**: The rejected reversal.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `tenant_id` | string | yes |  |
+| `original_transaction_id` | string | yes |  |
+| `kind` | string: `payback`, `chargeback`, `operator` | yes |  |
+| `currency` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+| `reason` | string | yes |  |
+| `evidence_document_id` | string | no |  |
+| `clawback_services` | array of string | yes |  |
+| `status` | string: `requested`, `rejected`, `posted`, `payback_pending`, `paid_back` | yes |  |
+| `requested_by` | string | yes |  |
+| `approved_by` | string | no |  |
+| `rejected_by` | string | no |  |
+| `rejection_reason` | string | no |  |
+| `reversal_transaction_id` | string | no |  |
+| `payback_transaction_id` | string | no |  |
+| `payback_reference` | string | no |  |
+| `payback_attempts` | integer | yes |  |
+| `last_payback_error` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `decided_at` | string (date-time) | no |  |
+| `preview` | object | no |  |
+| `preview.covered` | boolean | yes |  |
+| `preview.main_available_minor` | integer (int64) | yes |  |
+| `preview.from_main_minor` | integer (int64) | yes | What the main wallet gives; negative when a clawback's rounding overshoots and the main wallet is credited back. |
+| `preview.clawback` | array of object | yes |  |
+| `preview.clawback[].service_code` | string | yes |  |
+| `preview.clawback[].clawable_minor` | integer (int64) | yes | The wallet's unused, unheld tokens' value. |
+| `preview.clawback[].tokens` | string | yes | Tokens the reversal would take back, a decimal with up to 6 places. |
+| `preview.clawback[].value_minor` | integer (int64) | yes | Their value at their lots' prices. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "original_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "kind": "payback",
+  "currency": "KES",
+  "amount_minor": 1,
+  "reason": "Documents checked against the registry",
+  "evidence_document_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "clawback_services": [
+    "string"
+  ],
+  "status": "requested",
+  "requested_by": "string",
+  "approved_by": "string",
+  "rejected_by": "string",
+  "rejection_reason": "Documents checked against the registry",
+  "reversal_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "payback_reference": "string",
+  "payback_attempts": 1,
+  "last_payback_error": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "decided_at": "2026-11-05T09:30:00Z",
+  "preview": {
+    "covered": true,
+    "main_available_minor": 1,
+    "from_main_minor": 1,
+    "clawback": [
+      {
+        "service_code": "string",
+        "clawable_minor": 1,
+        "tokens": "opaque-token",
+        "value_minor": 1
+      }
+    ]
+  }
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4013` | 403 | A price's maker can't approve it | Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-createdevtopup"></a>
+#### Credit a main wallet from the sandbox rail (staff only, dev environments only)
+
+```
+POST /v1/ledger/staff/dev-top-ups
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `createDevTopUp`
+
+For testers and the frontend team before Payments exists: posts an ordinary top-up from VASPRO's sandbox rail clearing account into the account's main wallet. Only where the ledger runs with LEDGER_DEV_TOPUPS=true; elsewhere VAL-4003, as if the route didn't exist. Staff only (AUTH-4025).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tenant_id` | string | yes |  |
+| `currency` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+
+Example:
+
+```json
+{
+  "tenant_id": "0192c3a1-7f00-7000-8000-000000000001",
+  "currency": "KES",
+  "amount_minor": 1300000
+}
+```
+
+**Response `201`**: The top-up's transaction.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `transaction_id` | string | yes |  |
+
+```json
+{
+  "transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+### Other
+
+<a id="op-listbalances"></a>
+#### The account's wallets and balances
+
+```
+GET /v1/ledger/tenants/{tenantId}/balances
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listBalances`
+
+Every ledger account of the client: the main wallet, each service wallet with its tokens, bonus and receivable, with balance, held and available amounts. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: The balances.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `balances` | array of object | yes |  |
+| `balances[].account_id` | string | yes |  |
+| `balances[].type` | string: `main_wallet`, `service_wallet`, `bonus`, `receivable`, `revenue_share_payable`, `commission_payable` | yes |  |
+| `balances[].service_code` | string | no |  |
+| `balances[].currency` | string | yes |  |
+| `balances[].status` | string | yes |  |
+| `balances[].balance_minor` | integer (int64) | yes |  |
+| `balances[].held_minor` | integer (int64) | yes |  |
+| `balances[].available_minor` | integer (int64) | yes |  |
+| `balances[].tokens_remaining` | string | no | Service wallets only, a decimal. |
+| `balances[].held_tokens` | string | no |  |
+| `balances[].tokens_available` | string | no |  |
+
+```json
+{
+  "balances": [
+    {
+      "account_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "type": "main_wallet",
+      "service_code": "string",
+      "currency": "KES",
+      "status": "string",
+      "balance_minor": 1,
+      "held_minor": 1,
+      "available_minor": 1,
+      "tokens_remaining": "opaque-token",
+      "held_tokens": "opaque-token",
+      "tokens_available": "opaque-token"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-getstatement"></a>
+#### One wallet's statement, newest first
+
+```
+GET /v1/ledger/tenants/{tenantId}/accounts/{accountId}/statement
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getStatement`
+
+The account's lines, newest first, each with the balance after it (and, for a service wallet, the tokens after it), read in one snapshot so the running balance is exact. from and to filter on the posting time (to excluded); paged with next_cursor. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `accountId` | path | yes | string |  |
+| `from` | query | no | string (date-time) |  |
+| `to` | query | no | string (date-time) |  |
+| `cursor` | query | no | string |  |
+| `limit` | query | no | integer |  |
+
+**Response `200`**: A page of the statement.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `account_id` | string | yes |  |
+| `type` | string | yes |  |
+| `service_code` | string | no |  |
+| `currency` | string | yes |  |
+| `lines` | array of object | yes |  |
+| `lines[].entry_id` | integer (int64) | yes |  |
+| `lines[].transaction_id` | string | yes |  |
+| `lines[].posted_at` | string (date-time) | yes |  |
+| `lines[].type` | string | yes | topup, token_purchase, usage, refund, reversal, ... |
+| `lines[].description` | string | yes |  |
+| `lines[].reference_type` | string | no |  |
+| `lines[].reference_id` | string | no |  |
+| `lines[].direction` | string: `debit`, `credit` | yes |  |
+| `lines[].amount_minor` | integer (int64) | yes |  |
+| `lines[].tokens` | string | no |  |
+| `lines[].balance_after_minor` | integer (int64) | yes |  |
+| `lines[].tokens_after` | string | no | Service wallets only. |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "account_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "type": "string",
+  "service_code": "string",
+  "currency": "KES",
+  "lines": [
+    {
+      "entry_id": 1,
+      "transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "posted_at": "2026-11-05T09:30:00Z",
+      "type": "string",
+      "description": "string",
+      "reference_type": "string",
+      "reference_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "direction": "debit",
+      "amount_minor": 1,
+      "tokens": "opaque-token",
+      "balance_after_minor": 1,
+      "tokens_after": "opaque-token"
+    }
+  ],
+  "next_cursor": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-listtenanttokenprices"></a>
+#### The prices the account buys tokens at now
+
+```
+GET /v1/ledger/tenants/{tenantId}/token-prices
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listTenantTokenPrices`
+
+Per service and currency, the tiers that apply now: the client's negotiated deal while one is in force (source deal), otherwise the list price's volume tiers (source list). A purchase uses the highest tier not above its quantity; a deal always applies, its lowest tier below all its tiers. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: The prices in force.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `prices` | array of object | yes |  |
+| `prices[].service_code` | string | yes |  |
+| `prices[].currency` | string | yes |  |
+| `prices[].source` | string: `deal`, `list` | yes |  |
+| `prices[].min_tokens` | string | yes |  |
+| `prices[].minor_per_token` | string | yes | Minor units per token, a decimal ("80" is KES 0.80). |
+| `prices[].deal_reference` | string | no |  |
+| `prices[].effective_to` | string (date-time) | no |  |
+
+```json
+{
+  "prices": [
+    {
+      "service_code": "string",
+      "currency": "KES",
+      "source": "deal",
+      "min_tokens": "opaque-token",
+      "minor_per_token": "opaque-token",
+      "deal_reference": "string",
+      "effective_to": "2026-11-05T09:30:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-quotetokenpurchase"></a>
+#### What buying tokens would cost now
+
+```
+GET /v1/ledger/tenants/{tenantId}/token-quote
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `quoteTokenPurchase`
+
+The price a purchase of this quantity would use now, its cost (rounded half-up to the minor unit) and whether the main wallet's available money covers it. Nothing is reserved: the price can change before the purchase. No price for the service is BAL-4005. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `service_code` | query | yes | string |  |
+| `currency` | query | yes | string |  |
+| `tokens` | query | yes | string | A positive decimal with up to 6 places. |
+
+**Response `200`**: The quote.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `service_code` | string | yes |  |
+| `currency` | string | yes |  |
+| `tokens` | string | yes |  |
+| `source` | string: `deal`, `list` | yes |  |
+| `min_tokens` | string | yes |  |
+| `minor_per_token` | string | yes |  |
+| `cost_minor` | integer (int64) | yes |  |
+| `main_available_minor` | integer (int64) | yes |  |
+| `affordable` | boolean | yes |  |
+
+```json
+{
+  "service_code": "string",
+  "currency": "KES",
+  "tokens": "opaque-token",
+  "source": "deal",
+  "min_tokens": "opaque-token",
+  "minor_per_token": "opaque-token",
+  "cost_minor": 1,
+  "main_available_minor": 1,
+  "affordable": true
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `BAL-4005` | 409 | No token price for this service | There is no approved list price or deal in force for this service and currency, so tokens can't be bought. |
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createtokenpurchase"></a>
+#### Buy tokens for a service from the main wallet
+
+```
+POST /v1/ledger/tenants/{tenantId}/token-purchases
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createTokenPurchase`
+
+Moves the cost from the main wallet into the service's token wallet at the price in force, locked into a new lot. Buying is final: tokens never move back to the main wallet. Not enough money is BAL-4001, no price BAL-4005. The Idempotency-Key makes a retry return the same purchase. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `service_code` | string | yes |  |
+| `currency` | string | yes |  |
+| `tokens` | string | yes | A positive decimal with up to 6 places. |
+
+Example:
+
+```json
+{
+  "service_code": "sms",
+  "currency": "KES",
+  "tokens": "10000"
+}
+```
+
+**Response `201`**: The purchase.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `transaction_id` | string | yes |  |
+| `lot_id` | string | yes |  |
+| `service_code` | string | yes |  |
+| `currency` | string | yes |  |
+| `tokens` | string | yes |  |
+| `minor_per_token` | string | yes |  |
+| `cost_minor` | integer (int64) | yes |  |
+
+```json
+{
+  "transaction_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "lot_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "service_code": "string",
+  "currency": "KES",
+  "tokens": "opaque-token",
+  "minor_per_token": "opaque-token",
+  "cost_minor": 1
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `BAL-4001` | 402 | Insufficient balance | The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold). |
+| `BAL-4005` | 409 | No token price for this service | There is no approved list price or deal in force for this service and currency, so tokens can't be bought. |
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listtenantautobuyrules"></a>
+#### The account's auto-buy rules
+
+```
+GET /v1/ledger/tenants/{tenantId}/auto-buy-rules
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listTenantAutoBuyRules`
+
+When a send would leave a service's tokens below below_tokens, or couldn't go ahead at all, the rule first buys buy_tokens from the main wallet. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: The rules.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `rules` | array of object | yes |  |
+| `rules[].id` | string | yes |  |
+| `rules[].service_code` | string | yes |  |
+| `rules[].currency` | string | yes |  |
+| `rules[].below_tokens` | string | yes |  |
+| `rules[].buy_tokens` | string | yes |  |
+| `rules[].enabled` | boolean | yes |  |
+| `rules[].last_triggered_at` | string (date-time) | no |  |
+
+```json
+{
+  "rules": [
+    {
+      "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "service_code": "string",
+      "currency": "KES",
+      "below_tokens": "opaque-token",
+      "buy_tokens": "opaque-token",
+      "enabled": true,
+      "last_triggered_at": "2026-11-05T09:30:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-settenantautobuyrule"></a>
+#### Set the auto-buy rule for a service and currency
+
+```
+PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `setTenantAutoBuyRule`
+
+Replaces the rule for the service and currency; enabled false turns it off. Needs billing:manage in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `serviceCode` | path | yes | string |  |
+| `currency` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `below_tokens` | string | yes |  |
+| `buy_tokens` | string | yes |  |
+| `enabled` | boolean | yes |  |
+
+Example:
+
+```json
+{
+  "below_tokens": "500",
+  "buy_tokens": "10000",
+  "enabled": true
+}
+```
+
+**Response `200`**: The rule.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `service_code` | string | yes |  |
+| `currency` | string | yes |  |
+| `below_tokens` | string | yes |  |
+| `buy_tokens` | string | yes |  |
+| `enabled` | boolean | yes |  |
+| `last_triggered_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "service_code": "string",
+  "currency": "KES",
+  "below_tokens": "opaque-token",
+  "buy_tokens": "opaque-token",
+  "enabled": true,
+  "last_triggered_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
 ---
 
 ## Error catalogue
@@ -5194,6 +6324,7 @@ Every code the platform defines. Codes from families that aren't live yet (messa
 | `AUTH-4023` | 403 | Select an account you belong to | API clients and SMPP accounts belong to a client account. This session has no account selected, or you are no longer a member of the one it selected. | Select an account you belong to (PUT /v1/auth/sessions/current/tenant), then retry. |
 | `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. | Ask an Admin of the account for a role that allows it. |
 | `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. | Ask VASPRO operations if you believe you should have staff access. |
+| `AUTH-4026` | 403 | Finance lead approval required | The reversal is at or above the country pack's finance-lead threshold, and the approver isn't a finance lead. | Ask a finance lead to approve the reversal. |
 | `KYC-4020` | 403 | Account tier too low for this service | The tenant hasn't completed the KYC tier this service requires in this country. | Complete the next tier's verification, then retry. |
 | `KYC-4021` | 403 | Not an active reseller account | Only an active reseller account can create sub-accounts; this account is direct or a sub-account, or it is suspended or archived. | Ask VASPRO staff to make the account a reseller (it needs the Financial tier), or reactivate it. |
 | `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. | Fix the named field(s) and resubmit. |
@@ -5211,12 +6342,15 @@ Every code the platform defines. Codes from families that aren't live yet (messa
 | `VAL-4012` | 409 | Price would overlap an active one | Approving this token price would leave two active prices for the same client, service, currency and volume tier at the same time. | Withdraw the price in force, or end it before this one starts, then approve again. |
 | `VAL-4013` | 403 | A price's maker can't approve it | Every token price needs a second staff member to approve it (maker-checker), and the approver entered this price. | Ask another staff member to approve it. |
 | `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. | Read the price's status; to change an approved price, enter a new one and withdraw the old. |
+| `VAL-4015` | 409 | Reversal exceeds the original | This reversal and the open or completed reversals of the same top-up together would be more than the top-up. | Reverse at most what's left of the top-up; a rejected reversal frees its share. |
+| `VAL-4016` | 409 | Reversal isn't awaiting pay-back | Only a pay-back reversal that's posted and not yet paid back can record a pay-back. | Read the reversal's status; chargebacks and operator reversals have no pay-back. |
 | `BAL-4001` | 402 | Insufficient balance | The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold). | Top up the wallet, or reduce the request. |
 | `BAL-4002` | 402 | No tokens left for this service | The service's token wallet doesn't have enough tokens left (beyond those already held) for this request. | Buy tokens for the service, or turn on auto-buy. |
 | `BAL-4003` | 409 | Hold can't change this way | The hold was already captured, released or expired, or the capture is larger than the hold. | Read the hold's status; capture at most its amount, and only while it's active. |
 | `BAL-4004` | 422 | Tokens can't move back to the main wallet | Allocation is final - no posting moves money from a service or bonus wallet back to a main wallet, except an approved reversal. | Use the reversal flow, which needs a staff member's approval. |
 | `BAL-4005` | 409 | No token price for this service | There is no approved list price or deal in force for this service and currency, so tokens can't be bought. | Ask VASPRO to set a price for the service in this currency. |
 | `BAL-4006` | 403 | Account not open | The ledger account is frozen or closed, so it takes no new postings or holds. | Ask VASPRO support why the account was frozen or closed. |
+| `BAL-4007` | 409 | Reversal not covered | The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal. | Name more service wallets to claw back from, release holds, or reverse a smaller amount. |
 | `CMP-4030` | 422 | Blocked by a compliance rule | The request falls outside an allowed send window, or targets a number that opted out, for this country's rules. | Resend inside the allowed window, or remove the opted-out recipient. |
 | `RTE-6020` | 422 | Sender ID not registered on this network | The chosen sender ID has no route on the destination operator. | Register the sender ID with that operator, or choose a sender ID that already is. |
 | `DLR-7001` | 200 | Unknown or inactive number | The operator reports the destination number doesn't exist or is inactive. | Confirm the number with the recipient; remove it from future sends if it keeps failing. |
