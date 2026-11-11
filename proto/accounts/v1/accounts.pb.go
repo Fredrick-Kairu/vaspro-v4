@@ -84,7 +84,12 @@ func (x *CheckTenantAccessRequest) GetPermission() string {
 }
 
 type CheckTenantAccessResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The account's country (ISO 3166-1 alpha-2) and default currency
+	// (ISO 4217), so a service can apply the right country pack without
+	// a second call (task 4.3, OQ-22).
+	CountryCode   string `protobuf:"bytes,1,opt,name=country_code,json=countryCode,proto3" json:"country_code,omitempty"`
+	Currency      string `protobuf:"bytes,2,opt,name=currency,proto3" json:"currency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -119,6 +124,20 @@ func (*CheckTenantAccessResponse) Descriptor() ([]byte, []int) {
 	return file_accounts_v1_accounts_proto_rawDescGZIP(), []int{1}
 }
 
+func (x *CheckTenantAccessResponse) GetCountryCode() string {
+	if x != nil {
+		return x.CountryCode
+	}
+	return ""
+}
+
+func (x *CheckTenantAccessResponse) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
 var File_accounts_v1_accounts_proto protoreflect.FileDescriptor
 
 const file_accounts_v1_accounts_proto_rawDesc = "" +
@@ -129,8 +148,10 @@ const file_accounts_v1_accounts_proto_rawDesc = "" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1e\n" +
 	"\n" +
 	"permission\x18\x03 \x01(\tR\n" +
-	"permission\"\x1b\n" +
-	"\x19CheckTenantAccessResponse2u\n" +
+	"permission\"Z\n" +
+	"\x19CheckTenantAccessResponse\x12!\n" +
+	"\fcountry_code\x18\x01 \x01(\tR\vcountryCode\x12\x1a\n" +
+	"\bcurrency\x18\x02 \x01(\tR\bcurrency2u\n" +
 	"\x0fAccountsService\x12b\n" +
 	"\x11CheckTenantAccess\x12%.accounts.v1.CheckTenantAccessRequest\x1a&.accounts.v1.CheckTenantAccessResponseBBZ@github.com/Fredrick-Kairu/vaspro-v4/proto/accounts/v1;accountsv1b\x06proto3"
 

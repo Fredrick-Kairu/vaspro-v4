@@ -72,14 +72,16 @@ func (b *recordingBackend) count() int {
 	return len(b.calls)
 }
 
-// newBackendsGateway routes to fake backends. The ledger's is optional:
-// without one, a fresh recording backend stands in for it.
-func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, ledger ...*recordingBackend) http.Handler {
+// newBackendsGateway routes to fake backends. others are the ledger's
+// and payments', in that order, both optional: a fresh recording
+// backend stands in for each one not given.
+func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, others ...*recordingBackend) http.Handler {
 	t.Helper()
 	root := repoRoot(t)
-	if len(ledger) == 0 {
-		ledger = []*recordingBackend{newRecordingBackend(t)}
+	for len(others) < 2 {
+		others = append(others, newRecordingBackend(t))
 	}
+	ledger, payments := others[:1], others[1]
 	cfg := Config{
 		IdentityBaseURL:     identity.URL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
@@ -87,6 +89,8 @@ func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sess
 		AccountsOpenAPIPath: filepath.Join(root, "docs/api/accounts.yaml"),
 		LedgerBaseURL:       ledger[0].URL,
 		LedgerOpenAPIPath:   filepath.Join(root, "docs/api/ledger.yaml"),
+		PaymentsBaseURL:     payments.URL,
+		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, sessions)
 	if err != nil {
@@ -325,4 +329,41 @@ func sendMultipart(t *testing.T, h http.Handler, path, token, docType string, da
 	var decoded map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
 	return rec.Code, decoded
+}
+
+// TestGatewayBackends_Payments: /v1/payments/ (task 4.3) is routed like
+// the ledger: a session is required, the user is forwarded and a
+// spoofed copy replaced, the token isn't forwarded, and payments paths
+// never fall through to identity.
+func TestGatewayBackends_Payments(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	path := "/v1/payments/tenants/" + uuid.NewString() + "/topup-details"
+
+	t.Run("top-up details reach payments with the session's user", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodGet, path,
+			map[string]string{"Authorization": "Bearer sess_good", headerUserID: "33333333-3333-3333-3333-333333333333"}, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := payments.last(t)
+		if req.URL.Path != path || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" || req.Header.Get("Authorization") != "" {
+			t.Fatalf("forwarded %s as %q with auth %q", req.URL.Path, req.Header.Get(headerUserID), req.Header.Get("Authorization"))
+		}
+	})
+	t.Run("no session is 401 and never reaches payments", func(t *testing.T) {
+		before := payments.count()
+		status, body := send(t, gw, http.MethodGet, path, nil, nil)
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || payments.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("payments paths never fall through to identity", func(t *testing.T) {
+		before := identity.count()
+		status, _ := send(t, gw, http.MethodGet, "/v1/payments/not-an-operation", map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status == http.StatusOK || identity.count() != before {
+			t.Fatalf("got %d, identity called %d times", status, identity.count()-before)
+		}
+	})
 }

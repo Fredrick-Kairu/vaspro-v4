@@ -18,6 +18,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/payments"
 	// vaspro-all:imports-end
 )
 
@@ -48,6 +49,12 @@ func main() {
 	}
 	if svc, err := ledger.Bootstrap(ctx); err != nil {
 		logger.Error("vaspro-all: ledger: bootstrap", "error", err)
+		os.Exit(1)
+	} else {
+		services = append(services, svc)
+	}
+	if svc, err := payments.Bootstrap(ctx); err != nil {
+		logger.Error("vaspro-all: payments: bootstrap", "error", err)
 		os.Exit(1)
 	} else {
 		services = append(services, svc)

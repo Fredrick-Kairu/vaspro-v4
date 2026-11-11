@@ -7,3 +7,9 @@ RETURNING *;
 
 -- name: GetRail :one
 SELECT * FROM payments.rails WHERE code = $1;
+
+-- RetireRailsNotIn retires every rail no pack lists any more. Rails are
+-- never deleted: rail accounts reference them.
+-- name: RetireRailsNotIn :execrows
+UPDATE payments.rails SET status = 'retired'
+WHERE NOT (code = ANY (sqlc.arg(codes)::text[])) AND status <> 'retired';

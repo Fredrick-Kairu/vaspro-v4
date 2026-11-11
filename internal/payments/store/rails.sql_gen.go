@@ -28,6 +28,21 @@ func (q *Queries) GetRail(ctx context.Context, code string) (PaymentsRail, error
 	return i, err
 }
 
+const retireRailsNotIn = `-- name: RetireRailsNotIn :execrows
+UPDATE payments.rails SET status = 'retired'
+WHERE NOT (code = ANY ($1::text[])) AND status <> 'retired'
+`
+
+// RetireRailsNotIn retires every rail no pack lists any more. Rails are
+// never deleted: rail accounts reference them.
+func (q *Queries) RetireRailsNotIn(ctx context.Context, codes []string) (int64, error) {
+	result, err := q.db.Exec(ctx, retireRailsNotIn, codes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertRail = `-- name: UpsertRail :one
 INSERT INTO payments.rails (code, country_code, kind, capabilities, status)
 VALUES ($1, $2, $3, $4, $5)

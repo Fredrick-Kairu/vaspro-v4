@@ -75,6 +75,28 @@ func (s *Service) IsStaff(ctx context.Context, userID uuid.UUID) (bool, error) {
 	return staff, nil
 }
 
+// StaffUserByEmail finds a staff member by email (task 4.3, OQ-22), for
+// ops CLIs that record who acted. A malformed address is ErrValidation;
+// no such user, or a user who isn't staff, is ErrNotFound alike.
+func (s *Service) StaffUserByEmail(ctx context.Context, email string) (uuid.UUID, error) {
+	if _, err := domain.NormalizeEmail(email); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: not an email address", ErrValidation)
+	}
+	q := store.New(s.pool)
+	user, err := userByEmail(ctx, q, email)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	staff, err := q.IsStaff(ctx, user.ID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("app: checking staff: %w", err)
+	}
+	if !staff {
+		return uuid.Nil, ErrNotFound
+	}
+	return user.ID, nil
+}
+
 // StaffRole is what a staff check returns (task 3.7): whether the user
 // is staff, and whether they are a finance lead, who approves reversals
 // at or above the pack's threshold (OQ-18).

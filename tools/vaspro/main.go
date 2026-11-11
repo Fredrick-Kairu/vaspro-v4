@@ -23,6 +23,8 @@ func run(args []string) int {
 		return runPacks(args[1:])
 	case "identity":
 		return runIdentity(args[1:])
+	case "payments":
+		return runPayments(args[1:])
 	default:
 		usage()
 		return 2
@@ -32,6 +34,7 @@ func run(args []string) int {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: vaspro packs validate [pack.yaml ...]")
 	fmt.Fprintln(os.Stderr, "       vaspro identity rotate-signing-key | grant-staff | revoke-staff | grant-finance-lead | revoke-finance-lead")
+	fmt.Fprintln(os.Stderr, "       vaspro payments add-rail-account | set-rail-credential | verify-rail-account")
 }
 
 func runPacks(args []string) int {

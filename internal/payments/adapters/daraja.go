@@ -630,3 +630,18 @@ func phoneE164(s string) string {
 	}
 	return ""
 }
+
+// CheckCredentials proves a rail account's consumer key and secret with
+// a fresh OAuth call, never a cached token (task 4.3: an account turns
+// active only after a test call works). The token isn't cached. Daraja
+// has no harmless call that proves the passkey; the first STK push does.
+func (d *Daraja) CheckCredentials(ctx context.Context, railAccountID uuid.UUID) error {
+	creds, err := d.credentials(ctx, railAccountID)
+	if err != nil {
+		return err
+	}
+	if _, _, err := d.fetchToken(ctx, creds); err != nil {
+		return err
+	}
+	return nil
+}

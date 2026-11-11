@@ -144,14 +144,24 @@ func (s *Service) GetTenant(ctx context.Context, userID, tenantID uuid.UUID) (*T
 	return tenantFromRow(row), nil
 }
 
+// TenantAccess is what a granted access check also tells the caller
+// (task 4.3, OQ-22): the account's country and default currency.
+type TenantAccess struct {
+	CountryCode string
+	Currency    string
+}
+
 // CheckAccess reports whether userID may work in tenantID and, when
 // permission isn't empty, whether their role allows it (accounts' gRPC
 // CheckTenantAccess, task 2.3a). ErrNotFound: no access or no such
 // account; domain.ErrPermissionDenied: the role lacks it;
 // ErrUnknownPermission: the name isn't in the catalogue.
-func (s *Service) CheckAccess(ctx context.Context, userID, tenantID uuid.UUID, permission string) error {
-	_, _, err := s.authorize(ctx, userID, tenantID, permission)
-	return err
+func (s *Service) CheckAccess(ctx context.Context, userID, tenantID uuid.UUID, permission string) (TenantAccess, error) {
+	row, _, err := s.authorize(ctx, userID, tenantID, permission)
+	if err != nil {
+		return TenantAccess{}, err
+	}
+	return TenantAccess{CountryCode: row.CountryCode, Currency: row.DefaultCurrency}, nil
 }
 
 // authorize loads tenantID and the permissions of userID's role in it:

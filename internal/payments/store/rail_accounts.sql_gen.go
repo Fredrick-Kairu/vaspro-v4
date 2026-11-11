@@ -67,12 +67,126 @@ func (q *Queries) CreateRailAccount(ctx context.Context, arg CreateRailAccountPa
 	return i, err
 }
 
+const getActiveTopupRailAccount = `-- name: GetActiveTopupRailAccount :one
+SELECT id, tenant_id, rail_code, account_type, number, store_number, display_name, uses, status, c2b_registered_at, verified_at, last_balance_minor, balance_checked_at, low_balance_minor, created_by, created_at, version FROM payments.rail_accounts
+WHERE tenant_id IS NULL AND rail_code = $1 AND status = 'active' AND 'vaspro_topups' = ANY (uses)
+ORDER BY verified_at, id
+LIMIT 1
+`
+
+// GetActiveTopupRailAccount is VASPRO's paybill clients top up on, for
+// a rail. Only an active (verified) one is ever offered.
+func (q *Queries) GetActiveTopupRailAccount(ctx context.Context, railCode string) (PaymentsRailAccount, error) {
+	row := q.db.QueryRow(ctx, getActiveTopupRailAccount, railCode)
+	var i PaymentsRailAccount
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RailCode,
+		&i.AccountType,
+		&i.Number,
+		&i.StoreNumber,
+		&i.DisplayName,
+		&i.Uses,
+		&i.Status,
+		&i.C2bRegisteredAt,
+		&i.VerifiedAt,
+		&i.LastBalanceMinor,
+		&i.BalanceCheckedAt,
+		&i.LowBalanceMinor,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const getRailAccount = `-- name: GetRailAccount :one
 SELECT id, tenant_id, rail_code, account_type, number, store_number, display_name, uses, status, c2b_registered_at, verified_at, last_balance_minor, balance_checked_at, low_balance_minor, created_by, created_at, version FROM payments.rail_accounts WHERE id = $1
 `
 
 func (q *Queries) GetRailAccount(ctx context.Context, id uuid.UUID) (PaymentsRailAccount, error) {
 	row := q.db.QueryRow(ctx, getRailAccount, id)
+	var i PaymentsRailAccount
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RailCode,
+		&i.AccountType,
+		&i.Number,
+		&i.StoreNumber,
+		&i.DisplayName,
+		&i.Uses,
+		&i.Status,
+		&i.C2bRegisteredAt,
+		&i.VerifiedAt,
+		&i.LastBalanceMinor,
+		&i.BalanceCheckedAt,
+		&i.LowBalanceMinor,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const getRailAccountForUpdate = `-- name: GetRailAccountForUpdate :one
+SELECT id, tenant_id, rail_code, account_type, number, store_number, display_name, uses, status, c2b_registered_at, verified_at, last_balance_minor, balance_checked_at, low_balance_minor, created_by, created_at, version FROM payments.rail_accounts WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetRailAccountForUpdate(ctx context.Context, id uuid.UUID) (PaymentsRailAccount, error) {
+	row := q.db.QueryRow(ctx, getRailAccountForUpdate, id)
+	var i PaymentsRailAccount
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RailCode,
+		&i.AccountType,
+		&i.Number,
+		&i.StoreNumber,
+		&i.DisplayName,
+		&i.Uses,
+		&i.Status,
+		&i.C2bRegisteredAt,
+		&i.VerifiedAt,
+		&i.LastBalanceMinor,
+		&i.BalanceCheckedAt,
+		&i.LowBalanceMinor,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const setRailAccountPending = `-- name: SetRailAccountPending :execrows
+UPDATE payments.rail_accounts SET status = 'pending_verification', verified_at = NULL, version = version + 1
+WHERE id = $1 AND status = 'active'
+`
+
+// SetRailAccountPending puts an account back to pending verification
+// after its credentials change, until a test call works again.
+func (q *Queries) SetRailAccountPending(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, setRailAccountPending, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setRailAccountVerified = `-- name: SetRailAccountVerified :one
+UPDATE payments.rail_accounts SET status = 'active', verified_at = $2, version = version + 1
+WHERE id = $1
+RETURNING id, tenant_id, rail_code, account_type, number, store_number, display_name, uses, status, c2b_registered_at, verified_at, last_balance_minor, balance_checked_at, low_balance_minor, created_by, created_at, version
+`
+
+type SetRailAccountVerifiedParams struct {
+	ID         uuid.UUID          `json:"id"`
+	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+}
+
+func (q *Queries) SetRailAccountVerified(ctx context.Context, arg SetRailAccountVerifiedParams) (PaymentsRailAccount, error) {
+	row := q.db.QueryRow(ctx, setRailAccountVerified, arg.ID, arg.VerifiedAt)
 	var i PaymentsRailAccount
 	err := row.Scan(
 		&i.ID,

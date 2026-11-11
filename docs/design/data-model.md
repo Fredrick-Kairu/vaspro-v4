@@ -1386,6 +1386,11 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 > - **Indexes:** a unique `(rail_account_id, rail_request_id)` on intents, for callbacks; the suspense queue on notices; unapplied STK callbacks.
 > - **Grants:** the service role `payments_service` updates only named columns (an intent's status and rail results, a notice's match and ledger posting, a credential's retirement, an account's verification and balance), so an amount, receipt, tenant or ciphertext is never rewritten, and deletes nothing but idempotency keys. `payments_operations` has no grant on credentials.
 > - **RLS:** standard on intents and account numbers (with reads across tenants for `payments_system` and staff); `rail_accounts` like the ledger's accounts (a tenant reads its own and VASPRO's); credentials own-only, VASPRO's for `payments_system` alone; notices by `tenant_id` or `matched_tenant_id`, a tenant inserting only a top-up matched to itself, VASPRO's paybill rows for `payments_system`; statements and exceptions own-only, VASPRO's for `payments_system`, all readable by staff, who resolve exceptions; statement lines follow their import; STK callbacks `payments_system` only.
+>
+> **Built in task 4.3 (11 Nov 2026, OQ-22).** No schema change.
+> - **Rails** mirror the country packs' new `rails` block at startup; one the packs no longer list is retired, never deleted.
+> - **Credentials** of VASPRO's paybill are entered by staff through the ops CLI (`vaspro payments`), `created_by` the staff member found by email. Storing one retires the one it replaces **and returns an active account to `pending_verification`** until a test call (a fresh OAuth fetch) works again with the new set; only then is it `active` (`rail_account.verified`).
+> - **Account numbers** are issued on first use: 6 random characters and 2 check characters (Σ (i+1)·vᵢ mod 1021), which catch every single-character typo and every swap of neighbours. Only an active paybill is ever offered.
 
 **Where the money goes**
 

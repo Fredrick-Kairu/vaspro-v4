@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IdentityService_ResolveSession_FullMethodName = "/identity.v1.IdentityService/ResolveSession"
-	IdentityService_EnsureInvitee_FullMethodName  = "/identity.v1.IdentityService/EnsureInvitee"
-	IdentityService_SendInvitation_FullMethodName = "/identity.v1.IdentityService/SendInvitation"
-	IdentityService_IsStepUpFresh_FullMethodName  = "/identity.v1.IdentityService/IsStepUpFresh"
-	IdentityService_GetUsers_FullMethodName       = "/identity.v1.IdentityService/GetUsers"
-	IdentityService_IsStaff_FullMethodName        = "/identity.v1.IdentityService/IsStaff"
+	IdentityService_ResolveSession_FullMethodName  = "/identity.v1.IdentityService/ResolveSession"
+	IdentityService_EnsureInvitee_FullMethodName   = "/identity.v1.IdentityService/EnsureInvitee"
+	IdentityService_SendInvitation_FullMethodName  = "/identity.v1.IdentityService/SendInvitation"
+	IdentityService_IsStepUpFresh_FullMethodName   = "/identity.v1.IdentityService/IsStepUpFresh"
+	IdentityService_GetUsers_FullMethodName        = "/identity.v1.IdentityService/GetUsers"
+	IdentityService_IsStaff_FullMethodName         = "/identity.v1.IdentityService/IsStaff"
+	IdentityService_GetStaffByEmail_FullMethodName = "/identity.v1.IdentityService/GetStaffByEmail"
 )
 
 // IdentityServiceClient is the client API for IdentityService service.
@@ -61,6 +62,11 @@ type IdentityServiceClient interface {
 	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
 	// It also says whether the user is a finance lead (task 3.7).
 	IsStaff(ctx context.Context, in *IsStaffRequest, opts ...grpc.CallOption) (*IsStaffResponse, error)
+	// GetStaffByEmail finds a staff member by email (task 4.3, OQ-22), for
+	// ops CLIs that record which staff member acted. A user who isn't
+	// staff, and an address no user has, are NOT_FOUND alike; a malformed
+	// address is INVALID_ARGUMENT.
+	GetStaffByEmail(ctx context.Context, in *GetStaffByEmailRequest, opts ...grpc.CallOption) (*GetStaffByEmailResponse, error)
 }
 
 type identityServiceClient struct {
@@ -131,6 +137,16 @@ func (c *identityServiceClient) IsStaff(ctx context.Context, in *IsStaffRequest,
 	return out, nil
 }
 
+func (c *identityServiceClient) GetStaffByEmail(ctx context.Context, in *GetStaffByEmailRequest, opts ...grpc.CallOption) (*GetStaffByEmailResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetStaffByEmailResponse)
+	err := c.cc.Invoke(ctx, IdentityService_GetStaffByEmail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IdentityServiceServer is the server API for IdentityService service.
 // All implementations must embed UnimplementedIdentityServiceServer
 // for forward compatibility.
@@ -165,6 +181,11 @@ type IdentityServiceServer interface {
 	// A malformed user ID is INVALID_ARGUMENT; an unknown one isn't staff.
 	// It also says whether the user is a finance lead (task 3.7).
 	IsStaff(context.Context, *IsStaffRequest) (*IsStaffResponse, error)
+	// GetStaffByEmail finds a staff member by email (task 4.3, OQ-22), for
+	// ops CLIs that record which staff member acted. A user who isn't
+	// staff, and an address no user has, are NOT_FOUND alike; a malformed
+	// address is INVALID_ARGUMENT.
+	GetStaffByEmail(context.Context, *GetStaffByEmailRequest) (*GetStaffByEmailResponse, error)
 	mustEmbedUnimplementedIdentityServiceServer()
 }
 
@@ -192,6 +213,9 @@ func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersReq
 }
 func (UnimplementedIdentityServiceServer) IsStaff(context.Context, *IsStaffRequest) (*IsStaffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IsStaff not implemented")
+}
+func (UnimplementedIdentityServiceServer) GetStaffByEmail(context.Context, *GetStaffByEmailRequest) (*GetStaffByEmailResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetStaffByEmail not implemented")
 }
 func (UnimplementedIdentityServiceServer) mustEmbedUnimplementedIdentityServiceServer() {}
 func (UnimplementedIdentityServiceServer) testEmbeddedByValue()                         {}
@@ -322,6 +346,24 @@ func _IdentityService_IsStaff_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_GetStaffByEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStaffByEmailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).GetStaffByEmail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_GetStaffByEmail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).GetStaffByEmail(ctx, req.(*GetStaffByEmailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IdentityService_ServiceDesc is the grpc.ServiceDesc for IdentityService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -352,6 +394,10 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IsStaff",
 			Handler:    _IdentityService_IsStaff_Handler,
+		},
+		{
+			MethodName: "GetStaffByEmail",
+			Handler:    _IdentityService_GetStaffByEmail_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

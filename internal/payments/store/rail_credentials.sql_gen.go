@@ -84,3 +84,58 @@ func (q *Queries) GetActiveRailCredential(ctx context.Context, arg GetActiveRail
 	)
 	return i, err
 }
+
+const listActiveRailCredentials = `-- name: ListActiveRailCredentials :many
+SELECT id, rail_account_id, tenant_id, kind, ciphertext, kms_key_id, fingerprint, status, created_by, created_at, retired_at FROM payments.rail_credentials WHERE rail_account_id = $1 AND status = 'active' ORDER BY kind
+`
+
+func (q *Queries) ListActiveRailCredentials(ctx context.Context, railAccountID uuid.UUID) ([]PaymentsRailCredential, error) {
+	rows, err := q.db.Query(ctx, listActiveRailCredentials, railAccountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsRailCredential
+	for rows.Next() {
+		var i PaymentsRailCredential
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.TenantID,
+			&i.Kind,
+			&i.Ciphertext,
+			&i.KmsKeyID,
+			&i.Fingerprint,
+			&i.Status,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.RetiredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const retireActiveRailCredential = `-- name: RetireActiveRailCredential :execrows
+UPDATE payments.rail_credentials SET status = 'retired', retired_at = $3
+WHERE rail_account_id = $1 AND kind = $2 AND status = 'active'
+`
+
+type RetireActiveRailCredentialParams struct {
+	RailAccountID uuid.UUID          `json:"rail_account_id"`
+	Kind          string             `json:"kind"`
+	RetiredAt     pgtype.Timestamptz `json:"retired_at"`
+}
+
+func (q *Queries) RetireActiveRailCredential(ctx context.Context, arg RetireActiveRailCredentialParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retireActiveRailCredential, arg.RailAccountID, arg.Kind, arg.RetiredAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

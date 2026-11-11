@@ -38,6 +38,28 @@ type Pack struct {
 	KYB *KYB
 	// Ledger is the ledger's country rules (task 3.7).
 	Ledger Ledger
+	// Rails are the country's payment rails (task 4.3).
+	Rails []Rail
+}
+
+// Rail is one payment rail in a country (data model §7's payments.rails).
+type Rail struct {
+	Code         string
+	Kind         string
+	Capabilities []string
+	Status       string
+	// VASPROTopups: clients top up on VASPRO's own paybill on this rail.
+	VASPROTopups bool
+}
+
+// TopupRail is the rail clients top up on here, if the country has one.
+func (p *Pack) TopupRail() (Rail, bool) {
+	for _, r := range p.Rails {
+		if r.VASPROTopups {
+			return r, true
+		}
+	}
+	return Rail{}, false
 }
 
 // Ledger is a country's ledger rules.
@@ -125,6 +147,13 @@ type jsonPack struct {
 		MinTier string `json:"min_tier"`
 		Enabled *bool  `json:"enabled"`
 	} `json:"services"`
+	Rails []struct {
+		Code         string   `json:"code"`
+		Kind         string   `json:"kind"`
+		Capabilities []string `json:"capabilities"`
+		Status       string   `json:"status"`
+		VASPROTopups bool     `json:"vaspro_topups"`
+	} `json:"rails"`
 }
 
 // Parse validates packYAML against schemaJSON and decodes it into a
@@ -172,6 +201,18 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		return nil, fmt.Errorf("packs: tax.vat_effective_from %q is not a date: %w", jp.Tax.VATEffectiveFrom, err)
 	}
 
+	rails := make([]Rail, len(jp.Rails))
+	topups := 0
+	for i, r := range jp.Rails {
+		rails[i] = Rail{Code: r.Code, Kind: r.Kind, Capabilities: r.Capabilities, Status: r.Status, VASPROTopups: r.VASPROTopups}
+		if r.VASPROTopups {
+			topups++
+		}
+	}
+	if topups > 1 {
+		return nil, fmt.Errorf("packs: %d rails carry VASPRO's top-ups; at most one may", topups)
+	}
+
 	var kyb *KYB
 	if jp.KYB != nil {
 		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel, RequiredDocuments: jp.KYB.RequiredDocuments}
@@ -179,6 +220,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 
 	return &Pack{
 		Ledger:      Ledger{ReversalFinanceLeadMinor: jp.Ledger.ReversalFinanceLeadMinor},
+		Rails:       rails,
 		KYB:         kyb,
 		Services:    services,
 		Version:     jp.Version,

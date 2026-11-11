@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.2 and 4.1 done (2026-11-11). Next: 4.3, VASPRO's paybill and account numbers.
+**Current task:** 4.2, 4.1 and 4.3 done (2026-11-11). Next: 4.4, top-up by STK.
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -161,6 +161,112 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
     - the service's login role is granted `payments_service` (with inheritance) and must not own the tables;
     - it reaches `payments_system` and `payments_operations` through it (granted in the migration, `WITH INHERIT FALSE`).
   - **Not in 4.1:** the service skeleton and the rails sync (4.3); account-number check characters (4.3); payout tables (Phase 13).
+
+- 4.3 VASPRO's paybill, account numbers, and the payments service (OQ-22). Your answers of 11 Nov:
+  - credentials go through an ops CLI, `-by <staff email>`, checked with a new identity RPC;
+  - `CheckTenantAccess` also returns the account's country and currency.
+  - **Contracts:**
+    - **accounts:** `CheckTenantAccessResponse` gains `country_code` and `currency` (additive; identity's and the ledger's clients ignore them), and `app.CheckAccess` returns them from the row it already loads.
+    - **identity:** `GetStaffByEmail` (with `app.StaffUserByEmail`): NOT_FOUND alike for a non-staff user and an unknown address, INVALID_ARGUMENT for a malformed one.
+    - **packs:** `rails` gets a real schema: code, kind, capabilities (§7's list), status and `vaspro_topups`. The loader refuses more than one top-up rail; `Pack.Rails` and `Pack.TopupRail()`. **KE has `mpesa_ke`**, the top-up rail.
+    - **API:** `docs/api/payments.yaml`, payments' first HTTP API: `getTopupDetails` (`GET /v1/payments/tenants/{tenantId}/topup-details`, billing:read) returns the rail, the paybill number and name, the account number and the currency.
+    - **Event:** `rail_account.verified` (named in §7).
+    - No new error codes: no verified paybill is PAY-6507.
+  - **Rules** (`domain/accountnumber.go`):
+    - 6 random characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, then 2 check characters encoding Σ (i+1)·vᵢ mod 1021.
+    - 1021 is a prime above every weight × difference, so every single-character typo, every swap of neighbours (across the check characters too) and every wrong check character is caught.
+    - `NormalizeAccountNumber` accepts lower case, spaces and hyphens.
+  - **App** (`internal/payments/app`):
+    - **`SyncRails`:** packs → `rails`; a rail no pack lists is retired, never deleted; one code in two packs stops startup.
+    - **`TopupDetails`:**
+      1. accounts' check (billing:read) gives the country;
+      2. the pack names the top-up rail;
+      3. **only an active VASPRO paybill is offered** (PAY-6507 otherwise);
+      4. the number is issued on first read with `ON CONFLICT DO NOTHING`: a concurrent first call reads the winner's number, and a taken number is retried, up to 5 times.
+    - **Ops**, each staff-checked by email through identity, as `payments_system`:
+      - **`AddRailAccount`:** a pending `vaspro_topups` paybill, `created_by` the staff member;
+      - **`SetRailCredential`:**
+        - app_key, app_secret or passkey;
+        - sealed with `Envelope` under `payments-rail-credentials`, with an HMAC fingerprint;
+        - the old row retired;
+        - **an active account goes back to pending**;
+      - **`VerifyRailAccount`:**
+        - needs all three credentials;
+        - makes a fresh Daraja OAuth call (the new `Daraja.CheckCredentials`, which never uses a cached token);
+        - then `active`, `verified_at` and `rail_account.verified`;
+        - if the credentials changed while the call was in flight, nothing changes.
+      - **The passkey is proven only by the first STK push:** Daraja has no harmless call that checks it.
+    - **`CredentialSource`** decrypts VASPRO's credentials for the adapter at call time.
+  - **Adapters and fakes:**
+    - `adapters.Accounts` (`TenantAccess`) and `adapters.Identity` (`StaffByEmail`) over gRPC;
+    - fakes `tools/fakes/tenantinfo` and `tools/fakes/staffdirectory`, since payments can't import the ledger's.
+  - **Service:**
+    - `internal/payments/payments.go`, `cmd/payments`, registered in `vaspro-all`;
+    - `PAYMENTS_DATABASE_URL`, `_NATS_URL`, `_HTTP_ADDR` (`:8084`), `_ACCOUNTS_GRPC_ADDR` (required, dialled lazily) and `_PACKS_DIR`;
+    - `Run` syncs rails, ensures `PAYMENTS_EVENTS`, relays the outbox on `payments.<event>`, and serves HTTP.
+  - **Ops CLI:** `vaspro payments add-rail-account | set-rail-credential | verify-rail-account -by <staff email>`.
+    - The secret comes from stdin, never argv.
+    - Env: `PAYMENTS_DATABASE_URL`, `PAYMENTS_IDENTITY_GRPC_ADDR`, `PAYMENTS_CREDENTIALS_KMS_KEY`, `PAYMENTS_CREDENTIAL_FINGERPRINT_KEY` (base64 of 32 bytes) and `DARAJA_BASE_URL`.
+    - Tested through the app methods it calls, as `tools/vaspro` always has been.
+  - **Gateway:** `/v1/payments` → `GATEWAY_PAYMENTS_BASE_URL` (**new and required**), with a session, payments' spec and the audit templates, like the ledger.
+  - **Moved to 4.5:** `register-c2b`, since registering URLs before the callback routes exist would register 404s.
+  - **Tests:**
+    - **domain:**
+      - 2,000 generated numbers are valid and match the database's pattern;
+      - **for 2,000 random numbers, all 248 single substitutions and all 7 neighbour swaps are refused**;
+      - normalising;
+      - 7 kinds of garbage refused;
+      - an empty random source errors.
+    - **packs:** KE's rail and top-up rail; an unknown capability, kind or status and two top-up rails refused; a pack without rails.
+    - **accounts gRPC:** the account's and a sub-account's country and currency.
+    - **identity gRPC:** staff found with a messy address; non-staff and unknown NOT_FOUND; malformed INVALID_ARGUMENT; revoked NOT_FOUND.
+    - **adapter:** `CheckCredentials` passes, then fails for a changed secret even with a token still cached.
+    - **app:**
+      - **sync:** lands, idempotent, retires a dropped rail, refuses a duplicate code.
+      - **top-up details:**
+        - issued once, the same again, another account different;
+        - **20 concurrent first calls issue one number**;
+        - a taken number retried;
+        - refusals issue nothing: no permission, a stranger, accounts down;
+        - a pending paybill and a country with no top-up rail are PAY-6507.
+      - **ops:**
+        - only staff add, set and verify;
+        - unknown rail, empty fields, unknown kind, empty secret and unknown account refused, writing nothing;
+        - verification needs all three credentials;
+        - **stored sealed** (no plaintext in the row), the fingerprint verifies, and the maker is recorded;
+        - read back exactly by `CredentialSource`;
+        - a wrong secret leaves it pending with no event;
+        - rotation retires the old row;
+        - a working call makes it active, its event valid, and offered;
+        - a new credential returns it to pending, and it's no longer offered;
+        - **no credential in the captured logs**.
+    - **API:**
+      - the spec-driven tenant test (401, VAL-4003, AUTH-4024, 200; it fails if an operation has no case);
+      - PAY-6507 before a paybill, then the details, the same number twice, and a malformed tenant ID.
+    - **gateway:** `TestGatewayBackends_Payments` (the user forwarded and spoof replaced, the token not forwarded, no session 401, no fall-through to identity).
+    - **service:** `TestService_RunsAndSyncsRails` (the real packs, `/readyz`, a clean shutdown).
+    - **Order of work:**
+      - every test was seen failing first: domain, identity, accounts, packs, adapter, app and API against stubs; the gateway with no route;
+      - except the service test, written after `payments.go`.
+      - The app tests then passed on their first run against the implementation.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - one check character instead of two;
+      - no retry on a taken number;
+      - offering a pending paybill;
+      - no staff check;
+      - rotation that leaves the account active.
+  - **`make check`** (after staging, dev stack down):
+    - the first run stopped at lint on two gosec findings: G101 read the KMS key's *name* `payments-rail-credentials` as a credential (now `nolint` with the reason, as in 3.8), and G115 flagged a rune-to-byte conversion in the typo test, which now ranges over bytes.
+    - The second run was green: lint 0 issues; 34 packages fresh (the accounts and identity changes reran their integration packages: `identity/app` 316s, `accounts/app` 217s, `gateway` 178s), 47 from the cache; no container retries.
+    - gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the gateway needs `GATEWAY_PAYMENTS_BASE_URL`;
+    - `vaspro-all` needs the `PAYMENTS_*` variables;
+    - payments' login role is granted `payments_service`;
+    - payments' HTTP port must be reachable only from the gateway;
+    - set up VASPRO's paybill with `vaspro payments add-rail-account`, then `set-rail-credential` three times, then `verify-rail-account`;
+    - on `ops/dev-environment` after merging: `env.example` gains the `PAYMENTS_*` and `GATEWAY_PAYMENTS_BASE_URL` variables, and `docs/api/API.md` is regenerated.
+  - **Not in 4.3:** C2B URL registration (4.5); clients' own rail accounts (Phase 13).
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1364,8 +1470,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.3 VASPRO's paybill, account numbers and the service skeleton, in a new conversation (plan above).
-2. Then 4.4, 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. 4.4 top-up by STK (plan above).
+2. Then 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;

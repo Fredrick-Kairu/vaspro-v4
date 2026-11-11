@@ -364,3 +364,47 @@ func TestDaraja_SecretsStayOut(t *testing.T) {
 		t.Fatalf("a refused query's error must not carry the token or passkey: %v", err)
 	}
 }
+
+// mutableCreds lets a test change the credentials between calls.
+type mutableCreds struct {
+	mu    sync.Mutex
+	creds daraja.App
+}
+
+func (m *mutableCreds) set(a daraja.App) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.creds = a
+}
+
+func (m *mutableCreds) DarajaCredentials(context.Context, uuid.UUID) (adapters.DarajaCredentials, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return adapters.DarajaCredentials{ConsumerKey: m.creds.ConsumerKey, ConsumerSecret: m.creds.ConsumerSecret, ShortCode: m.creds.ShortCode, Passkey: m.creds.Passkey}, nil
+}
+
+// CheckCredentials (task 4.3) proves the stored key and secret with a
+// fresh OAuth call: a token cached from earlier credentials never
+// passes for a changed secret.
+func TestDaraja_CheckCredentials(t *testing.T) {
+	creds := &mutableCreds{creds: app}
+	h := newHarness(t, func(c *adapters.DarajaConfig) { c.Credentials = creds })
+	ctx := context.Background()
+
+	if err := h.client.CheckCredentials(ctx, h.account); err != nil {
+		t.Fatalf("the right credentials: %v", err)
+	}
+	if _, err := h.push(t, "http://127.0.0.1:1/cb"); err != nil { // caches a token for this consumer key
+		t.Fatal(err)
+	}
+	wrong := app
+	wrong.ConsumerSecret = "fake-wrong-secret-value"
+	creds.set(wrong)
+	err := h.client.CheckCredentials(ctx, h.account)
+	if !errors.Is(err, adapters.ErrRailRefused) {
+		t.Fatalf("a wrong secret with a token still cached: %v, want ErrRailRefused", err)
+	}
+	if strings.Contains(err.Error(), wrong.ConsumerSecret) {
+		t.Fatalf("the error carries the secret: %v", err)
+	}
+}

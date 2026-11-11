@@ -87,3 +87,39 @@ func (q *Queries) GetTopupAccountForTenant(ctx context.Context, arg GetTopupAcco
 	)
 	return i, err
 }
+
+const insertTopupAccount = `-- name: InsertTopupAccount :one
+INSERT INTO payments.topup_accounts (id, tenant_id, rail_account_id, account_number)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+RETURNING id, tenant_id, rail_account_id, account_number, created_at
+`
+
+type InsertTopupAccountParams struct {
+	ID            uuid.UUID `json:"id"`
+	TenantID      uuid.UUID `json:"tenant_id"`
+	RailAccountID uuid.UUID `json:"rail_account_id"`
+	AccountNumber string    `json:"account_number"`
+}
+
+// InsertTopupAccount returns no row (pgx.ErrNoRows) when the tenant
+// already has a number on the paybill, or the number is taken: the
+// caller reads the tenant's number again and, if it has none, tries a
+// fresh number.
+func (q *Queries) InsertTopupAccount(ctx context.Context, arg InsertTopupAccountParams) (PaymentsTopupAccount, error) {
+	row := q.db.QueryRow(ctx, insertTopupAccount,
+		arg.ID,
+		arg.TenantID,
+		arg.RailAccountID,
+		arg.AccountNumber,
+	)
+	var i PaymentsTopupAccount
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RailAccountID,
+		&i.AccountNumber,
+		&i.CreatedAt,
+	)
+	return i, err
+}

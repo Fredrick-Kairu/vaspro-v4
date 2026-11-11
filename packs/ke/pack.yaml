@@ -75,3 +75,13 @@ services:
     min_tier: financial
   collections:
     min_tier: financial
+
+# Payment rails (task 4.3, OQ-22). payments syncs these into
+# payments.rails at startup. M-Pesa is where clients top up their main
+# wallet, on VASPRO's own paybill.
+rails:
+  - code: mpesa_ke
+    kind: mobile_money
+    capabilities: [stk, c2b, status_query, balance_query, reversal, b2c, b2b]
+    status: live
+    vaspro_topups: true

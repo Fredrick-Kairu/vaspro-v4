@@ -1,0 +1,114 @@
+openapi: 3.1.0
+info:
+  title: VASPRO payments API
+  version: "1"
+  description: >
+    The payments service's HTTP API (data model §7, system design §4.1
+    and §13). Every operation is reached through the gateway, which
+    checks the dashboard session (sessionBearer) before payments sees
+    the request.
+servers:
+  - url: /
+paths:
+  /v1/payments/tenants/{tenantId}/topup-details:
+    get:
+      operationId: getTopupDetails
+      summary: Where and how the account tops up its main wallet
+      description: >
+        VASPRO's M-Pesa paybill for the account's country and the
+        account's own account number on it (task 4.3, OQ-22). A payment
+        to that paybill with that account number credits the main
+        wallet. The number is issued the first time it's asked for and
+        never changes; it has two check characters, so a mistyped one
+        is never credited to another account. Needs billing:read in the
+        account (AUTH-4024 otherwise); an account the caller isn't a
+        member of is VAL-4003, as if it didn't exist. PAY-6507 while
+        VASPRO's paybill for the country isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The paybill and account number.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopupDetails'
+              example:
+                rail: mpesa_ke
+                paybill_number: "600100"
+                paybill_name: VASPRO
+                account_number: ABC23456
+                currency: KES
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user and session to payments.
+  parameters:
+    TenantID:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    TopupDetails:
+      type: object
+      required: [rail, paybill_number, paybill_name, account_number, currency]
+      properties:
+        rail:
+          type: string
+          description: The payment rail, e.g. mpesa_ke.
+        paybill_number:
+          type: string
+          description: VASPRO's paybill (business number) to pay.
+        paybill_name:
+          type: string
+          description: The name the payer's phone shows for the paybill.
+        account_number:
+          type: string
+          description: The account number to enter; 8 characters, letters and digits without 0, 1, I or O.
+        currency:
+          type: string
+          description: ISO 4217, e.g. KES.
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string
