@@ -1,0 +1,932 @@
+openapi: 3.1.0
+info:
+  title: VASPRO payments API
+  version: "1"
+  description: >
+    The payments service's HTTP API (data model §7, system design §4.1
+    and §13). Every operation is reached through the gateway, which
+    checks the dashboard session (sessionBearer) before payments sees
+    the request.
+servers:
+  - url: /
+paths:
+  /v1/payments/tenants/{tenantId}/topup-details:
+    get:
+      operationId: getTopupDetails
+      summary: Where and how the account tops up its main wallet
+      description: >
+        VASPRO's M-Pesa paybill for the account's country and the
+        account's own account number on it (task 4.3, OQ-22). A payment
+        to that paybill with that account number credits the main
+        wallet. The number is issued the first time it's asked for and
+        never changes; it has two check characters, so a mistyped one
+        is never credited to another account. Needs billing:read in the
+        account (AUTH-4024 otherwise); an account the caller isn't a
+        member of is VAL-4003, as if it didn't exist. PAY-6507 while
+        VASPRO's paybill for the country isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The paybill and account number.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopupDetails'
+              example:
+                rail: mpesa_ke
+                paybill_number: "600100"
+                paybill_name: VASPRO
+                account_number: ABC23456
+                currency: KES
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/topups:
+    post:
+      operationId: createTopup
+      summary: Top up the main wallet by STK push
+      description: >
+        Prompts the payer's phone to pay VASPRO's paybill for the
+        account's country, with the account's number as the reference
+        (task 4.4). The wallet is credited only when M-Pesa confirms the
+        payment, by the amount M-Pesa reports; poll getTopup or wait for
+        the wallet.credited webhook. Replaying the Idempotency-Key
+        returns the same top-up and never prompts again. An outcome the
+        rail gives at once (refused, timed out) comes back as status
+        failed with its PAY code, not as an HTTP error. Needs
+        billing:manage (AUTH-4024 otherwise); an account the caller
+        isn't a member of is VAL-4003. PAY-6507 while VASPRO's paybill
+        isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopupRequest'
+            example:
+              amount_minor: 150000
+              payer_phone: "+254708374149"
+      responses:
+        "201":
+          description: The top-up, usually pending until the payer answers the prompt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topup'
+              example:
+                id: "0192c3a1-7f00-7000-8000-0000000000aa"
+                status: pending
+                amount_minor: 150000
+                currency: KES
+                payer_phone: "+254708374149"
+                account_reference: ABC23456
+                created_at: "2026-11-11T09:00:00Z"
+                expires_at: "2026-11-11T09:03:00Z"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/topups/{topupId}:
+    get:
+      operationId: getTopup
+      summary: One STK top-up and its outcome
+      description: >
+        succeeded with the M-Pesa receipt once confirmed; failed,
+        cancelled or expired with a PAY code otherwise. Needs
+        billing:read (AUTH-4024 otherwise); an account or top-up the
+        caller can't see is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: topupId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The top-up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topup'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk:
+    post:
+      operationId: receiveStkCallback
+      summary: Receive Daraja's STK result (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja, not by clients, so it carries no
+        session and no Idempotency-Key (task 4.4). Daraja can't sign
+        callbacks: the source address must be one of Safaricom's
+        published ranges and the path token VASPRO gave Daraja for this
+        paybill must match (OQ-22); otherwise AUTH-4013 and nothing is
+        recorded. A repeated callback changes nothing. One that arrives
+        before the push it answers is recorded and applied as soon as
+        the push is.
+      security: []
+      parameters:
+        - name: railAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation:
+    post:
+      operationId: receiveC2bValidation
+      summary: Validate a paybill payment (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja before a payment to VASPRO's paybill
+        completes, when external validation is enabled (task 4.5). It
+        accepts every payment that could be VASPRO's, unknown account
+        numbers included (they go to suspense, OQ-22); only a payment to
+        another shortcode or of no amount is refused (C2B00016). Checked
+        by source and path token like the STK callback (AUTH-4013).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RailAccountID'
+        - $ref: '#/components/parameters/CallbackToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Accepted, or refused with a C2B result code.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation:
+    post:
+      operationId: receiveC2bConfirmation
+      summary: Receive a paybill payment's confirmation (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja when a payment to VASPRO's paybill
+        completes (task 4.5). A valid account number credits that
+        account's main wallet; anything else goes to suspense for staff.
+        A repeated confirmation, or one for a receipt an STK callback
+        already recorded, changes nothing. Checked by source and path
+        token (AUTH-4013).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RailAccountID'
+        - $ref: '#/components/parameters/CallbackToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/suspense:
+    get:
+      operationId: listSuspense
+      summary: Payments in suspense (staff only)
+      description: >
+        Payments to VASPRO's paybill that named no client, oldest first
+        (task 4.5), for staff to match. Paged with next_cursor. Staff
+        only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspenseList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/collection-notices/{noticeId}/match:
+    post:
+      operationId: matchCollectionNotice
+      summary: Credit a payment in suspense to a client (staff only)
+      description: >
+        Moves a payment out of suspense into the main wallet of the
+        client whose account number staff name (task 4.5): an issued
+        number only (VAL-4003 otherwise), with a reason. A payment is
+        matched once: a second match is VAL-4014. One not yet in the
+        ledger's suspense account is PAY-6507; try again shortly. Staff
+        only (AUTH-4025), with a fresh step-up (AUTH-4012).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: noticeId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRequest'
+            example:
+              account_number: ABC23456
+              reason: Payer called; typed 0 for O in the account number
+      responses:
+        "200":
+          description: The payment, now matched.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspenseNotice'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/statement-imports:
+    post:
+      operationId: createStatementImport
+      summary: Import and reconcile a day's paybill statement (staff only)
+      description: >
+        Staff upload the M-Pesa org portal's statement export for one of
+        VASPRO's paybills and one local day (task 4.6). Every completed
+        payment in on it is matched to VASPRO's records by receipt, and
+        every record of the day must be on it; every record must also be
+        in the ledger's provider clearing for its amount, and every
+        clearing debit of the day must be a record's. Each gap opens an
+        exception. A day is imported once (VAL-4017). A file that isn't
+        the export is VAL-4000 and nothing is recorded. Staff only
+        (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatementImportRequest'
+      responses:
+        "201":
+          description: Imported and reconciled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementImport'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/recon-exceptions:
+    get:
+      operationId: listReconExceptions
+      summary: Reconciliation exceptions (staff only)
+      description: Oldest first, optionally by status; paged with next_cursor. Staff only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, resolved, written_off]
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of exceptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconExceptionList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/recon-exceptions/{exceptionId}/resolution:
+    post:
+      operationId: resolveReconException
+      summary: Close a reconciliation exception (staff only)
+      description: >
+        resolved (explained) or written_off, always with how (task 4.6).
+        Only an open exception can be closed (VAL-4014). Staff only
+        (AUTH-4025), with a fresh step-up (AUTH-4012).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: exceptionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolutionRequest'
+            example:
+              status: resolved
+              resolution: The payer was refunded by Safaricom; reversal R-12 matches it.
+      responses:
+        "200":
+          description: The exception, closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconException'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/checkout-links:
+    post:
+      operationId: createCheckoutLink
+      summary: Create a checkout link to top up the main wallet
+      description: >
+        A signed link anyone can open, with no sign-in, to pay this
+        amount into the account's main wallet by STK push (task 4.8):
+        send it to whoever pays, often your finance team. It expires
+        (default 24 hours, at most 7 days) and stops working once paid.
+        Needs billing:manage (AUTH-4024 otherwise); PAY-6507 while
+        VASPRO's paybill isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutLinkRequest'
+            example:
+              amount_minor: 500000
+              expires_in_minutes: 1440
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutLink'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}:
+    get:
+      operationId: getCheckout
+      summary: What a checkout link asks for (public)
+      description: >
+        No sign-in: the link's signature is the credential (task 4.8). A
+        link that isn't VASPRO's is VAL-4003. An expired or paid link is
+        shown with its status.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+      responses:
+        "200":
+          description: The checkout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checkout'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}/payments:
+    post:
+      operationId: createCheckoutPayment
+      summary: Pay a checkout link by STK push (public)
+      description: >
+        Prompts the payer's phone (task 4.8). A repeated Idempotency-Key
+        returns the same payment without prompting again. A paid link is
+        VAL-4014; an expired or foreign one VAL-4003; more than five
+        attempts on one link RATE-4290.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutPaymentRequest'
+            example:
+              payer_phone: "+254708374149"
+      responses:
+        "201":
+          description: The payment, usually pending until the payer answers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutPayment'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "429":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}/payments/{paymentId}:
+    get:
+      operationId: getCheckoutPayment
+      summary: A checkout payment's status (public)
+      description: Only a payment made through this link (VAL-4003 otherwise). No receipt or phone number is shown.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutPayment'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user and session to payments.
+  parameters:
+    TenantID:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+    RailAccountID:
+      name: railAccountId
+      in: path
+      required: true
+      schema:
+        type: string
+    CallbackToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckoutToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    TopupDetails:
+      type: object
+      required: [rail, paybill_number, paybill_name, account_number, currency]
+      properties:
+        rail:
+          type: string
+          description: The payment rail, e.g. mpesa_ke.
+        paybill_number:
+          type: string
+          description: VASPRO's paybill (business number) to pay.
+        paybill_name:
+          type: string
+          description: The name the payer's phone shows for the paybill.
+        account_number:
+          type: string
+          description: The account number to enter; 8 characters, letters and digits without 0, 1, I or O.
+        currency:
+          type: string
+          description: ISO 4217, e.g. KES.
+    TopupRequest:
+      type: object
+      required: [amount_minor, payer_phone]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: In minor units of the account's currency, a whole number of shillings (STK pushes whole units).
+        payer_phone:
+          type: string
+          description: The phone to prompt, in E.164, e.g. +254708374149.
+    Topup:
+      type: object
+      required: [id, status, amount_minor, currency, payer_phone, account_reference, created_at, expires_at]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [created, pending, succeeded, failed, expired, cancelled]
+        amount_minor:
+          type: integer
+          format: int64
+          description: The amount asked for.
+        currency:
+          type: string
+        payer_phone:
+          type: string
+        account_reference:
+          type: string
+          description: The account's number on VASPRO's paybill, sent as the payment's reference.
+        receipt:
+          type: string
+          description: The M-Pesa receipt, once succeeded.
+        error_code:
+          type: string
+          description: The PAY code, when failed, cancelled or expired.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    SuspenseNotice:
+      type: object
+      required: [id, receipt, amount_minor, currency, paid_at, status]
+      properties:
+        id:
+          type: string
+        receipt:
+          type: string
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        bill_ref:
+          type: string
+          description: The account number as the payer typed it.
+        payer_name:
+          type: string
+        payer_phone:
+          type: string
+        paid_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [suspense, matched]
+        tenant_id:
+          type: string
+          description: The client credited, once matched.
+    SuspenseList:
+      type: object
+      required: [notices]
+      properties:
+        notices:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuspenseNotice'
+        next_cursor:
+          type: string
+    MatchRequest:
+      type: object
+      required: [account_number, reason]
+      properties:
+        account_number:
+          type: string
+          description: The client's account number on VASPRO's paybill.
+        reason:
+          type: string
+          description: Why this payment is the client's; kept with the match.
+    StatementImportRequest:
+      type: object
+      required: [rail_account_id, date, csv]
+      properties:
+        rail_account_id:
+          type: string
+          description: VASPRO's paybill the statement is for.
+        date:
+          type: string
+          description: The local day the statement covers, YYYY-MM-DD.
+        csv:
+          type: string
+          description: The org portal's statement export, as downloaded.
+    StatementImport:
+      type: object
+      required: [id, lines, matched, exceptions_opened]
+      properties:
+        id:
+          type: string
+        lines:
+          type: integer
+        matched:
+          type: integer
+        exceptions_opened:
+          type: integer
+    ReconException:
+      type: object
+      required: [id, rail_account_id, kind, status, opened_at]
+      properties:
+        id:
+          type: string
+        rail_account_id:
+          type: string
+        kind:
+          type: string
+          enum: [missing_in_vaspro, missing_on_rail, amount_mismatch, status_mismatch, duplicate, ledger_mismatch]
+        status:
+          type: string
+          enum: [open, resolved, written_off]
+        tenant_id:
+          type: string
+        statement_line_id:
+          type: integer
+          format: int64
+        reference_type:
+          type: string
+        reference_id:
+          type: string
+        resolution:
+          type: string
+        resolved_by:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+    ReconExceptionList:
+      type: object
+      required: [exceptions]
+      properties:
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconException'
+        next_cursor:
+          type: string
+    ResolutionRequest:
+      type: object
+      required: [status, resolution]
+      properties:
+        status:
+          type: string
+          enum: [resolved, written_off]
+        resolution:
+          type: string
+    CheckoutLinkRequest:
+      type: object
+      required: [amount_minor]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Whole units of the account's currency, in minor units.
+        expires_in_minutes:
+          type: integer
+          minimum: 5
+          maximum: 10080
+    CheckoutLink:
+      type: object
+      required: [link_id, token, url, amount_minor, currency, expires_at]
+      properties:
+        link_id:
+          type: string
+        token:
+          type: string
+        url:
+          type: string
+          description: The page to send the payer to.
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    Checkout:
+      type: object
+      required: [amount_minor, currency, payee, account_reference, status, expires_at]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        payee:
+          type: string
+          description: The paybill's registered name.
+        account_reference:
+          type: string
+        status:
+          type: string
+          enum: [open, paid, expired]
+        expires_at:
+          type: string
+          format: date-time
+    CheckoutPaymentRequest:
+      type: object
+      required: [payer_phone]
+      properties:
+        payer_phone:
+          type: string
+          description: E.164, e.g. +254708374149.
+    CheckoutPayment:
+      type: object
+      required: [payment_id, status]
+      properties:
+        payment_id:
+          type: string
+        status:
+          type: string
+          enum: [created, pending, succeeded, failed, expired, cancelled]
+        error_code:
+          type: string
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

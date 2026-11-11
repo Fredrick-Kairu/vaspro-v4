@@ -645,6 +645,94 @@ func (x *IsStaffResponse) GetFinanceLead() bool {
 	return false
 }
 
+type GetStaffByEmailRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStaffByEmailRequest) Reset() {
+	*x = GetStaffByEmailRequest{}
+	mi := &file_identity_v1_identity_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStaffByEmailRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStaffByEmailRequest) ProtoMessage() {}
+
+func (x *GetStaffByEmailRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStaffByEmailRequest.ProtoReflect.Descriptor instead.
+func (*GetStaffByEmailRequest) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetStaffByEmailRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type GetStaffByEmailResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStaffByEmailResponse) Reset() {
+	*x = GetStaffByEmailResponse{}
+	mi := &file_identity_v1_identity_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStaffByEmailResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStaffByEmailResponse) ProtoMessage() {}
+
+func (x *GetStaffByEmailResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStaffByEmailResponse.ProtoReflect.Descriptor instead.
+func (*GetStaffByEmailResponse) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetStaffByEmailResponse) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
 var File_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_identity_v1_identity_proto_rawDesc = "" +
@@ -683,14 +771,19 @@ const file_identity_v1_identity_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"O\n" +
 	"\x0fIsStaffResponse\x12\x19\n" +
 	"\bis_staff\x18\x01 \x01(\bR\aisStaff\x12!\n" +
-	"\ffinance_lead\x18\x02 \x01(\bR\vfinanceLead2\x86\x04\n" +
+	"\ffinance_lead\x18\x02 \x01(\bR\vfinanceLead\".\n" +
+	"\x16GetStaffByEmailRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"2\n" +
+	"\x17GetStaffByEmailResponse\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId2\xe4\x04\n" +
 	"\x0fIdentityService\x12Y\n" +
 	"\x0eResolveSession\x12\".identity.v1.ResolveSessionRequest\x1a#.identity.v1.ResolveSessionResponse\x12V\n" +
 	"\rEnsureInvitee\x12!.identity.v1.EnsureInviteeRequest\x1a\".identity.v1.EnsureInviteeResponse\x12Y\n" +
 	"\x0eSendInvitation\x12\".identity.v1.SendInvitationRequest\x1a#.identity.v1.SendInvitationResponse\x12V\n" +
 	"\rIsStepUpFresh\x12!.identity.v1.IsStepUpFreshRequest\x1a\".identity.v1.IsStepUpFreshResponse\x12G\n" +
 	"\bGetUsers\x12\x1c.identity.v1.GetUsersRequest\x1a\x1d.identity.v1.GetUsersResponse\x12D\n" +
-	"\aIsStaff\x12\x1b.identity.v1.IsStaffRequest\x1a\x1c.identity.v1.IsStaffResponseBBZ@github.com/Fredrick-Kairu/vaspro-v4/proto/identity/v1;identityv1b\x06proto3"
+	"\aIsStaff\x12\x1b.identity.v1.IsStaffRequest\x1a\x1c.identity.v1.IsStaffResponse\x12\\\n" +
+	"\x0fGetStaffByEmail\x12#.identity.v1.GetStaffByEmailRequest\x1a$.identity.v1.GetStaffByEmailResponseBBZ@github.com/Fredrick-Kairu/vaspro-v4/proto/identity/v1;identityv1b\x06proto3"
 
 var (
 	file_identity_v1_identity_proto_rawDescOnce sync.Once
@@ -704,21 +797,23 @@ func file_identity_v1_identity_proto_rawDescGZIP() []byte {
 	return file_identity_v1_identity_proto_rawDescData
 }
 
-var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_identity_v1_identity_proto_goTypes = []any{
-	(*ResolveSessionRequest)(nil),  // 0: identity.v1.ResolveSessionRequest
-	(*ResolveSessionResponse)(nil), // 1: identity.v1.ResolveSessionResponse
-	(*EnsureInviteeRequest)(nil),   // 2: identity.v1.EnsureInviteeRequest
-	(*EnsureInviteeResponse)(nil),  // 3: identity.v1.EnsureInviteeResponse
-	(*SendInvitationRequest)(nil),  // 4: identity.v1.SendInvitationRequest
-	(*SendInvitationResponse)(nil), // 5: identity.v1.SendInvitationResponse
-	(*IsStepUpFreshRequest)(nil),   // 6: identity.v1.IsStepUpFreshRequest
-	(*IsStepUpFreshResponse)(nil),  // 7: identity.v1.IsStepUpFreshResponse
-	(*GetUsersRequest)(nil),        // 8: identity.v1.GetUsersRequest
-	(*User)(nil),                   // 9: identity.v1.User
-	(*GetUsersResponse)(nil),       // 10: identity.v1.GetUsersResponse
-	(*IsStaffRequest)(nil),         // 11: identity.v1.IsStaffRequest
-	(*IsStaffResponse)(nil),        // 12: identity.v1.IsStaffResponse
+	(*ResolveSessionRequest)(nil),   // 0: identity.v1.ResolveSessionRequest
+	(*ResolveSessionResponse)(nil),  // 1: identity.v1.ResolveSessionResponse
+	(*EnsureInviteeRequest)(nil),    // 2: identity.v1.EnsureInviteeRequest
+	(*EnsureInviteeResponse)(nil),   // 3: identity.v1.EnsureInviteeResponse
+	(*SendInvitationRequest)(nil),   // 4: identity.v1.SendInvitationRequest
+	(*SendInvitationResponse)(nil),  // 5: identity.v1.SendInvitationResponse
+	(*IsStepUpFreshRequest)(nil),    // 6: identity.v1.IsStepUpFreshRequest
+	(*IsStepUpFreshResponse)(nil),   // 7: identity.v1.IsStepUpFreshResponse
+	(*GetUsersRequest)(nil),         // 8: identity.v1.GetUsersRequest
+	(*User)(nil),                    // 9: identity.v1.User
+	(*GetUsersResponse)(nil),        // 10: identity.v1.GetUsersResponse
+	(*IsStaffRequest)(nil),          // 11: identity.v1.IsStaffRequest
+	(*IsStaffResponse)(nil),         // 12: identity.v1.IsStaffResponse
+	(*GetStaffByEmailRequest)(nil),  // 13: identity.v1.GetStaffByEmailRequest
+	(*GetStaffByEmailResponse)(nil), // 14: identity.v1.GetStaffByEmailResponse
 }
 var file_identity_v1_identity_proto_depIdxs = []int32{
 	9,  // 0: identity.v1.GetUsersResponse.users:type_name -> identity.v1.User
@@ -728,14 +823,16 @@ var file_identity_v1_identity_proto_depIdxs = []int32{
 	6,  // 4: identity.v1.IdentityService.IsStepUpFresh:input_type -> identity.v1.IsStepUpFreshRequest
 	8,  // 5: identity.v1.IdentityService.GetUsers:input_type -> identity.v1.GetUsersRequest
 	11, // 6: identity.v1.IdentityService.IsStaff:input_type -> identity.v1.IsStaffRequest
-	1,  // 7: identity.v1.IdentityService.ResolveSession:output_type -> identity.v1.ResolveSessionResponse
-	3,  // 8: identity.v1.IdentityService.EnsureInvitee:output_type -> identity.v1.EnsureInviteeResponse
-	5,  // 9: identity.v1.IdentityService.SendInvitation:output_type -> identity.v1.SendInvitationResponse
-	7,  // 10: identity.v1.IdentityService.IsStepUpFresh:output_type -> identity.v1.IsStepUpFreshResponse
-	10, // 11: identity.v1.IdentityService.GetUsers:output_type -> identity.v1.GetUsersResponse
-	12, // 12: identity.v1.IdentityService.IsStaff:output_type -> identity.v1.IsStaffResponse
-	7,  // [7:13] is the sub-list for method output_type
-	1,  // [1:7] is the sub-list for method input_type
+	13, // 7: identity.v1.IdentityService.GetStaffByEmail:input_type -> identity.v1.GetStaffByEmailRequest
+	1,  // 8: identity.v1.IdentityService.ResolveSession:output_type -> identity.v1.ResolveSessionResponse
+	3,  // 9: identity.v1.IdentityService.EnsureInvitee:output_type -> identity.v1.EnsureInviteeResponse
+	5,  // 10: identity.v1.IdentityService.SendInvitation:output_type -> identity.v1.SendInvitationResponse
+	7,  // 11: identity.v1.IdentityService.IsStepUpFresh:output_type -> identity.v1.IsStepUpFreshResponse
+	10, // 12: identity.v1.IdentityService.GetUsers:output_type -> identity.v1.GetUsersResponse
+	12, // 13: identity.v1.IdentityService.IsStaff:output_type -> identity.v1.IsStaffResponse
+	14, // 14: identity.v1.IdentityService.GetStaffByEmail:output_type -> identity.v1.GetStaffByEmailResponse
+	8,  // [8:15] is the sub-list for method output_type
+	1,  // [1:8] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -752,7 +849,7 @@ func file_identity_v1_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_identity_v1_identity_proto_rawDesc), len(file_identity_v1_identity_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

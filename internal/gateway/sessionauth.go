@@ -38,12 +38,23 @@ type SessionResolver interface {
 	ResolveSession(ctx context.Context, token string) (sessionID, userID string, err error)
 }
 
+// headerClientIP carries the caller's address (callerIP: the client a
+// trusted proxy named, otherwise the connection's peer) (task 4.4):
+// payments checks a rail callback's source against it. Duplicated from
+// payments' api.HeaderClientIP.
+const headerClientIP = "X-Vaspro-Client-Ip"
+
 // stripForwardedIdentity removes any client-sent forwarded-identity
-// headers from every request, whichever backend it goes to.
+// headers from every request, whichever backend it goes to, and sets
+// the client address the gateway itself saw.
 func stripForwardedIdentity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del(headerUserID)
 		r.Header.Del(headerSessionID)
+		r.Header.Del(headerClientIP)
+		if ip, ok := callerIP(r); ok {
+			r.Header.Set(headerClientIP, ip.String())
+		}
 		next.ServeHTTP(w, r)
 	})
 }

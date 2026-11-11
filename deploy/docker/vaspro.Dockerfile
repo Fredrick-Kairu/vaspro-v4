@@ -1,7 +1,7 @@
 # vaspro, the operations CLI (staff grants, signing-key rotation,
 # pack validation): build from the repository root,
 #   docker build -f deploy/docker/vaspro.Dockerfile .
-FROM golang:1.26.10-alpine AS build
+FROM golang:1.26.11-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

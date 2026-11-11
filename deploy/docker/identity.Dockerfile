@@ -1,6 +1,6 @@
 # identity: build from the repository root,
 #   docker build -f deploy/docker/identity.Dockerfile .
-FROM golang:1.26.10-alpine AS build
+FROM golang:1.26.11-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

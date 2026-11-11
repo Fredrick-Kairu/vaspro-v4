@@ -27,6 +27,7 @@ type UseCases interface {
 	IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error)
 	GetUsers(ctx context.Context, userIDs []uuid.UUID) ([]app.UserSummary, error)
 	StaffRole(ctx context.Context, userID uuid.UUID) (app.StaffRole, error)
+	StaffUserByEmail(ctx context.Context, email string) (uuid.UUID, error)
 }
 
 // Server implements identityv1.IdentityServiceServer.
@@ -119,6 +120,22 @@ func (s *Server) IsStaff(ctx context.Context, req *identityv1.IsStaffRequest) (*
 		return nil, status.Error(codes.Internal, "checking staff failed")
 	}
 	return &identityv1.IsStaffResponse{IsStaff: role.Staff, FinanceLead: role.FinanceLead}, nil
+}
+
+// GetStaffByEmail implements identityv1.IdentityServiceServer (task
+// 4.3): a user who isn't staff and an unknown address are NOT_FOUND
+// alike, so the answer says nothing about who has an account.
+func (s *Server) GetStaffByEmail(ctx context.Context, req *identityv1.GetStaffByEmailRequest) (*identityv1.GetStaffByEmailResponse, error) {
+	userID, err := s.sessions.StaffUserByEmail(ctx, req.GetEmail())
+	switch {
+	case errors.Is(err, app.ErrValidation):
+		return nil, status.Error(codes.InvalidArgument, "email is not a valid address")
+	case errors.Is(err, app.ErrNotFound):
+		return nil, status.Error(codes.NotFound, "no such staff member")
+	case err != nil:
+		return nil, status.Error(codes.Internal, "looking up staff failed")
+	}
+	return &identityv1.GetStaffByEmailResponse{UserId: userID.String()}, nil
 }
 
 // GetUsers implements identityv1.IdentityServiceServer.

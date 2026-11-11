@@ -46,6 +46,12 @@ const (
 	KYC4021  Code = "KYC-4021"
 	LIM4501  Code = "LIM-4501"
 	PAY6501  Code = "PAY-6501"
+	PAY6502  Code = "PAY-6502"
+	PAY6503  Code = "PAY-6503"
+	PAY6504  Code = "PAY-6504"
+	PAY6505  Code = "PAY-6505"
+	PAY6506  Code = "PAY-6506"
+	PAY6507  Code = "PAY-6507"
 	RATE4290 Code = "RATE-4290"
 	RTE6020  Code = "RTE-6020"
 	SYS5030  Code = "SYS-5030"
@@ -67,6 +73,7 @@ const (
 	VAL4014  Code = "VAL-4014"
 	VAL4015  Code = "VAL-4015"
 	VAL4016  Code = "VAL-4016"
+	VAL4017  Code = "VAL-4017"
 )
 
 var registry = map[Code]entry{
@@ -302,6 +309,54 @@ var registry = map[Code]entry{
 		Retryable: false,
 		Billable:  false,
 	},
+	PAY6502: {
+		Status:    504,
+		Title:     "Rail timed out, status being checked",
+		Cause:     "The payment rail didn't answer in time, so the outcome isn't known yet.",
+		Fix:       "Don't resend. VASPRO asks the rail for the outcome and updates the payment; check its status.",
+		Retryable: false,
+		Billable:  false,
+	},
+	PAY6503: {
+		Status:    422,
+		Title:     "Cancelled by the payer",
+		Cause:     "The payer cancelled the payment prompt on their phone.",
+		Fix:       "Start a new payment if the payer wants to try again.",
+		Retryable: true,
+		Billable:  false,
+	},
+	PAY6504: {
+		Status:    422,
+		Title:     "Payer didn't respond",
+		Cause:     "The payment prompt reached no one or wasn't answered in time.",
+		Fix:       "Check the phone is on and has signal, then start a new payment.",
+		Retryable: true,
+		Billable:  false,
+	},
+	PAY6505: {
+		Status:    422,
+		Title:     "Payer has insufficient funds",
+		Cause:     "The payer's mobile money balance couldn't cover the payment.",
+		Fix:       "Ask the payer to add funds, then start a new payment.",
+		Retryable: false,
+		Billable:  false,
+	},
+	PAY6506: {
+		Status:    422,
+		Title:     "Wrong PIN entered",
+		Cause:     "The payer entered a wrong PIN on the payment prompt.",
+		Fix:       "Start a new payment and ask the payer to enter their PIN carefully.",
+		Retryable: true,
+		Billable:  false,
+	},
+	PAY6507: {
+		Status:    503,
+		Title:     "Rail refused or unavailable",
+		Cause:     "The payment rail refused the request or couldn't be reached.",
+		Fix:       "Retry later; if it keeps happening, contact support with the request ID from the response.",
+		Retryable: true,
+		Billable:  false,
+	},
 	RATE4290: {
 		Status:    429,
 		Title:     "Rate limit exceeded",
@@ -467,6 +522,14 @@ var registry = map[Code]entry{
 		Title:     "Reversal isn't awaiting pay-back",
 		Cause:     "Only a pay-back reversal that's posted and not yet paid back can record a pay-back.",
 		Fix:       "Read the reversal's status; chargebacks and operator reversals have no pay-back.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4017: {
+		Status:    409,
+		Title:     "Statement already imported",
+		Cause:     "A statement for this paybill and day has already been imported and reconciled.",
+		Fix:       "Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import.",
 		Retryable: false,
 		Billable:  false,
 	},

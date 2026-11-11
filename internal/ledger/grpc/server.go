@@ -268,6 +268,28 @@ func (s *Server) GetBalances(ctx context.Context, req *ledgerv1.GetBalancesReque
 	return out, nil
 }
 
+// ListClearingEntries implements ledgerv1.LedgerServiceServer (task
+// 4.6): a bad request is INVALID_ARGUMENT.
+func (s *Server) ListClearingEntries(ctx context.Context, req *ledgerv1.ListClearingEntriesRequest) (*ledgerv1.ListClearingEntriesResponse, error) {
+	entries, next, err := s.svc.ClearingEntries(ctx, req.GetRail(), req.GetCurrency(),
+		time.Unix(req.GetPostedFromUnix(), 0), time.Unix(req.GetPostedToUnix(), 0), req.GetAfterEntryId(), int(req.GetLimit()))
+	if err != nil {
+		return nil, s.toStatus(err)
+	}
+	out := &ledgerv1.ListClearingEntriesResponse{NextAfterEntryId: next}
+	for _, e := range entries {
+		ce := &ledgerv1.ClearingEntry{
+			EntryId: e.EntryID, TransactionId: e.TransactionID.String(), Direction: e.Direction,
+			AmountMinor: e.AmountMinor, ReferenceType: e.ReferenceType, PostedAtUnix: e.PostedAt.Unix(),
+		}
+		if e.ReferenceID != nil {
+			ce.ReferenceId = e.ReferenceID.String()
+		}
+		out.Entries = append(out.Entries, ce)
+	}
+	return out, nil
+}
+
 // toStatus maps the app's errors to a gRPC status with the VASPRO code
 // in an ErrorInfo detail. Anything unexpected is logged and INTERNAL
 // with no detail of its cause.

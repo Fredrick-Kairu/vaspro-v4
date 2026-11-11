@@ -273,3 +273,34 @@ func TestIsStaff(t *testing.T) {
 		t.Fatalf("finance lead: %v, %v", resp, err)
 	}
 }
+
+// GetStaffByEmail (task 4.3): staff are found by email; anyone else is
+// NOT_FOUND, whether or not the address belongs to a user.
+func TestGetStaffByEmail(t *testing.T) {
+	client, svc, sender := newClient(t)
+	ctx := context.Background()
+	_, ada := signInAs(t, svc, sender, "ada@example.com")
+	signInAs(t, svc, sender, "bob@example.com")
+	if err := svc.GrantStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := client.GetStaffByEmail(ctx, &identityv1.GetStaffByEmailRequest{Email: "  ADA@example.com "})
+	if err != nil || resp.GetUserId() != ada {
+		t.Fatalf("staff by email: %v, %v; want %s", resp, err, ada)
+	}
+	for name, email := range map[string]string{"not staff": "bob@example.com", "no such user": "carol@example.com"} {
+		if _, err := client.GetStaffByEmail(ctx, &identityv1.GetStaffByEmailRequest{Email: email}); status.Code(err) != codes.NotFound {
+			t.Errorf("%s: got %v, want NotFound", name, err)
+		}
+	}
+	if _, err := client.GetStaffByEmail(ctx, &identityv1.GetStaffByEmailRequest{Email: "not an address"}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("malformed: got %v, want InvalidArgument", err)
+	}
+	if err := svc.RevokeStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetStaffByEmail(ctx, &identityv1.GetStaffByEmailRequest{Email: "ada@example.com"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("revoked staff: got %v, want NotFound", err)
+	}
+}

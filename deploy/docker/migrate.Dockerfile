@@ -1,7 +1,7 @@
 # migrate: the dev environment's one-shot database set-up
 # (deploy/compose/db-setup.sh): roles, goose migrations, grants.
 #   docker build -f deploy/docker/migrate.Dockerfile .
-FROM golang:1.26.10-alpine AS build
+FROM golang:1.26.11-alpine AS build
 # goose's version matches go.mod's; the tags leave out drivers we don't use.
 RUN CGO_ENABLED=0 go install -trimpath -ldflags="-s -w" \
     -tags='no_clickhouse no_libsql no_mssql no_mysql no_sqlite3 no_vertica no_ydb' \

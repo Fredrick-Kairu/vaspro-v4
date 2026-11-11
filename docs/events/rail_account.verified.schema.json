@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/rail_account.verified.schema.json",
+  "title": "rail_account.verified",
+  "description": "Published by payments when a rail account turns active because a test call with its stored credentials worked (data model §7's Events table; task 4.3). The credentials themselves never appear in any event. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["rail_account_id", "rail_code", "account_type", "number", "uses", "verified_by", "verified_at"],
+  "properties": {
+    "rail_account_id": {"type": "string", "format": "uuid"},
+    "tenant_id": {"type": "string", "format": "uuid", "description": "The client the account belongs to; absent for VASPRO's own accounts."},
+    "rail_code": {"type": "string"},
+    "account_type": {"type": "string", "enum": ["paybill", "till", "b2c_shortcode", "b2b_shortcode", "bank_account", "merchant"]},
+    "number": {"type": "string"},
+    "uses": {"type": "array", "items": {"type": "string", "enum": ["collections", "payouts", "vaspro_topups"]}, "minItems": 1},
+    "verified_by": {"type": "string", "format": "uuid", "description": "The staff member who ran the check."},
+    "verified_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

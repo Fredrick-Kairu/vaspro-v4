@@ -412,6 +412,9 @@ func newTestGatewayWithAccounts(t *testing.T, identityBaseURL, accountsBaseURL s
 		// its API, TestGatewayBackends_Ledger the routing.
 		LedgerBaseURL:     "http://127.0.0.1:1",
 		LedgerOpenAPIPath: filepath.Join(root, "docs/api/ledger.yaml"),
+		// Nor payments (task 4.3); TestGatewayBackends_Payments covers it.
+		PaymentsBaseURL:     "http://127.0.0.1:1",
+		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected, sessions)
 	if err != nil {

@@ -136,8 +136,23 @@
     },
     "rails": {
       "type": "array",
-      "description": "Reserved for Stage A6 completion / Phase 4+.",
-      "items": { "type": "object" }
+      "description": "The payment rails in this country (task 4.3, OQ-22; data model §7's payments.rails, which payments syncs from here at startup). At most one carries VASPRO's own top-up paybill.",
+      "items": {
+        "type": "object",
+        "required": ["code", "kind", "capabilities", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "kind": { "type": "string", "enum": ["mobile_money", "card", "bank", "aggregator", "value_provider"] },
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "enum": ["stk", "c2b", "b2c", "b2b", "reversal", "status_query", "balance_query", "name_check"] }
+          },
+          "status": { "type": "string", "enum": ["live", "paused", "retired"] },
+          "vaspro_topups": { "type": "boolean", "default": false, "description": "Clients top up their main wallet through VASPRO's paybill on this rail." }
+        }
+      }
     },
     "test_numbers": {
       "type": "array",

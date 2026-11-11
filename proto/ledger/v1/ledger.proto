@@ -59,6 +59,12 @@ service LedgerService {
   // no tenant, VASPRO's accounts with balances summed from the journal
   // (ADR 0010).
   rpc GetBalances(GetBalancesRequest) returns (GetBalancesResponse);
+  // ListClearingEntries lists the lines on a rail's provider clearing
+  // account posted in [posted_from_unix, posted_to_unix), in entry
+  // order, for payments' daily reconciliation (task 4.6, OQ-22). It reads
+  // client postings' lines too. A page holds at most 1000; pass
+  // next_after_entry_id back as after_entry_id for the next.
+  rpc ListClearingEntries(ListClearingEntriesRequest) returns (ListClearingEntriesResponse);
 }
 
 // AccountRef names a ledger account by its key (data model §5's unique
@@ -246,4 +252,28 @@ message RecordPaybackResponse {
   // The pay-back posting, once paid back.
   string payback_transaction_id = 2;
   int32 payback_attempts = 3;
+}
+
+message ListClearingEntriesRequest {
+  string rail = 1;             // e.g. mpesa_ke
+  string currency = 2;
+  int64 posted_from_unix = 3;  // seconds since the epoch, inclusive
+  int64 posted_to_unix = 4;    // exclusive
+  int64 after_entry_id = 5;    // 0 for the first page
+  int32 limit = 6;             // 1..1000; 0 is 1000
+}
+
+message ClearingEntry {
+  int64 entry_id = 1;
+  string transaction_id = 2;
+  string direction = 3;        // D or C
+  int64 amount_minor = 4;
+  string reference_type = 5;   // e.g. collection_notice; empty if none
+  string reference_id = 6;     // UUID; empty if none
+  int64 posted_at_unix = 7;
+}
+
+message ListClearingEntriesResponse {
+  repeated ClearingEntry entries = 1;
+  int64 next_after_entry_id = 2; // 0 when this was the last page
 }

@@ -1761,6 +1761,234 @@ func (x *RecordPaybackResponse) GetPaybackAttempts() int32 {
 	return 0
 }
 
+type ListClearingEntriesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Rail           string                 `protobuf:"bytes,1,opt,name=rail,proto3" json:"rail,omitempty"` // e.g. mpesa_ke
+	Currency       string                 `protobuf:"bytes,2,opt,name=currency,proto3" json:"currency,omitempty"`
+	PostedFromUnix int64                  `protobuf:"varint,3,opt,name=posted_from_unix,json=postedFromUnix,proto3" json:"posted_from_unix,omitempty"` // seconds since the epoch, inclusive
+	PostedToUnix   int64                  `protobuf:"varint,4,opt,name=posted_to_unix,json=postedToUnix,proto3" json:"posted_to_unix,omitempty"`       // exclusive
+	AfterEntryId   int64                  `protobuf:"varint,5,opt,name=after_entry_id,json=afterEntryId,proto3" json:"after_entry_id,omitempty"`       // 0 for the first page
+	Limit          int32                  `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`                                           // 1..1000; 0 is 1000
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListClearingEntriesRequest) Reset() {
+	*x = ListClearingEntriesRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListClearingEntriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListClearingEntriesRequest) ProtoMessage() {}
+
+func (x *ListClearingEntriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListClearingEntriesRequest.ProtoReflect.Descriptor instead.
+func (*ListClearingEntriesRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ListClearingEntriesRequest) GetRail() string {
+	if x != nil {
+		return x.Rail
+	}
+	return ""
+}
+
+func (x *ListClearingEntriesRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *ListClearingEntriesRequest) GetPostedFromUnix() int64 {
+	if x != nil {
+		return x.PostedFromUnix
+	}
+	return 0
+}
+
+func (x *ListClearingEntriesRequest) GetPostedToUnix() int64 {
+	if x != nil {
+		return x.PostedToUnix
+	}
+	return 0
+}
+
+func (x *ListClearingEntriesRequest) GetAfterEntryId() int64 {
+	if x != nil {
+		return x.AfterEntryId
+	}
+	return 0
+}
+
+func (x *ListClearingEntriesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ClearingEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntryId       int64                  `protobuf:"varint,1,opt,name=entry_id,json=entryId,proto3" json:"entry_id,omitempty"`
+	TransactionId string                 `protobuf:"bytes,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	Direction     string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"` // D or C
+	AmountMinor   int64                  `protobuf:"varint,4,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	ReferenceType string                 `protobuf:"bytes,5,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"` // e.g. collection_notice; empty if none
+	ReferenceId   string                 `protobuf:"bytes,6,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`       // UUID; empty if none
+	PostedAtUnix  int64                  `protobuf:"varint,7,opt,name=posted_at_unix,json=postedAtUnix,proto3" json:"posted_at_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearingEntry) Reset() {
+	*x = ClearingEntry{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearingEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearingEntry) ProtoMessage() {}
+
+func (x *ClearingEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearingEntry.ProtoReflect.Descriptor instead.
+func (*ClearingEntry) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ClearingEntry) GetEntryId() int64 {
+	if x != nil {
+		return x.EntryId
+	}
+	return 0
+}
+
+func (x *ClearingEntry) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *ClearingEntry) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *ClearingEntry) GetAmountMinor() int64 {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return 0
+}
+
+func (x *ClearingEntry) GetReferenceType() string {
+	if x != nil {
+		return x.ReferenceType
+	}
+	return ""
+}
+
+func (x *ClearingEntry) GetReferenceId() string {
+	if x != nil {
+		return x.ReferenceId
+	}
+	return ""
+}
+
+func (x *ClearingEntry) GetPostedAtUnix() int64 {
+	if x != nil {
+		return x.PostedAtUnix
+	}
+	return 0
+}
+
+type ListClearingEntriesResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Entries          []*ClearingEntry       `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	NextAfterEntryId int64                  `protobuf:"varint,2,opt,name=next_after_entry_id,json=nextAfterEntryId,proto3" json:"next_after_entry_id,omitempty"` // 0 when this was the last page
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListClearingEntriesResponse) Reset() {
+	*x = ListClearingEntriesResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListClearingEntriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListClearingEntriesResponse) ProtoMessage() {}
+
+func (x *ListClearingEntriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListClearingEntriesResponse.ProtoReflect.Descriptor instead.
+func (*ListClearingEntriesResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListClearingEntriesResponse) GetEntries() []*ClearingEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ListClearingEntriesResponse) GetNextAfterEntryId() int64 {
+	if x != nil {
+		return x.NextAfterEntryId
+	}
+	return 0
+}
+
 var File_ledger_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_ledger_v1_ledger_proto_rawDesc = "" +
@@ -1908,7 +2136,25 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\x15RecordPaybackResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x124\n" +
 	"\x16payback_transaction_id\x18\x02 \x01(\tR\x14paybackTransactionId\x12)\n" +
-	"\x10payback_attempts\x18\x03 \x01(\x05R\x0fpaybackAttempts2\xfa\x05\n" +
+	"\x10payback_attempts\x18\x03 \x01(\x05R\x0fpaybackAttempts\"\xd8\x01\n" +
+	"\x1aListClearingEntriesRequest\x12\x12\n" +
+	"\x04rail\x18\x01 \x01(\tR\x04rail\x12\x1a\n" +
+	"\bcurrency\x18\x02 \x01(\tR\bcurrency\x12(\n" +
+	"\x10posted_from_unix\x18\x03 \x01(\x03R\x0epostedFromUnix\x12$\n" +
+	"\x0eposted_to_unix\x18\x04 \x01(\x03R\fpostedToUnix\x12$\n" +
+	"\x0eafter_entry_id\x18\x05 \x01(\x03R\fafterEntryId\x12\x14\n" +
+	"\x05limit\x18\x06 \x01(\x05R\x05limit\"\x82\x02\n" +
+	"\rClearingEntry\x12\x19\n" +
+	"\bentry_id\x18\x01 \x01(\x03R\aentryId\x12%\n" +
+	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12\x1c\n" +
+	"\tdirection\x18\x03 \x01(\tR\tdirection\x12!\n" +
+	"\famount_minor\x18\x04 \x01(\x03R\vamountMinor\x12%\n" +
+	"\x0ereference_type\x18\x05 \x01(\tR\rreferenceType\x12!\n" +
+	"\freference_id\x18\x06 \x01(\tR\vreferenceId\x12$\n" +
+	"\x0eposted_at_unix\x18\a \x01(\x03R\fpostedAtUnix\"\x80\x01\n" +
+	"\x1bListClearingEntriesResponse\x122\n" +
+	"\aentries\x18\x01 \x03(\v2\x18.ledger.v1.ClearingEntryR\aentries\x12-\n" +
+	"\x13next_after_entry_id\x18\x02 \x01(\x03R\x10nextAfterEntryId2\xe0\x06\n" +
 	"\rLedgerService\x12X\n" +
 	"\x0fPostTransaction\x12!.ledger.v1.PostTransactionRequest\x1a\".ledger.v1.PostTransactionResponse\x12U\n" +
 	"\x0ePurchaseTokens\x12 .ledger.v1.PurchaseTokensRequest\x1a!.ledger.v1.PurchaseTokensResponse\x12F\n" +
@@ -1918,7 +2164,8 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\x0eSetAutoBuyRule\x12 .ledger.v1.SetAutoBuyRuleRequest\x1a!.ledger.v1.SetAutoBuyRuleResponse\x12[\n" +
 	"\x10ListAutoBuyRules\x12\".ledger.v1.ListAutoBuyRulesRequest\x1a#.ledger.v1.ListAutoBuyRulesResponse\x12R\n" +
 	"\rRecordPayback\x12\x1f.ledger.v1.RecordPaybackRequest\x1a .ledger.v1.RecordPaybackResponse\x12L\n" +
-	"\vGetBalances\x12\x1d.ledger.v1.GetBalancesRequest\x1a\x1e.ledger.v1.GetBalancesResponseB>Z<github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1;ledgerv1b\x06proto3"
+	"\vGetBalances\x12\x1d.ledger.v1.GetBalancesRequest\x1a\x1e.ledger.v1.GetBalancesResponse\x12d\n" +
+	"\x13ListClearingEntries\x12%.ledger.v1.ListClearingEntriesRequest\x1a&.ledger.v1.ListClearingEntriesResponseB>Z<github.com/Fredrick-Kairu/vaspro-v4/proto/ledger/v1;ledgerv1b\x06proto3"
 
 var (
 	file_ledger_v1_ledger_proto_rawDescOnce sync.Once
@@ -1932,33 +2179,36 @@ func file_ledger_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_ledger_v1_ledger_proto_rawDescData
 }
 
-var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_ledger_v1_ledger_proto_goTypes = []any{
-	(*AccountRef)(nil),               // 0: ledger.v1.AccountRef
-	(*Line)(nil),                     // 1: ledger.v1.Line
-	(*PostedLine)(nil),               // 2: ledger.v1.PostedLine
-	(*Posting)(nil),                  // 3: ledger.v1.Posting
-	(*PostTransactionRequest)(nil),   // 4: ledger.v1.PostTransactionRequest
-	(*PostTransactionResponse)(nil),  // 5: ledger.v1.PostTransactionResponse
-	(*PurchaseTokensRequest)(nil),    // 6: ledger.v1.PurchaseTokensRequest
-	(*PurchaseTokensResponse)(nil),   // 7: ledger.v1.PurchaseTokensResponse
-	(*PlaceHoldRequest)(nil),         // 8: ledger.v1.PlaceHoldRequest
-	(*CaptureHoldRequest)(nil),       // 9: ledger.v1.CaptureHoldRequest
-	(*ReleaseHoldRequest)(nil),       // 10: ledger.v1.ReleaseHoldRequest
-	(*Hold)(nil),                     // 11: ledger.v1.Hold
-	(*PlaceHoldResponse)(nil),        // 12: ledger.v1.PlaceHoldResponse
-	(*CaptureHoldResponse)(nil),      // 13: ledger.v1.CaptureHoldResponse
-	(*ReleaseHoldResponse)(nil),      // 14: ledger.v1.ReleaseHoldResponse
-	(*GetBalancesRequest)(nil),       // 15: ledger.v1.GetBalancesRequest
-	(*AccountBalance)(nil),           // 16: ledger.v1.AccountBalance
-	(*GetBalancesResponse)(nil),      // 17: ledger.v1.GetBalancesResponse
-	(*AutoBuyRule)(nil),              // 18: ledger.v1.AutoBuyRule
-	(*SetAutoBuyRuleRequest)(nil),    // 19: ledger.v1.SetAutoBuyRuleRequest
-	(*SetAutoBuyRuleResponse)(nil),   // 20: ledger.v1.SetAutoBuyRuleResponse
-	(*ListAutoBuyRulesRequest)(nil),  // 21: ledger.v1.ListAutoBuyRulesRequest
-	(*ListAutoBuyRulesResponse)(nil), // 22: ledger.v1.ListAutoBuyRulesResponse
-	(*RecordPaybackRequest)(nil),     // 23: ledger.v1.RecordPaybackRequest
-	(*RecordPaybackResponse)(nil),    // 24: ledger.v1.RecordPaybackResponse
+	(*AccountRef)(nil),                  // 0: ledger.v1.AccountRef
+	(*Line)(nil),                        // 1: ledger.v1.Line
+	(*PostedLine)(nil),                  // 2: ledger.v1.PostedLine
+	(*Posting)(nil),                     // 3: ledger.v1.Posting
+	(*PostTransactionRequest)(nil),      // 4: ledger.v1.PostTransactionRequest
+	(*PostTransactionResponse)(nil),     // 5: ledger.v1.PostTransactionResponse
+	(*PurchaseTokensRequest)(nil),       // 6: ledger.v1.PurchaseTokensRequest
+	(*PurchaseTokensResponse)(nil),      // 7: ledger.v1.PurchaseTokensResponse
+	(*PlaceHoldRequest)(nil),            // 8: ledger.v1.PlaceHoldRequest
+	(*CaptureHoldRequest)(nil),          // 9: ledger.v1.CaptureHoldRequest
+	(*ReleaseHoldRequest)(nil),          // 10: ledger.v1.ReleaseHoldRequest
+	(*Hold)(nil),                        // 11: ledger.v1.Hold
+	(*PlaceHoldResponse)(nil),           // 12: ledger.v1.PlaceHoldResponse
+	(*CaptureHoldResponse)(nil),         // 13: ledger.v1.CaptureHoldResponse
+	(*ReleaseHoldResponse)(nil),         // 14: ledger.v1.ReleaseHoldResponse
+	(*GetBalancesRequest)(nil),          // 15: ledger.v1.GetBalancesRequest
+	(*AccountBalance)(nil),              // 16: ledger.v1.AccountBalance
+	(*GetBalancesResponse)(nil),         // 17: ledger.v1.GetBalancesResponse
+	(*AutoBuyRule)(nil),                 // 18: ledger.v1.AutoBuyRule
+	(*SetAutoBuyRuleRequest)(nil),       // 19: ledger.v1.SetAutoBuyRuleRequest
+	(*SetAutoBuyRuleResponse)(nil),      // 20: ledger.v1.SetAutoBuyRuleResponse
+	(*ListAutoBuyRulesRequest)(nil),     // 21: ledger.v1.ListAutoBuyRulesRequest
+	(*ListAutoBuyRulesResponse)(nil),    // 22: ledger.v1.ListAutoBuyRulesResponse
+	(*RecordPaybackRequest)(nil),        // 23: ledger.v1.RecordPaybackRequest
+	(*RecordPaybackResponse)(nil),       // 24: ledger.v1.RecordPaybackResponse
+	(*ListClearingEntriesRequest)(nil),  // 25: ledger.v1.ListClearingEntriesRequest
+	(*ClearingEntry)(nil),               // 26: ledger.v1.ClearingEntry
+	(*ListClearingEntriesResponse)(nil), // 27: ledger.v1.ListClearingEntriesResponse
 }
 var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	0,  // 0: ledger.v1.Line.account:type_name -> ledger.v1.AccountRef
@@ -1975,29 +2225,32 @@ var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	16, // 11: ledger.v1.GetBalancesResponse.accounts:type_name -> ledger.v1.AccountBalance
 	18, // 12: ledger.v1.SetAutoBuyRuleResponse.rule:type_name -> ledger.v1.AutoBuyRule
 	18, // 13: ledger.v1.ListAutoBuyRulesResponse.rules:type_name -> ledger.v1.AutoBuyRule
-	4,  // 14: ledger.v1.LedgerService.PostTransaction:input_type -> ledger.v1.PostTransactionRequest
-	6,  // 15: ledger.v1.LedgerService.PurchaseTokens:input_type -> ledger.v1.PurchaseTokensRequest
-	8,  // 16: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
-	9,  // 17: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
-	10, // 18: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
-	19, // 19: ledger.v1.LedgerService.SetAutoBuyRule:input_type -> ledger.v1.SetAutoBuyRuleRequest
-	21, // 20: ledger.v1.LedgerService.ListAutoBuyRules:input_type -> ledger.v1.ListAutoBuyRulesRequest
-	23, // 21: ledger.v1.LedgerService.RecordPayback:input_type -> ledger.v1.RecordPaybackRequest
-	15, // 22: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
-	5,  // 23: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
-	7,  // 24: ledger.v1.LedgerService.PurchaseTokens:output_type -> ledger.v1.PurchaseTokensResponse
-	12, // 25: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
-	13, // 26: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
-	14, // 27: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
-	20, // 28: ledger.v1.LedgerService.SetAutoBuyRule:output_type -> ledger.v1.SetAutoBuyRuleResponse
-	22, // 29: ledger.v1.LedgerService.ListAutoBuyRules:output_type -> ledger.v1.ListAutoBuyRulesResponse
-	24, // 30: ledger.v1.LedgerService.RecordPayback:output_type -> ledger.v1.RecordPaybackResponse
-	17, // 31: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
-	23, // [23:32] is the sub-list for method output_type
-	14, // [14:23] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	26, // 14: ledger.v1.ListClearingEntriesResponse.entries:type_name -> ledger.v1.ClearingEntry
+	4,  // 15: ledger.v1.LedgerService.PostTransaction:input_type -> ledger.v1.PostTransactionRequest
+	6,  // 16: ledger.v1.LedgerService.PurchaseTokens:input_type -> ledger.v1.PurchaseTokensRequest
+	8,  // 17: ledger.v1.LedgerService.PlaceHold:input_type -> ledger.v1.PlaceHoldRequest
+	9,  // 18: ledger.v1.LedgerService.CaptureHold:input_type -> ledger.v1.CaptureHoldRequest
+	10, // 19: ledger.v1.LedgerService.ReleaseHold:input_type -> ledger.v1.ReleaseHoldRequest
+	19, // 20: ledger.v1.LedgerService.SetAutoBuyRule:input_type -> ledger.v1.SetAutoBuyRuleRequest
+	21, // 21: ledger.v1.LedgerService.ListAutoBuyRules:input_type -> ledger.v1.ListAutoBuyRulesRequest
+	23, // 22: ledger.v1.LedgerService.RecordPayback:input_type -> ledger.v1.RecordPaybackRequest
+	15, // 23: ledger.v1.LedgerService.GetBalances:input_type -> ledger.v1.GetBalancesRequest
+	25, // 24: ledger.v1.LedgerService.ListClearingEntries:input_type -> ledger.v1.ListClearingEntriesRequest
+	5,  // 25: ledger.v1.LedgerService.PostTransaction:output_type -> ledger.v1.PostTransactionResponse
+	7,  // 26: ledger.v1.LedgerService.PurchaseTokens:output_type -> ledger.v1.PurchaseTokensResponse
+	12, // 27: ledger.v1.LedgerService.PlaceHold:output_type -> ledger.v1.PlaceHoldResponse
+	13, // 28: ledger.v1.LedgerService.CaptureHold:output_type -> ledger.v1.CaptureHoldResponse
+	14, // 29: ledger.v1.LedgerService.ReleaseHold:output_type -> ledger.v1.ReleaseHoldResponse
+	20, // 30: ledger.v1.LedgerService.SetAutoBuyRule:output_type -> ledger.v1.SetAutoBuyRuleResponse
+	22, // 31: ledger.v1.LedgerService.ListAutoBuyRules:output_type -> ledger.v1.ListAutoBuyRulesResponse
+	24, // 32: ledger.v1.LedgerService.RecordPayback:output_type -> ledger.v1.RecordPaybackResponse
+	17, // 33: ledger.v1.LedgerService.GetBalances:output_type -> ledger.v1.GetBalancesResponse
+	27, // 34: ledger.v1.LedgerService.ListClearingEntries:output_type -> ledger.v1.ListClearingEntriesResponse
+	25, // [25:35] is the sub-list for method output_type
+	15, // [15:25] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_ledger_v1_ledger_proto_init() }
@@ -2011,7 +2264,7 @@ func file_ledger_v1_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ledger_v1_ledger_proto_rawDesc), len(file_ledger_v1_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
