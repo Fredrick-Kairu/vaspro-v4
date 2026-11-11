@@ -51,6 +51,141 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/topups:
+    post:
+      operationId: createTopup
+      summary: Top up the main wallet by STK push
+      description: >
+        Prompts the payer's phone to pay VASPRO's paybill for the
+        account's country, with the account's number as the reference
+        (task 4.4). The wallet is credited only when M-Pesa confirms the
+        payment, by the amount M-Pesa reports; poll getTopup or wait for
+        the wallet.credited webhook. Replaying the Idempotency-Key
+        returns the same top-up and never prompts again. An outcome the
+        rail gives at once (refused, timed out) comes back as status
+        failed with its PAY code, not as an HTTP error. Needs
+        billing:manage (AUTH-4024 otherwise); an account the caller
+        isn't a member of is VAL-4003. PAY-6507 while VASPRO's paybill
+        isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopupRequest'
+            example:
+              amount_minor: 150000
+              payer_phone: "+254708374149"
+      responses:
+        "201":
+          description: The top-up, usually pending until the payer answers the prompt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topup'
+              example:
+                id: "0192c3a1-7f00-7000-8000-0000000000aa"
+                status: pending
+                amount_minor: 150000
+                currency: KES
+                payer_phone: "+254708374149"
+                account_reference: ABC23456
+                created_at: "2026-11-11T09:00:00Z"
+                expires_at: "2026-11-11T09:03:00Z"
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/topups/{topupId}:
+    get:
+      operationId: getTopup
+      summary: One STK top-up and its outcome
+      description: >
+        succeeded with the M-Pesa receipt once confirmed; failed,
+        cancelled or expired with a PAY code otherwise. Needs
+        billing:read (AUTH-4024 otherwise); an account or top-up the
+        caller can't see is VAL-4003.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: topupId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The top-up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topup'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk:
+    post:
+      operationId: receiveStkCallback
+      summary: Receive Daraja's STK result (Safaricom only)
+      description: >
+        Called by Safaricom's Daraja, not by clients, so it carries no
+        session and no Idempotency-Key (task 4.4). Daraja can't sign
+        callbacks: the source address must be one of Safaricom's
+        published ranges and the path token VASPRO gave Daraja for this
+        paybill must match (OQ-22); otherwise AUTH-4013 and nothing is
+        recorded. A repeated callback changes nothing. One that arrives
+        before the push it answers is recorded and applied as soon as
+        the push is.
+      security: []
+      parameters:
+        - name: railAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -67,6 +202,13 @@ components:
       required: true
       schema:
         type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
   responses:
     Problem:
       description: application/problem+json error (system design §8).
@@ -94,6 +236,53 @@ components:
         currency:
           type: string
           description: ISO 4217, e.g. KES.
+    TopupRequest:
+      type: object
+      required: [amount_minor, payer_phone]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: In minor units of the account's currency, a whole number of shillings (STK pushes whole units).
+        payer_phone:
+          type: string
+          description: The phone to prompt, in E.164, e.g. +254708374149.
+    Topup:
+      type: object
+      required: [id, status, amount_minor, currency, payer_phone, account_reference, created_at, expires_at]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [created, pending, succeeded, failed, expired, cancelled]
+        amount_minor:
+          type: integer
+          format: int64
+          description: The amount asked for.
+        currency:
+          type: string
+        payer_phone:
+          type: string
+        account_reference:
+          type: string
+          description: The account's number on VASPRO's paybill, sent as the payment's reference.
+        receipt:
+          type: string
+          description: The M-Pesa receipt, once succeeded.
+        error_code:
+          type: string
+          description: The PAY code, when failed, cancelled or expired.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

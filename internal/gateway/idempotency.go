@@ -35,6 +35,13 @@ var idempotencyExemptPaths = map[string]bool{
 // can't import.
 const kycWebhookPrefix = "/v1/accounts/kyc/webhooks/"
 
+// railCallbackPrefix is where payment rails call payments back (task
+// 4.4). A rail sends no Idempotency-Key; its source address and path
+// token authenticate it, and payments records a repeated callback once.
+// Duplicated from payments' own exemption, which the gateway can't
+// import.
+const railCallbackPrefix = "/v1/payments/callbacks/"
+
 func requireIdempotencyKeyHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -42,7 +49,7 @@ func requireIdempotencyKeyHeader(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if idempotencyExemptPaths[r.URL.Path] || strings.HasPrefix(r.URL.Path, kycWebhookPrefix) {
+		if idempotencyExemptPaths[r.URL.Path] || strings.HasPrefix(r.URL.Path, kycWebhookPrefix) || strings.HasPrefix(r.URL.Path, railCallbackPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -43,6 +43,41 @@ func (q *Queries) GetCollectionNotice(ctx context.Context, id uuid.UUID) (Paymen
 	return i, err
 }
 
+const getCollectionNoticeByReceipt = `-- name: GetCollectionNoticeByReceipt :one
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at FROM payments.collection_notices WHERE rail_account_id = $1 AND rail_receipt = $2
+`
+
+type GetCollectionNoticeByReceiptParams struct {
+	RailAccountID uuid.UUID `json:"rail_account_id"`
+	RailReceipt   string    `json:"rail_receipt"`
+}
+
+func (q *Queries) GetCollectionNoticeByReceipt(ctx context.Context, arg GetCollectionNoticeByReceiptParams) (PaymentsCollectionNotice, error) {
+	row := q.db.QueryRow(ctx, getCollectionNoticeByReceipt, arg.RailAccountID, arg.RailReceipt)
+	var i PaymentsCollectionNotice
+	err := row.Scan(
+		&i.ID,
+		&i.RailAccountID,
+		&i.TenantID,
+		&i.RailReceipt,
+		&i.TransactionType,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.BillRef,
+		&i.PayerPhoneE164,
+		&i.PayerName,
+		&i.PaidAt,
+		&i.AccountBalanceMinor,
+		&i.PaymentIntentID,
+		&i.MatchStatus,
+		&i.MatchedTenantID,
+		&i.LedgerTransactionID,
+		&i.Raw,
+		&i.ReceivedAt,
+	)
+	return i, err
+}
+
 const insertCollectionNotice = `-- name: InsertCollectionNotice :one
 INSERT INTO payments.collection_notices (id, rail_account_id, tenant_id, rail_receipt, transaction_type,
   amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor,
@@ -114,4 +149,70 @@ func (q *Queries) InsertCollectionNotice(ctx context.Context, arg InsertCollecti
 		&i.ReceivedAt,
 	)
 	return i, err
+}
+
+const listUnpostedNotices = `-- name: ListUnpostedNotices :many
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at FROM payments.collection_notices
+WHERE tenant_id IS NULL AND match_status = 'matched' AND ledger_transaction_id IS NULL
+ORDER BY received_at
+LIMIT $1
+`
+
+// ListUnpostedNotices is every top-up on VASPRO's paybill matched to a
+// client but not yet in the ledger (payments_system).
+func (q *Queries) ListUnpostedNotices(ctx context.Context, limit int32) ([]PaymentsCollectionNotice, error) {
+	rows, err := q.db.Query(ctx, listUnpostedNotices, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsCollectionNotice
+	for rows.Next() {
+		var i PaymentsCollectionNotice
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.TenantID,
+			&i.RailReceipt,
+			&i.TransactionType,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.BillRef,
+			&i.PayerPhoneE164,
+			&i.PayerName,
+			&i.PaidAt,
+			&i.AccountBalanceMinor,
+			&i.PaymentIntentID,
+			&i.MatchStatus,
+			&i.MatchedTenantID,
+			&i.LedgerTransactionID,
+			&i.Raw,
+			&i.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setNoticeLedgerTransaction = `-- name: SetNoticeLedgerTransaction :execrows
+UPDATE payments.collection_notices SET ledger_transaction_id = $2
+WHERE id = $1 AND ledger_transaction_id IS NULL
+`
+
+type SetNoticeLedgerTransactionParams struct {
+	ID                  uuid.UUID   `json:"id"`
+	LedgerTransactionID pgtype.UUID `json:"ledger_transaction_id"`
+}
+
+func (q *Queries) SetNoticeLedgerTransaction(ctx context.Context, arg SetNoticeLedgerTransactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNoticeLedgerTransaction, arg.ID, arg.LedgerTransactionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

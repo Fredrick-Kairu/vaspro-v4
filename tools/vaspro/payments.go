@@ -109,9 +109,9 @@ func paymentsService(ctx context.Context, stderr io.Writer, needKMS, needFingerp
 	if needRail {
 		// The verification call is OAuth only, so no timestamp is made
 		// and no token cached: UTC and no cache are enough here.
-		deps.Rail = adapters.NewDaraja(adapters.DarajaConfig{
+		deps.Rails = map[string]app.RailClient{"mpesa_ke": adapters.NewDaraja(adapters.DarajaConfig{
 			BaseURL: darajaURL, Credentials: app.NewCredentialSource(pool, deps.KMS), Location: time.UTC, Clock: clock.Real{},
-		})
+		})}
 	}
 	return app.New(deps), func() { _ = identity.Close(); pool.Close() }, true
 }

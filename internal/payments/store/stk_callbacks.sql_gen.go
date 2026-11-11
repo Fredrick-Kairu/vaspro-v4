@@ -79,3 +79,56 @@ func (q *Queries) InsertSTKCallback(ctx context.Context, arg InsertSTKCallbackPa
 	)
 	return i, err
 }
+
+const listUnappliedSTKCallbacks = `-- name: ListUnappliedSTKCallbacks :many
+SELECT id, rail_account_id, checkout_request_id, merchant_request_id, result_code, raw, received_at, payment_intent_id, applied_at FROM payments.stk_callbacks WHERE applied_at IS NULL ORDER BY received_at LIMIT $1
+`
+
+func (q *Queries) ListUnappliedSTKCallbacks(ctx context.Context, limit int32) ([]PaymentsStkCallback, error) {
+	rows, err := q.db.Query(ctx, listUnappliedSTKCallbacks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsStkCallback
+	for rows.Next() {
+		var i PaymentsStkCallback
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.CheckoutRequestID,
+			&i.MerchantRequestID,
+			&i.ResultCode,
+			&i.Raw,
+			&i.ReceivedAt,
+			&i.PaymentIntentID,
+			&i.AppliedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markSTKCallbackApplied = `-- name: MarkSTKCallbackApplied :execrows
+UPDATE payments.stk_callbacks SET payment_intent_id = $2, applied_at = $3
+WHERE id = $1 AND applied_at IS NULL
+`
+
+type MarkSTKCallbackAppliedParams struct {
+	ID              uuid.UUID          `json:"id"`
+	PaymentIntentID pgtype.UUID        `json:"payment_intent_id"`
+	AppliedAt       pgtype.Timestamptz `json:"applied_at"`
+}
+
+func (q *Queries) MarkSTKCallbackApplied(ctx context.Context, arg MarkSTKCallbackAppliedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markSTKCallbackApplied, arg.ID, arg.PaymentIntentID, arg.AppliedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

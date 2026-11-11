@@ -87,7 +87,9 @@ func newHarness(t *testing.T, opts ...option) harness {
 		Pool: pool, Clock: clk, Logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Accounts: h.accounts, Identity: h.staff, Packs: map[string]*packs.Pack{"KE": ke},
 		KMS: kms, FingerprintKey: fingerprintKey,
-		Rail: adapters.NewDaraja(adapters.DarajaConfig{BaseURL: fake.URL(), Credentials: creds, Location: daraja.EAT, Clock: clk}),
+		Rails: map[string]app.RailClient{"mpesa_ke": adapters.NewDaraja(adapters.DarajaConfig{
+			BaseURL: fake.URL(), Cache: testkit.StartRedis(t), Credentials: creds, Location: daraja.EAT, Clock: clk,
+		})},
 	}
 	for _, o := range opts {
 		o(&deps)

@@ -8,3 +8,10 @@ RETURNING *;
 
 -- name: GetSTKCallback :one
 SELECT * FROM payments.stk_callbacks WHERE rail_account_id = $1 AND checkout_request_id = $2;
+
+-- name: MarkSTKCallbackApplied :execrows
+UPDATE payments.stk_callbacks SET payment_intent_id = $2, applied_at = $3
+WHERE id = $1 AND applied_at IS NULL;
+
+-- name: ListUnappliedSTKCallbacks :many
+SELECT * FROM payments.stk_callbacks WHERE applied_at IS NULL ORDER BY received_at LIMIT $1;

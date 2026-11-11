@@ -47,7 +47,7 @@ func TestSqlc_RoundTripUnderRLS(t *testing.T) {
 			ID: uuid.New(), TenantID: tenant, Purpose: store.PaymentsIntentPurposeWalletTopup, RailAccountID: pb,
 			Method: "stk_push", AmountMinor: 150000, Currency: "KES",
 			PayerPhoneE164: pgtype.Text{String: sandboxPhone, Valid: true}, AccountReference: "ABC23456",
-			IdempotencyKey: "key-1", ExpiresAt: time.Now().Add(2 * time.Minute),
+			IdempotencyKey: "key-1", ExpiresAt: time.Now().Add(2 * time.Minute), CreatedAt: time.Now(),
 		})
 		if err != nil {
 			return err

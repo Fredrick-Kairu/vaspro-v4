@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/payment_intent.failed.schema.json",
+  "title": "payment_intent.failed",
+  "description": "Published by payments when a payment intent (an STK push, card or bank payment) ends without payment: failed, cancelled by the payer, or expired (data model §7: expired counts as failed) (task 4.4), in the same transaction as the intent's status. Nothing is credited. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["intent_id", "tenant_id", "purpose", "method", "status", "amount_minor", "currency", "error_code"],
+  "properties": {
+    "intent_id": {"type": "string", "format": "uuid"},
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "purpose": {"type": "string", "enum": ["wallet_topup", "invoice", "client_collection", "payment_link"]},
+    "method": {"type": "string", "enum": ["stk_push", "card", "bank_transfer"]},
+    "status": {"type": "string", "enum": ["failed", "expired", "cancelled"]},
+    "amount_minor": {"type": "integer", "minimum": 1, "description": "The amount asked for."},
+    "error_code": {"type": "string", "pattern": "^[A-Z]{3,4}-[0-9]{4}$", "description": "A catalogue code: a PAY code for a rail outcome, VAL-4000 for a number the rail adapter refused before calling it."},
+    "result_code": {"type": "string", "description": "The rail's own result code, when it gave one."},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "rail_request_id": {"type": "string"}
+  },
+  "additionalProperties": false
+}

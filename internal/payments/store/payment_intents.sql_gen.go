@@ -13,10 +13,61 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completePaymentIntent = `-- name: CompletePaymentIntent :one
+UPDATE payments.payment_intents
+SET status = $2, rail_receipt = $3, result_code = $4, error_code = $5, completed_at = $6
+WHERE id = $1
+RETURNING id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at
+`
+
+type CompletePaymentIntentParams struct {
+	ID          uuid.UUID            `json:"id"`
+	Status      PaymentsIntentStatus `json:"status"`
+	RailReceipt pgtype.Text          `json:"rail_receipt"`
+	ResultCode  pgtype.Text          `json:"result_code"`
+	ErrorCode   pgtype.Text          `json:"error_code"`
+	CompletedAt pgtype.Timestamptz   `json:"completed_at"`
+}
+
+func (q *Queries) CompletePaymentIntent(ctx context.Context, arg CompletePaymentIntentParams) (PaymentsPaymentIntent, error) {
+	row := q.db.QueryRow(ctx, completePaymentIntent,
+		arg.ID,
+		arg.Status,
+		arg.RailReceipt,
+		arg.ResultCode,
+		arg.ErrorCode,
+		arg.CompletedAt,
+	)
+	var i PaymentsPaymentIntent
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Purpose,
+		&i.RailAccountID,
+		&i.Method,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.PayerPhoneE164,
+		&i.AccountReference,
+		&i.InvoiceID,
+		&i.PaymentLinkID,
+		&i.Status,
+		&i.RailRequestID,
+		&i.RailReceipt,
+		&i.ResultCode,
+		&i.ErrorCode,
+		&i.IdempotencyKey,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const createPaymentIntent = `-- name: CreatePaymentIntent :one
 INSERT INTO payments.payment_intents (id, tenant_id, purpose, rail_account_id, method, amount_minor, currency,
-  payer_phone_e164, account_reference, invoice_id, payment_link_id, idempotency_key, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+  payer_phone_e164, account_reference, invoice_id, payment_link_id, idempotency_key, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at
 `
 
@@ -34,6 +85,7 @@ type CreatePaymentIntentParams struct {
 	PaymentLinkID    pgtype.UUID           `json:"payment_link_id"`
 	IdempotencyKey   string                `json:"idempotency_key"`
 	ExpiresAt        time.Time             `json:"expires_at"`
+	CreatedAt        time.Time             `json:"created_at"`
 }
 
 func (q *Queries) CreatePaymentIntent(ctx context.Context, arg CreatePaymentIntentParams) (PaymentsPaymentIntent, error) {
@@ -51,6 +103,7 @@ func (q *Queries) CreatePaymentIntent(ctx context.Context, arg CreatePaymentInte
 		arg.PaymentLinkID,
 		arg.IdempotencyKey,
 		arg.ExpiresAt,
+		arg.CreatedAt,
 	)
 	var i PaymentsPaymentIntent
 	err := row.Scan(
@@ -84,6 +137,43 @@ SELECT id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, 
 
 func (q *Queries) GetPaymentIntent(ctx context.Context, id uuid.UUID) (PaymentsPaymentIntent, error) {
 	row := q.db.QueryRow(ctx, getPaymentIntent, id)
+	var i PaymentsPaymentIntent
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Purpose,
+		&i.RailAccountID,
+		&i.Method,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.PayerPhoneE164,
+		&i.AccountReference,
+		&i.InvoiceID,
+		&i.PaymentLinkID,
+		&i.Status,
+		&i.RailRequestID,
+		&i.RailReceipt,
+		&i.ResultCode,
+		&i.ErrorCode,
+		&i.IdempotencyKey,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const getPaymentIntentByIdempotencyKey = `-- name: GetPaymentIntentByIdempotencyKey :one
+SELECT id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at FROM payments.payment_intents WHERE tenant_id = $1 AND idempotency_key = $2
+`
+
+type GetPaymentIntentByIdempotencyKeyParams struct {
+	TenantID       uuid.UUID `json:"tenant_id"`
+	IdempotencyKey string    `json:"idempotency_key"`
+}
+
+func (q *Queries) GetPaymentIntentByIdempotencyKey(ctx context.Context, arg GetPaymentIntentByIdempotencyKeyParams) (PaymentsPaymentIntent, error) {
+	row := q.db.QueryRow(ctx, getPaymentIntentByIdempotencyKey, arg.TenantID, arg.IdempotencyKey)
 	var i PaymentsPaymentIntent
 	err := row.Scan(
 		&i.ID,
@@ -147,4 +237,129 @@ func (q *Queries) GetPaymentIntentByRailRequest(ctx context.Context, arg GetPaym
 		&i.CompletedAt,
 	)
 	return i, err
+}
+
+const getPaymentIntentForUpdate = `-- name: GetPaymentIntentForUpdate :one
+SELECT id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at FROM payments.payment_intents WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetPaymentIntentForUpdate(ctx context.Context, id uuid.UUID) (PaymentsPaymentIntent, error) {
+	row := q.db.QueryRow(ctx, getPaymentIntentForUpdate, id)
+	var i PaymentsPaymentIntent
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Purpose,
+		&i.RailAccountID,
+		&i.Method,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.PayerPhoneE164,
+		&i.AccountReference,
+		&i.InvoiceID,
+		&i.PaymentLinkID,
+		&i.Status,
+		&i.RailRequestID,
+		&i.RailReceipt,
+		&i.ResultCode,
+		&i.ErrorCode,
+		&i.IdempotencyKey,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const listPaymentIntentsToExpire = `-- name: ListPaymentIntentsToExpire :many
+SELECT id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at FROM payments.payment_intents
+WHERE status IN ('created', 'pending') AND expires_at < $1
+  AND (status = 'created' OR result_code IS NULL)
+ORDER BY expires_at
+LIMIT $2
+`
+
+type ListPaymentIntentsToExpireParams struct {
+	ExpiresAt time.Time `json:"expires_at"`
+	Limit     int32     `json:"limit"`
+}
+
+// ListPaymentIntentsToExpire is the expiry sweep's work, across
+// tenants (payments_system): created ones never sent, and pending ones
+// not yet answered by a query.
+func (q *Queries) ListPaymentIntentsToExpire(ctx context.Context, arg ListPaymentIntentsToExpireParams) ([]PaymentsPaymentIntent, error) {
+	rows, err := q.db.Query(ctx, listPaymentIntentsToExpire, arg.ExpiresAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsPaymentIntent
+	for rows.Next() {
+		var i PaymentsPaymentIntent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Purpose,
+			&i.RailAccountID,
+			&i.Method,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.PayerPhoneE164,
+			&i.AccountReference,
+			&i.InvoiceID,
+			&i.PaymentLinkID,
+			&i.Status,
+			&i.RailRequestID,
+			&i.RailReceipt,
+			&i.ResultCode,
+			&i.ErrorCode,
+			&i.IdempotencyKey,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markPaymentIntentPending = `-- name: MarkPaymentIntentPending :execrows
+UPDATE payments.payment_intents SET status = 'pending', rail_request_id = $2
+WHERE id = $1 AND status = 'created'
+`
+
+type MarkPaymentIntentPendingParams struct {
+	ID            uuid.UUID   `json:"id"`
+	RailRequestID pgtype.Text `json:"rail_request_id"`
+}
+
+// MarkPaymentIntentPending records the rail's request ID once the push
+// is accepted; only a created intent moves.
+func (q *Queries) MarkPaymentIntentPending(ctx context.Context, arg MarkPaymentIntentPendingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markPaymentIntentPending, arg.ID, arg.RailRequestID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setPaymentIntentResultCode = `-- name: SetPaymentIntentResultCode :exec
+UPDATE payments.payment_intents SET result_code = $2 WHERE id = $1
+`
+
+type SetPaymentIntentResultCodeParams struct {
+	ID         uuid.UUID   `json:"id"`
+	ResultCode pgtype.Text `json:"result_code"`
+}
+
+// SetPaymentIntentResultCode records a rail result that doesn't end the
+// intent: a query reporting a payment with no confirmation (OQ-22).
+func (q *Queries) SetPaymentIntentResultCode(ctx context.Context, arg SetPaymentIntentResultCodeParams) error {
+	_, err := q.db.Exec(ctx, setPaymentIntentResultCode, arg.ID, arg.ResultCode)
+	return err
 }

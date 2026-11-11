@@ -10,3 +10,18 @@ RETURNING *;
 
 -- name: GetCollectionNotice :one
 SELECT * FROM payments.collection_notices WHERE id = $1;
+
+-- name: GetCollectionNoticeByReceipt :one
+SELECT * FROM payments.collection_notices WHERE rail_account_id = $1 AND rail_receipt = $2;
+
+-- ListUnpostedNotices is every top-up on VASPRO's paybill matched to a
+-- client but not yet in the ledger (payments_system).
+-- name: ListUnpostedNotices :many
+SELECT * FROM payments.collection_notices
+WHERE tenant_id IS NULL AND match_status = 'matched' AND ledger_transaction_id IS NULL
+ORDER BY received_at
+LIMIT $1;
+
+-- name: SetNoticeLedgerTransaction :execrows
+UPDATE payments.collection_notices SET ledger_transaction_id = $2
+WHERE id = $1 AND ledger_transaction_id IS NULL;

@@ -3,10 +3,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -23,6 +27,11 @@ import (
 // because only the gateway can reach its HTTP API: a deployment rule
 // (Config's doc), not something payments can check.
 const HeaderUserID = "X-Vaspro-User-Id"
+
+// HeaderClientIP is the caller's address as the gateway saw it on the
+// connection, set on every request it forwards (client-sent copies are
+// stripped). A rail's callback is checked against it (OQ-22).
+const HeaderClientIP = "X-Vaspro-Client-Ip"
 
 const idempotencyKeyTTL = 24 * time.Hour
 
@@ -69,11 +78,67 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		// The last entry runs first (1.2's lesson): requireCaller sets
 		// the scope idempotency.Middleware needs.
 		Middlewares: []MiddlewareFunc{
-			idempotency.Middleware(idemStore, idempotencyKeyTTL),
-			requireCaller,
+			exceptRailCallbacks(idempotency.Middleware(idemStore, idempotencyKeyTTL)),
+			exceptRailCallbacks(requireCaller),
+			keepCallbackBody,
 		},
 	})
 	return r
+}
+
+// railCallbackPrefix is where payment rails call back (task 4.4). A rail
+// sends neither a session nor an Idempotency-Key: its source address
+// and path token authenticate it, and a repeated callback is recorded
+// once.
+const railCallbackPrefix = "/v1/payments/callbacks/"
+
+func isRailCallback(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, railCallbackPrefix) }
+
+// exceptRailCallbacks runs mw for every request but a rail callback.
+func exceptRailCallbacks(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isRailCallback(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
+}
+
+type callbackKey struct{}
+
+type callbackRequest struct {
+	clientIP netip.Addr
+	body     []byte
+}
+
+// keepCallbackBody keeps a rail callback's exact bytes, stored as the
+// raw record, and the address the gateway saw: the strict server
+// decodes the JSON before the handler runs (1.9's lesson).
+func keepCallbackBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isRailCallback(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			problem.Respond(w, r, problem.New(problem.VAL4000, "the request body could not be read"))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		ip, _ := netip.ParseAddr(r.Header.Get(HeaderClientIP)) // none or malformed: refused by the source check
+		ctx := context.WithValue(r.Context(), callbackKey{}, callbackRequest{clientIP: ip, body: body})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func callbackFromContext(ctx context.Context) (callbackRequest, bool) {
+	cr, ok := ctx.Value(callbackKey{}).(callbackRequest)
+	return cr, ok
 }
 
 // respondProblem renders a *problem.Problem as-is and anything else as

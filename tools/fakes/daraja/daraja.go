@@ -150,6 +150,7 @@ type Fake struct {
 	c2b         map[string]c2bURLs
 	txns        []Txn
 	callbacks   []CallbackResult
+	pushes      int
 	seq         int
 	wg          sync.WaitGroup
 }
@@ -235,6 +236,13 @@ func (f *Fake) Next(o ...Outcome) {
 // Wait blocks until every callback sent in the background has been
 // delivered.
 func (f *Fake) Wait() { f.wg.Wait() }
+
+// Pushes counts the STK pushes the fake accepted.
+func (f *Fake) Pushes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pushes
+}
 
 // Callbacks lists the STK callbacks sent so far, in order.
 func (f *Fake) Callbacks() []CallbackResult {
@@ -359,6 +367,7 @@ func (f *Fake) stkPush(w http.ResponseWriter, r *http.Request) {
 		outcome = Outcome{ResultCode: ResultSuccess}
 	}
 	f.seq++
+	f.pushes++
 	s := &stk{
 		merchantID:  fmt.Sprintf("fake-%d-%d", f.now().Unix(), f.seq),
 		checkoutID:  fmt.Sprintf("ws_CO_%s%06d", f.now().In(EAT).Format("02012006150405"), f.seq),

@@ -173,14 +173,15 @@ func (s *Service) VerifyRailAccount(ctx context.Context, staffEmail string, rail
 	if err != nil {
 		return err
 	}
-	credIDs, err := s.activeCredentialIDs(ctx, railAccountID)
+	credIDs, railCode, err := s.activeCredentialIDs(ctx, railAccountID)
 	if err != nil {
 		return err
 	}
-	if s.rail == nil {
-		return errors.New("app: no rail adapter to verify with")
+	rail, ok := s.rails[railCode]
+	if !ok {
+		return fmt.Errorf("app: no client for rail %s to verify with", railCode)
 	}
-	if err := s.rail.CheckCredentials(ctx, railAccountID); err != nil {
+	if err := rail.CheckCredentials(ctx, railAccountID); err != nil {
 		return fmt.Errorf("%w: %w", ErrVerificationFailed, err)
 	}
 	return s.pool.WithRoleTx(ctx, systemRole, func(ctx context.Context, tx pgx.Tx) error {
@@ -205,21 +206,25 @@ func (s *Service) VerifyRailAccount(ctx context.Context, staffEmail string, rail
 }
 
 // activeCredentialIDs checks the account exists and has every Daraja
-// credential, and returns their IDs.
-func (s *Service) activeCredentialIDs(ctx context.Context, railAccountID uuid.UUID) ([]uuid.UUID, error) {
-	var out []uuid.UUID
+// credential, and returns their IDs and the account's rail.
+func (s *Service) activeCredentialIDs(ctx context.Context, railAccountID uuid.UUID) ([]uuid.UUID, string, error) {
+	var (
+		out  []uuid.UUID
+		rail string
+	)
 	err := s.pool.WithRoleTx(ctx, systemRole, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if _, err := q.GetRailAccount(ctx, railAccountID); errors.Is(err, pgx.ErrNoRows) {
+		acct, err := q.GetRailAccount(ctx, railAccountID)
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: no rail account %s", ErrNotFound, railAccountID)
 		} else if err != nil {
 			return fmt.Errorf("app: loading the rail account: %w", err)
 		}
-		var err error
+		rail = acct.RailCode
 		out, err = activeIDs(ctx, q, railAccountID)
 		return err
 	})
-	return out, err
+	return out, rail, err
 }
 
 // activeIDs returns the account's active credential IDs, in kind order,

@@ -367,3 +367,31 @@ func TestGatewayBackends_Payments(t *testing.T) {
 		}
 	})
 }
+
+// TestGatewayBackends_PaymentsCallbacks (task 4.4): a rail callback
+// reaches payments with no session and no Idempotency-Key, and every
+// forwarded request carries the address the gateway saw in
+// X-Vaspro-Client-Ip, never one the caller sent.
+func TestGatewayBackends_PaymentsCallbacks(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	const clientIPHeader = "X-Vaspro-Client-Ip"
+
+	callback := "/v1/payments/callbacks/daraja/" + uuid.NewString() + "/" + strings.Repeat("ab", 32) + "/stk"
+	status, body := send(t, gw, http.MethodPost, callback, map[string]string{clientIPHeader: "196.201.214.200"},
+		map[string]any{"Body": map[string]any{"stkCallback": map[string]any{"ResultCode": 0}}})
+	if status != http.StatusOK {
+		t.Fatalf("callback: %d %v", status, body)
+	}
+	req := payments.last(t)
+	if req.URL.Path != callback || req.Header.Get(clientIPHeader) != "192.0.2.1" {
+		t.Fatalf("forwarded %s with client IP %q, want the connection's 192.0.2.1", req.URL.Path, req.Header.Get(clientIPHeader))
+	}
+
+	status, _ = send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details",
+		map[string]string{"Authorization": "Bearer sess_good", clientIPHeader: "10.0.0.1"}, nil)
+	if status != http.StatusOK || payments.last(t).Header.Get(clientIPHeader) != "192.0.2.1" {
+		t.Fatalf("a dashboard call: %d, client IP %q", status, payments.last(t).Header.Get(clientIPHeader))
+	}
+}

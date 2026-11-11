@@ -3,12 +3,14 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"sort"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/payments/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/payments/app"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/payments/domain"
 	vasdb "github.com/Fredrick-Kairu/vaspro-v4/internal/platform/db"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
@@ -30,6 +33,8 @@ type harness struct {
 	super  *vasdb.Pool
 	access *tenantinfo.Fake
 }
+
+var callbackSecret = bytes.Repeat([]byte{5}, 32)
 
 func newHarness(t *testing.T) harness {
 	t.Helper()
@@ -53,7 +58,10 @@ func newHarness(t *testing.T) harness {
 		t.Fatal(err)
 	}
 	access := tenantinfo.New()
-	svc := app.New(app.Deps{Pool: pool, Accounts: access, Packs: map[string]*packs.Pack{"KE": ke}})
+	svc := app.New(app.Deps{
+		Pool: pool, Accounts: access, Packs: map[string]*packs.Pack{"KE": ke},
+		CallbackSecret: callbackSecret, CallbackCIDRs: []netip.Prefix{netip.MustParsePrefix("196.201.214.0/24")},
+	})
 	if err := svc.SyncRails(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +87,31 @@ func (h harness) seedPaybill(t *testing.T, status string) {
 // JSON body.
 func (h harness) get(t *testing.T, path string, user uuid.UUID) (int, map[string]any) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, h.srv.URL+path, nil)
+	return h.do(t, http.MethodGet, path, user, nil, nil)
+}
+
+// do sends method path as user with body (JSON) and extra headers; a
+// write gets a fresh Idempotency-Key unless headers give one.
+func (h harness) do(t *testing.T, method, path string, user uuid.UUID, body any, headers map[string]string) (int, map[string]any) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, h.srv.URL+path, reader)
 	if err != nil {
 		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if method != http.MethodGet {
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	if user != uuid.Nil {
 		req.Header.Set(api.HeaderUserID, user.String())
@@ -91,9 +121,9 @@ func (h harness) get(t *testing.T, path string, user uuid.UUID) (int, map[string
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var body map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&body)
-	return resp.StatusCode, body
+	var decoded map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&decoded)
+	return resp.StatusCode, decoded
 }
 
 func wantProblem(t *testing.T, status int, body map[string]any, wantStatus int, code string) {
@@ -103,11 +133,12 @@ func wantProblem(t *testing.T, status int, body map[string]any, wantStatus int, 
 	}
 }
 
-// TestTenantOperations_NeedBillingRead: every /v1/payments/tenants/
-// operation is 401 without a user, VAL-4003 for someone outside the
-// account, and AUTH-4024 for a member without billing:read. It fails if
-// an operation has no case.
-func TestTenantOperations_NeedBillingRead(t *testing.T) {
+// TestTenantOperations_NeedBillingPermissions: every
+// /v1/payments/tenants/ operation is 401 without a user, VAL-4003 for
+// someone outside the account, and AUTH-4024 for a member without
+// billing:read; writes need billing:manage, so a reader gets AUTH-4024
+// there too. It fails if an operation has no case.
+func TestTenantOperations_NeedBillingPermissions(t *testing.T) {
 	h := newHarness(t)
 	h.seedPaybill(t, "active")
 	spec, err := openapi3.NewLoader().LoadFromFile("../../../docs/api/payments.yaml")
@@ -117,34 +148,83 @@ func TestTenantOperations_NeedBillingRead(t *testing.T) {
 	tenant, member, reader := uuid.New(), uuid.New(), uuid.New()
 	h.access.Grant(member, tenant, "KE", "KES")
 	h.access.Grant(reader, tenant, "KE", "KES", app.PermBillingRead)
+	topup := h.seedTopup(t, tenant)
 
+	writes := map[string]bool{"createTopup": true}
+	bodies := map[string]any{"createTopup": map[string]any{"amount_minor": 150000, "payer_phone": "+254708374149"}}
 	var ops []string
 	for path, item := range spec.Paths.Map() {
 		if !strings.HasPrefix(path, "/v1/payments/tenants/") {
 			continue
 		}
 		for method, op := range item.Operations() {
-			if method != http.MethodGet {
-				t.Fatalf("%s %s: a write needs its own cases here", method, path)
-			}
 			ops = append(ops, op.OperationID)
-			concrete := strings.ReplaceAll(path, "{tenantId}", tenant.String())
+			concrete := strings.NewReplacer("{tenantId}", tenant.String(), "{topupId}", topup.String()).Replace(path)
+			body := bodies[op.OperationID]
 			t.Run(op.OperationID, func(t *testing.T) {
-				status, got := h.get(t, concrete, uuid.Nil)
+				status, got := h.do(t, method, concrete, uuid.Nil, body, nil)
 				wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4010")
-				status, got = h.get(t, concrete, uuid.New())
+				status, got = h.do(t, method, concrete, uuid.New(), body, nil)
 				wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
-				status, got = h.get(t, concrete, member)
+				status, got = h.do(t, method, concrete, member, body, nil)
 				wantProblem(t, status, got, http.StatusForbidden, "AUTH-4024")
-				if status, got = h.get(t, concrete, reader); status != http.StatusOK {
+				status, got = h.do(t, method, concrete, reader, body, nil)
+				if writes[op.OperationID] {
+					wantProblem(t, status, got, http.StatusForbidden, "AUTH-4024")
+				} else if status != http.StatusOK {
 					t.Fatalf("billing:read: %d %v", status, got)
 				}
 			})
 		}
 	}
 	sort.Strings(ops)
-	if strings.Join(ops, ",") != "getTopupDetails" {
-		t.Fatalf("tenant operations in the spec %v, cases written for [getTopupDetails]: add the new one's case", ops)
+	if want := "createTopup,getTopup,getTopupDetails"; strings.Join(ops, ",") != want {
+		t.Fatalf("tenant operations in the spec %v, cases written for %s: add the new one's case", ops, want)
+	}
+}
+
+// seedTopup inserts a pending top-up for tenant as the owner.
+func (h harness) seedTopup(t *testing.T, tenant uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	if _, err := h.super.Exec(context.Background(), `
+		INSERT INTO payment_intents (id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164,
+		  account_reference, status, idempotency_key, expires_at)
+		VALUES ($1, $2, 'wallet_topup', (SELECT id FROM rail_accounts LIMIT 1), 'stk_push', 150000, 'KES', '+254708374149',
+		  'ABC23456', 'pending', $3, now() + interval '3 minutes')`, id, tenant, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// TestReceiveStkCallback: Daraja's callback needs no session and no
+// Idempotency-Key, and is refused (AUTH-4013) from outside Safaricom's
+// ranges or without the paybill's token; a malformed body is VAL-4000.
+func TestReceiveStkCallback(t *testing.T) {
+	h := newHarness(t)
+	h.seedPaybill(t, "active")
+	var paybill uuid.UUID
+	if err := h.super.QueryRow(context.Background(), `SELECT id FROM rail_accounts LIMIT 1`).Scan(&paybill); err != nil {
+		t.Fatal(err)
+	}
+	path := "/v1/payments/callbacks/daraja/" + paybill.String() + "/" + domain.CallbackToken(callbackSecret, paybill) + "/stk"
+	safaricom := map[string]string{api.HeaderClientIP: "196.201.214.200", "Idempotency-Key": ""}
+	body := map[string]any{"Body": map[string]any{}}
+
+	status, got := h.do(t, http.MethodPost, path, uuid.Nil, body, safaricom)
+	wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+
+	bad := "/v1/payments/callbacks/daraja/" + paybill.String() + "/" + strings.Repeat("0", 64) + "/stk"
+	status, got = h.do(t, http.MethodPost, bad, uuid.Nil, body, safaricom)
+	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4013")
+	status, got = h.do(t, http.MethodPost, path, uuid.Nil, body, map[string]string{api.HeaderClientIP: "8.8.8.8", "Idempotency-Key": ""})
+	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4013")
+	status, got = h.do(t, http.MethodPost, path, uuid.Nil, body, map[string]string{"Idempotency-Key": ""})
+	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4013")
+
+	var n int
+	if err := h.super.QueryRow(context.Background(), `SELECT count(*) FROM stk_callbacks`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d callbacks recorded, %v", n, err)
 	}
 }
 

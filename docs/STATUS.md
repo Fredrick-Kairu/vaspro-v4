@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.2, 4.1 and 4.3 done (2026-11-11). Next: 4.4, top-up by STK.
+**Current task:** 4.2, 4.1, 4.3 and 4.4 done (2026-11-11). Next: 4.5, top-up by paybill (C2B).
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -267,6 +267,120 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
     - set up VASPRO's paybill with `vaspro payments add-rail-account`, then `set-rail-credential` three times, then `verify-rail-account`;
     - on `ops/dev-environment` after merging: `env.example` gains the `PAYMENTS_*` and `GATEWAY_PAYMENTS_BASE_URL` variables, and `docs/api/API.md` is regenerated.
   - **Not in 4.3:** C2B URL registration (4.5); clients' own rail accounts (Phase 13).
+
+- 4.4 Top-up by STK push (OQ-22). Your answers of 11 Nov:
+  - a payment reported only by STK query (no receipt, no amount) is **not credited**: it's flagged `status_mismatch` and waits for a confirmation;
+  - a success that arrives after the top-up was reported failed or expired **is credited once and flagged** `status_mismatch`.
+  - **Contract:**
+    - **API:**
+      - `createTopup` (`POST /v1/payments/tenants/{tenantId}/topups`, billing:manage, Idempotency-Key): an outcome the rail gives at once comes back as a `failed` top-up with its PAY code;
+      - `getTopup` (billing:read);
+      - `receiveStkCallback` (`POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk`, `security: []`): 200 `{"ResultCode":0,"ResultDesc":"Accepted"}`, 401 AUTH-4013 for a bad source or token, 400 for a malformed body.
+    - **Events:** `payment_intent.succeeded` (`paid_minor`, `receipt`, `late`) and `payment_intent.failed` (`error_code`, a catalogue code; expired and cancelled count as failed).
+    - **Ledger:** no change. A confirmed payment is one `topup` (Dr `provider_clearing/<rail>`, Cr main wallet), **keyed `topup:<collection_notice id>` and referencing the notice**, so C2B (4.5) posts the same way and reconciliation (4.6) matches ledger lines to notices.
+    - **`CreatePaymentIntent`** now takes `created_at` from the app clock (it was the database's `now()`), so `expires_at > created_at` holds under any clock.
+  - **Rules** (`domain/topup.go`):
+    - `ValidateTopup`: whole units of the currency; E.164 with the pack's country code and length.
+    - `CallbackToken`/`ValidCallbackToken`: HMAC-SHA256 of the rail account under the callback secret, hex, compared in constant time.
+    - `ParseCIDRs`/`SourceAllowed`: an empty list allows nothing.
+    - **`ApplySTKResult`:**
+      - a success always applies, late if the intent was already final, with `AmountMismatch` when the amounts differ;
+      - a failure never overrides a final status;
+      - 1032 is `cancelled`, anything else `failed`;
+      - a second receipt on a paid intent is reported, never applied.
+  - **App** (`app/stk.go`):
+    - **`StartTopup`:**
+      1. billing:manage, the pack's rules, the active paybill and the account number (sent as `AccountReference`);
+      2. the intent is recorded `created` (a replayed key returns it and never pushes again; a reused key with another amount or phone is VAL-4001);
+      3. the push goes out with `<PAYMENTS_CALLBACK_BASE_URL>/v1/payments/callbacks/daraja/<paybill>/<token>/stk`;
+      4. **`pending` and the request ID are committed in their own transaction, then a callback that arrived first is looked for.** A callback handler records its callback before looking up the intent, so whichever runs second sees the other.
+      - A push error marks the intent `failed` with `ErrorCodeFor`; a number the rail refuses (VAL-4000) is also returned as a validation error.
+    - **`HandleSTKCallback`:**
+      1. source and token first; nothing is read or written for a refused callback;
+      2. parsed in the rail's country's time zone;
+      3. recorded once per checkout (a repeat of an applied one stops there);
+      4. applied if its intent is found, otherwise parked.
+    - **Applying** happens in the tenant's transaction, with the intent locked:
+      - the status from `ApplySTKResult`;
+      - for a success, a `matched` notice with **the callback's amount** (skipped if a notice already has the receipt), any `amount_mismatch`/`status_mismatch` exception (with the client's tenant, referencing the intent), and the event;
+      - then the callback is marked applied as `payments_system`, then the ledger posting.
+    - **`Sweep`**, every `PAYMENTS_SWEEP_INTERVAL` in `Run`:
+      - posts matched notices not yet in the ledger;
+      - applies parked callbacks;
+      - expires: `created` past expiry (PAY-6507, never sent);
+      - queries `pending` past expiry:
+        - a failure is applied;
+        - a reported payment is flagged once (`result_code` 0, not queried again);
+        - no answer past `PAYMENTS_STK_GIVE_UP` → `expired` (PAY-6504).
+      - Every step is safe to repeat, so every replica may sweep.
+  - **Adapters and fakes:**
+    - `adapters.Ledger`/`GRPCLedger` (`PostTopup`);
+    - fake `tools/fakes/ledgerposter` (replays by key, `Fail`/`Recover`, `Credited`);
+    - the Daraja fake gains `Pushes()`;
+    - `Deps.Rail` became `Deps.Rails` (push, query, credential check per rail), and the CLI passes `{"mpesa_ke": …}`.
+  - **Gateway:**
+    - **every proxied request carries `X-Vaspro-Client-Ip`** from the connection (a client's copy is stripped);
+    - `/v1/payments/callbacks/` is exempt from the Idempotency-Key requirement; the callback route is public by its spec.
+  - **Service:**
+    - `payments.New` now takes `Clients` (accounts, ledger, Redis) and returns an error (it decodes keys);
+    - one Daraja client per Daraja rail (`mpesa_ke`), in its pack's time zone (`time/tzdata` embedded);
+    - `Run` sweeps.
+    - **New config:**
+      - `PAYMENTS_REDIS_URL`, `PAYMENTS_LEDGER_GRPC_ADDR`, `DARAJA_BASE_URL`, `PAYMENTS_CREDENTIALS_KMS_KEY`, `PAYMENTS_CALLBACK_BASE_URL`, `PAYMENTS_CALLBACK_SECRET` and `PAYMENTS_DARAJA_CALLBACK_CIDRS`, all required;
+      - `PAYMENTS_STK_EXPIRY` (3m), `PAYMENTS_STK_GIVE_UP` (10m) and `PAYMENTS_SWEEP_INTERVAL` (30s).
+  - **Tests:**
+    - **domain:** 12 top-up cases plus UGX; tokens (another account or secret, truncated, not hex, empty); CIDRs; **the `ApplySTKResult` table, 14 cases plus a second receipt**, and which statuses are final.
+    - **app** (real Postgres and Redis, the Daraja fake, its callbacks through a local server, the fake ledger):
+      - **each outcome:** status, PAY code, event, and a credit only on success; the posting's shape; no secret, token or payer number in the logs.
+      - **repeats and races:**
+        - a duplicate callback;
+        - **20 concurrent copies: one credit, one notice, one success event**;
+        - **a callback before the push returns**.
+      - **the callback amount differs:** 100,000 credited for 150,000 asked, `amount_mismatch`.
+      - **lost callbacks:**
+        - a failure found by query;
+        - **a payment found only by query: not credited, flagged once, never queried again, then credited by a later callback**;
+        - no answer → expired PAY-6504 → a late success credited and flagged `late`.
+      - **the ledger down:** recorded, not credited; the sweep posts exactly once.
+      - **start rules:** a replayed key doesn't push again (push count); a reused key is VAL-4001; billing:read, a stranger, cents and a foreign number write nothing; a landline the rail refuses is recorded failed (VAL-4000); reads need billing:read and stay within the tenant.
+      - a push timeout is `failed` PAY-6502.
+      - **refused callbacks:** a wrong token, another account, an outside address and no address are AUTH-4013; a malformed body is VAL-4000; nothing is recorded.
+    - **API:**
+      - the spec-driven tenant test covers all three tenant operations (creating needs billing:manage);
+      - `TestReceiveStkCallback`: no session or Idempotency-Key needed; a malformed body is 400; a wrong token, an outside address or none is 401 AUTH-4013, with nothing recorded.
+    - **adapter:** `TestGRPCLedger_PostTopup` against an in-test `LedgerServiceServer`: the exact request.
+    - **gateway:** `TestGatewayBackends_PaymentsCallbacks`: a callback with no session or key reaches payments; the client IP is the connection's, never the caller's.
+    - **service:** `TestService_TopsUpByStkEndToEnd`:
+      - `Run` as production wires it;
+      - a top-up over HTTP, with the callback back through a stand-in gateway;
+      - the ledger down at first, so **the sweep loop posts it**;
+      - `payment_intent.succeeded` read off NATS.
+    - **Order of work:**
+      - the domain, app and gateway tests were seen failing first (against stubs, or with no exemption);
+      - the API's new tests, the ledger adapter's and the service test came with their code; the mutations below stand in.
+    - **Test fixes while writing them:**
+      - the "posting" subtest indexed a slice without checking its length and panicked against the stubs; it now fails cleanly;
+      - a start check raced with the fake's background callback (a quick failure could already be applied when `StartTopup` reloaded), so it no longer asserts `pending` at start;
+      - an API helper variable shadowed the body argument.
+    - **Added after a mutation review:** the 20-copies test now also asserts one success event. The receipt's unique key alone keeps the credit single, so without the event check, deciding the intent without its lock went unnoticed.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - deciding without locking the intent;
+      - no source check;
+      - **looking for a parked callback before the push is recorded** (the plan named "inside tx 1"; this is the same ordering fault, and the test fails either way);
+      - crediting the intent's amount instead of the callback's;
+      - crediting a payment reported only by query;
+      - no late-success exception;
+      - callbacks behind the session check (API);
+      - debit and credit swapped (adapter).
+    - The app tests ran three times in a row with `-race`, all green.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 17 packages fresh (`gateway` 111s, `payments/app` 66s), 64 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - **`PAYMENTS_DARAJA_CALLBACK_CIDRS` must be Safaricom's published callback ranges**, from their documentation at deploy time. They aren't in the repo; empty refuses every callback.
+    - `PAYMENTS_CALLBACK_BASE_URL` is the gateway's public URL.
+    - **The gateway reads the client IP from the connection**, so a load balancer in front of it needs `X-Forwarded-For` handling first (`callerIP`'s note); until then callbacks must reach the gateway directly.
+    - Changing `PAYMENTS_CALLBACK_SECRET` breaks the URLs of pushes in flight.
+    - `vaspro-all` needs the new variables.
+  - **Not in 4.4:** C2B confirmations (4.5); reconciliation (4.6); the hosted checkout (4.8).
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1470,8 +1584,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.4 top-up by STK (plan above).
-2. Then 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. 4.5 top-up by paybill (C2B) (plan above).
+2. Then 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;

@@ -1391,6 +1391,12 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 > - **Rails** mirror the country packs' new `rails` block at startup; one the packs no longer list is retired, never deleted.
 > - **Credentials** of VASPRO's paybill are entered by staff through the ops CLI (`vaspro payments`), `created_by` the staff member found by email. Storing one retires the one it replaces **and returns an active account to `pending_verification`** until a test call (a fresh OAuth fetch) works again with the new set; only then is it `active` (`rail_account.verified`).
 > - **Account numbers** are issued on first use: 6 random characters and 2 check characters (Σ (i+1)·vᵢ mod 1021), which catch every single-character typo and every swap of neighbours. Only an active paybill is ever offered.
+>
+> **Built in task 4.4 (11 Nov 2026, OQ-22).** No schema change.
+> - **STK top-ups:** the intent is recorded `created` before the push and `pending` with the `CheckoutRequestID` after it. A callback is recorded in `stk_callbacks` first and applied once the intent is found, so one that beats the push's response isn't lost.
+> - **A confirmed payment** becomes a `matched` notice (the rail's amount, not the intent's) and one ledger `topup`, keyed `topup:<notice id>` and referencing the notice.
+> - **Exceptions about a client's top-up** (`amount_mismatch`, `status_mismatch`) carry that client's `tenant_id` and reference the intent; reconciliation's own exceptions on VASPRO's paybill (4.6) have none.
+> - **A success after a reported failure or expiry** is still credited, and flagged. **A payment reported only by STK query** (no receipt, no amount) is never credited: it's flagged once and waits for a confirmation.
 
 **Where the money goes**
 

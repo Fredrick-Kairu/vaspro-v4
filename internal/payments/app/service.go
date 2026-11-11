@@ -9,6 +9,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/netip"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -51,10 +54,13 @@ var (
 	ErrVerificationFailed = errors.New("app: the rail didn't accept the account's credentials")
 )
 
-// RailChecker proves a rail account's stored credentials with a test
-// call (adapters.Daraja.CheckCredentials).
-type RailChecker interface {
+// RailClient is one rail's API (adapters.Daraja for mpesa_ke): proving
+// a rail account's credentials with a test call (task 4.3), and STK
+// push and query (task 4.4).
+type RailClient interface {
 	CheckCredentials(ctx context.Context, railAccountID uuid.UUID) error
+	STKPush(ctx context.Context, req adapters.STKPushRequest) (adapters.STKPushResponse, error)
+	STKQuery(ctx context.Context, railAccountID uuid.UUID, checkoutRequestID string) (adapters.STKResult, error)
 }
 
 // Deps are the Service's dependencies.
@@ -72,8 +78,22 @@ type Deps struct {
 	// keys their fingerprints. Only the ops CLI writes credentials.
 	KMS            vascrypto.KMS
 	FingerprintKey []byte
-	// Rail proves credentials when an account is verified.
-	Rail RailChecker
+	// Rails are the rail clients, by rail code.
+	Rails map[string]RailClient
+	// Ledger posts confirmed top-ups (task 4.4); nil leaves them for a
+	// sweep with one.
+	Ledger adapters.Ledger
+	// Callbacks: the public base URL rails call back on (the gateway's),
+	// the secret their path tokens are keyed with, and the source ranges
+	// a callback may come from (OQ-22). No ranges refuse every callback.
+	CallbackBaseURL string
+	CallbackSecret  []byte
+	CallbackCIDRs   []netip.Prefix
+	// STKExpiry is how long an STK top-up waits for its callback before
+	// the sweep asks the rail; STKGiveUp how much longer the sweep keeps
+	// asking before it expires the top-up.
+	STKExpiry time.Duration
+	STKGiveUp time.Duration
 	// Rand feeds account numbers; crypto/rand when nil.
 	Rand io.Reader
 }
@@ -88,9 +108,21 @@ type Service struct {
 	packs    map[string]*packs.Pack
 	kms      vascrypto.KMS
 	fpKey    []byte
-	rail     RailChecker
+	rails    map[string]RailClient
+	ledger   adapters.Ledger
+	cbBase   string
+	cbSecret []byte
+	cbCIDRs  []netip.Prefix
+	expiry   time.Duration
+	giveUp   time.Duration
 	rand     io.Reader
 }
+
+// Defaults for Deps' STK timings.
+const (
+	DefaultSTKExpiry = 3 * time.Minute
+	DefaultSTKGiveUp = 10 * time.Minute
+)
 
 // New builds a Service.
 func New(d Deps) *Service {
@@ -103,8 +135,16 @@ func New(d Deps) *Service {
 	if d.Rand == nil {
 		d.Rand = rand.Reader
 	}
+	if d.STKExpiry <= 0 {
+		d.STKExpiry = DefaultSTKExpiry
+	}
+	if d.STKGiveUp <= 0 {
+		d.STKGiveUp = DefaultSTKGiveUp
+	}
 	return &Service{
 		pool: d.Pool, clk: d.Clock, log: d.Logger, accounts: d.Accounts, identity: d.Identity,
-		packs: d.Packs, kms: d.KMS, fpKey: d.FingerprintKey, rail: d.Rail, rand: d.Rand,
+		packs: d.Packs, kms: d.KMS, fpKey: d.FingerprintKey, rails: d.Rails, ledger: d.Ledger,
+		cbBase: strings.TrimRight(d.CallbackBaseURL, "/"), cbSecret: d.CallbackSecret, cbCIDRs: d.CallbackCIDRs,
+		expiry: d.STKExpiry, giveUp: d.STKGiveUp, rand: d.Rand,
 	}
 }

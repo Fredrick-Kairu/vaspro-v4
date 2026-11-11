@@ -9,10 +9,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 )
+
+// Defines values for TopupStatus.
+const (
+	Cancelled TopupStatus = "cancelled"
+	Created   TopupStatus = "created"
+	Expired   TopupStatus = "expired"
+	Failed    TopupStatus = "failed"
+	Pending   TopupStatus = "pending"
+	Succeeded TopupStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the TopupStatus enum.
+func (e TopupStatus) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Created:
+		return true
+	case Expired:
+		return true
+	case Failed:
+		return true
+	case Pending:
+		return true
+	case Succeeded:
+		return true
+	default:
+		return false
+	}
+}
 
 // Problem defines model for Problem.
 type Problem struct {
@@ -24,6 +55,31 @@ type Problem struct {
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
 }
+
+// Topup defines model for Topup.
+type Topup struct {
+	// AccountReference The account's number on VASPRO's paybill, sent as the payment's reference.
+	AccountReference string `json:"account_reference"`
+
+	// AmountMinor The amount asked for.
+	AmountMinor int64      `json:"amount_minor"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	Currency    string     `json:"currency"`
+
+	// ErrorCode The PAY code, when failed, cancelled or expired.
+	ErrorCode  *string   `json:"error_code,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	Id         string    `json:"id"`
+	PayerPhone string    `json:"payer_phone"`
+
+	// Receipt The M-Pesa receipt, once succeeded.
+	Receipt *string     `json:"receipt,omitempty"`
+	Status  TopupStatus `json:"status"`
+}
+
+// TopupStatus defines model for Topup.Status.
+type TopupStatus string
 
 // TopupDetails defines model for TopupDetails.
 type TopupDetails struct {
@@ -43,23 +99,77 @@ type TopupDetails struct {
 	Rail string `json:"rail"`
 }
 
+// TopupRequest defines model for TopupRequest.
+type TopupRequest struct {
+	// AmountMinor In minor units of the account's currency, a whole number of shillings (STK pushes whole units).
+	AmountMinor int64 `json:"amount_minor"`
+
+	// PayerPhone The phone to prompt, in E.164, e.g. +254708374149.
+	PayerPhone string `json:"payer_phone"`
+}
+
+// IdempotencyKey defines model for IdempotencyKey.
+type IdempotencyKey = string
+
 // TenantID defines model for TenantID.
 type TenantID = string
 
+// ReceiveStkCallbackJSONBody defines parameters for ReceiveStkCallback.
+type ReceiveStkCallbackJSONBody = map[string]interface{}
+
+// CreateTopupParams defines parameters for CreateTopup.
+type CreateTopupParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ReceiveStkCallbackJSONRequestBody defines body for ReceiveStkCallback for application/json ContentType.
+type ReceiveStkCallbackJSONRequestBody = ReceiveStkCallbackJSONBody
+
+// CreateTopupJSONRequestBody defines body for CreateTopup for application/json ContentType.
+type CreateTopupJSONRequestBody = TopupRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
+	ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(w http.ResponseWriter, r *http.Request, tenantId TenantID)
+	// CreateTopup Top up the main wallet by STK push
+	// (POST /v1/payments/tenants/{tenantId}/topups)
+	CreateTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTopupParams)
+	// GetTopup One STK top-up and its outcome
+	// (GET /v1/payments/tenants/{tenantId}/topups/{topupId})
+	GetTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, topupId string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
 
+// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
+// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
+func (_ Unimplemented) ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetTopupDetails Where and how the account tops up its main wallet
 // (GET /v1/payments/tenants/{tenantId}/topup-details)
 func (_ Unimplemented) GetTopupDetails(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateTopup Top up the main wallet by STK push
+// (POST /v1/payments/tenants/{tenantId}/topups)
+func (_ Unimplemented) CreateTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTopupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetTopup One STK top-up and its outcome
+// (GET /v1/payments/tenants/{tenantId}/topups/{topupId})
+func (_ Unimplemented) GetTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, topupId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -71,6 +181,41 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ReceiveStkCallback operation middleware
+func (siw *ServerInterfaceWrapper) ReceiveStkCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "railAccountId" -------------
+	var railAccountId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "railAccountId", chi.URLParam(r, "railAccountId"), &railAccountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "railAccountId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReceiveStkCallback(w, r, railAccountId, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetTopupDetails operation middleware
 func (siw *ServerInterfaceWrapper) GetTopupDetails(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +234,95 @@ func (siw *ServerInterfaceWrapper) GetTopupDetails(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetTopupDetails(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTopup operation middleware
+func (siw *ServerInterfaceWrapper) CreateTopup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTopupParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTopup(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTopup operation middleware
+func (siw *ServerInterfaceWrapper) GetTopup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "topupId" -------------
+	var topupId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "topupId", chi.URLParam(r, "topupId"), &topupId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "topupId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTopup(w, r, tenantId, topupId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -214,11 +448,91 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/payments/tenants/{tenantId}/topup-details", wrapper.GetTopupDetails)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/tenants/{tenantId}/topups", wrapper.CreateTopup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/payments/tenants/{tenantId}/topups/{topupId}", wrapper.GetTopup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/callbacks/daraja/{railAccountId}/{token}/stk", wrapper.ReceiveStkCallback)
+	})
 
 	return r
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ReceiveStkCallbackRequestObject struct {
+	RailAccountId string `json:"railAccountId"`
+	Token         string `json:"token"`
+	Body          *ReceiveStkCallbackJSONRequestBody
+}
+
+type ReceiveStkCallbackResponseObject interface {
+	VisitReceiveStkCallbackResponse(w http.ResponseWriter) error
+}
+
+type ReceiveStkCallback200JSONResponse map[string]interface{}
+
+func (response ReceiveStkCallback200JSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveStkCallback400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ReceiveStkCallback400ApplicationProblemPlusJSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveStkCallback401ApplicationProblemPlusJSONResponse Problem
+
+func (response ReceiveStkCallback401ApplicationProblemPlusJSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetTopupDetailsRequestObject struct {
 	TenantId TenantID `json:"tenantId"`
@@ -317,11 +631,217 @@ func (response GetTopupDetailsdefaultApplicationProblemPlusJSONResponse) VisitGe
 	return err
 }
 
+type CreateTopupRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+	Params   CreateTopupParams
+	Body     *CreateTopupJSONRequestBody
+}
+
+type CreateTopupResponseObject interface {
+	VisitCreateTopupResponse(w http.ResponseWriter) error
+}
+
+type CreateTopup201JSONResponse Topup
+
+func (response CreateTopup201JSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopup400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTopup400ApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopup401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTopup401ApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopup403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTopup403ApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopup404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTopup404ApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopup503ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateTopup503ApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTopupdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTopupdefaultApplicationProblemPlusJSONResponse) VisitCreateTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTopupRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+	TopupId  string   `json:"topupId"`
+}
+
+type GetTopupResponseObject interface {
+	VisitGetTopupResponse(w http.ResponseWriter) error
+}
+
+type GetTopup200JSONResponse Topup
+
+func (response GetTopup200JSONResponse) VisitGetTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTopup401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetTopup401ApplicationProblemPlusJSONResponse) VisitGetTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTopup403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTopup403ApplicationProblemPlusJSONResponse) VisitGetTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTopup404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTopup404ApplicationProblemPlusJSONResponse) VisitGetTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTopupdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetTopupdefaultApplicationProblemPlusJSONResponse) VisitGetTopupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
+	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
+	ReceiveStkCallback(ctx context.Context, request ReceiveStkCallbackRequestObject) (ReceiveStkCallbackResponseObject, error)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(ctx context.Context, request GetTopupDetailsRequestObject) (GetTopupDetailsResponseObject, error)
+	// CreateTopup Top up the main wallet by STK push
+	// (POST /v1/payments/tenants/{tenantId}/topups)
+	CreateTopup(ctx context.Context, request CreateTopupRequestObject) (CreateTopupResponseObject, error)
+	// GetTopup One STK top-up and its outcome
+	// (GET /v1/payments/tenants/{tenantId}/topups/{topupId})
+	GetTopup(ctx context.Context, request GetTopupRequestObject) (GetTopupResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -363,6 +883,40 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// ReceiveStkCallback operation middleware
+func (sh *strictHandler) ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string) {
+	var request ReceiveStkCallbackRequestObject
+
+	request.RailAccountId = railAccountId
+	request.Token = token
+
+	var body ReceiveStkCallbackJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReceiveStkCallback(ctx, request.(ReceiveStkCallbackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReceiveStkCallback")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReceiveStkCallbackResponseObject); ok {
+		if err := validResponse.VisitReceiveStkCallbackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetTopupDetails operation middleware
 func (sh *strictHandler) GetTopupDetails(w http.ResponseWriter, r *http.Request, tenantId TenantID) {
 	var request GetTopupDetailsRequestObject
@@ -382,6 +936,67 @@ func (sh *strictHandler) GetTopupDetails(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTopupDetailsResponseObject); ok {
 		if err := validResponse.VisitGetTopupDetailsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTopup operation middleware
+func (sh *strictHandler) CreateTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateTopupParams) {
+	var request CreateTopupRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateTopupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTopup(ctx, request.(CreateTopupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTopup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTopupResponseObject); ok {
+		if err := validResponse.VisitCreateTopupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTopup operation middleware
+func (sh *strictHandler) GetTopup(w http.ResponseWriter, r *http.Request, tenantId TenantID, topupId string) {
+	var request GetTopupRequestObject
+
+	request.TenantId = tenantId
+	request.TopupId = topupId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTopup(ctx, request.(GetTopupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTopup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTopupResponseObject); ok {
+		if err := validResponse.VisitGetTopupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
