@@ -32,12 +32,14 @@ const (
 	AUTH4023 Code = "AUTH-4023"
 	AUTH4024 Code = "AUTH-4024"
 	AUTH4025 Code = "AUTH-4025"
+	AUTH4026 Code = "AUTH-4026"
 	BAL4001  Code = "BAL-4001"
 	BAL4002  Code = "BAL-4002"
 	BAL4003  Code = "BAL-4003"
 	BAL4004  Code = "BAL-4004"
 	BAL4005  Code = "BAL-4005"
 	BAL4006  Code = "BAL-4006"
+	BAL4007  Code = "BAL-4007"
 	CMP4030  Code = "CMP-4030"
 	DLR7001  Code = "DLR-7001"
 	KYC4020  Code = "KYC-4020"
@@ -63,6 +65,8 @@ const (
 	VAL4012  Code = "VAL-4012"
 	VAL4013  Code = "VAL-4013"
 	VAL4014  Code = "VAL-4014"
+	VAL4015  Code = "VAL-4015"
+	VAL4016  Code = "VAL-4016"
 )
 
 var registry = map[Code]entry{
@@ -186,6 +190,14 @@ var registry = map[Code]entry{
 		Retryable: false,
 		Billable:  false,
 	},
+	AUTH4026: {
+		Status:    403,
+		Title:     "Finance lead approval required",
+		Cause:     "The reversal is at or above the country pack's finance-lead threshold, and the approver isn't a finance lead (system design §4.3).",
+		Fix:       "Ask a finance lead to approve the reversal.",
+		Retryable: false,
+		Billable:  false,
+	},
 	BAL4001: {
 		Status:    402,
 		Title:     "Insufficient balance",
@@ -231,6 +243,14 @@ var registry = map[Code]entry{
 		Title:     "Account not open",
 		Cause:     "The ledger account is frozen or closed, so it takes no new postings or holds.",
 		Fix:       "Ask VASPRO support why the account was frozen or closed.",
+		Retryable: false,
+		Billable:  false,
+	},
+	BAL4007: {
+		Status:    409,
+		Title:     "Reversal not covered",
+		Cause:     "The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal (system design §4.3).",
+		Fix:       "Name more service wallets to claw back from, release holds, or reverse a smaller amount.",
 		Retryable: false,
 		Billable:  false,
 	},
@@ -431,6 +451,22 @@ var registry = map[Code]entry{
 		Title:     "Price already decided",
 		Cause:     "The token price was already approved or withdrawn, so it can't be approved again.",
 		Fix:       "Read the price's status; to change an approved price, enter a new one and withdraw the old.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4015: {
+		Status:    409,
+		Title:     "Reversal exceeds the original",
+		Cause:     "This reversal and the open or completed reversals of the same top-up together would be more than the top-up.",
+		Fix:       "Reverse at most what's left of the top-up; a rejected reversal frees its share.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4016: {
+		Status:    409,
+		Title:     "Reversal isn't awaiting pay-back",
+		Cause:     "Only a pay-back reversal that's posted and not yet paid back can record a pay-back.",
+		Fix:       "Read the reversal's status; chargebacks and operator reversals have no pay-back.",
 		Retryable: false,
 		Billable:  false,
 	},

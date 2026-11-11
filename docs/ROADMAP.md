@@ -819,10 +819,10 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 3.4 Token purchase from the main wallet into a service wallet, creating a lot at the client's price (negotiated deal if one is in force, otherwise the list price and its volume tier); FIFO use of lots. Staff console screen for entering and approving deals (maker-checker). *Done 2026-11-04 (OQ-15): `PurchaseTokens`, lots with cumulative-rounding FIFO draws, token holds, and the staff price API with maker-checker through the gateway (`/v1/ledger/staff/token-prices`; the console screen itself is frontend track F4); `TestPurchaseTokens_WorkedExample`, `TestDrawLots_WorkedExample`, `TestTokenPrices_MakerChecker`, `TestDrawFIFO_DrawsSumToTheLotsCost`.*
 - [x] 3.5 Usage settlement: usage batches per wallet per settlement window, splitting revenue and VAT from the lots actually used. *Done 2026-11-04 (OQ-16): `SettleUsage` per wallet per window, FIFO draws, inclusive and exclusive VAT; Phase 3's golden worked example end to end (`TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`).*
 - [x] 3.6 Hold expiry job; auto-buy rules. *Done 2026-11-04 (OQ-17): `ExpireHolds` in the settlement loop (expiry plus one window of grace); auto-buy inside `PlaceHold`, buying only when it lets the hold through; rules over gRPC (`TestExpireHolds`, `TestAutoBuy`).*
-- [ ] 3.7 Reversals with maker-checker, as in system design §4.3.
-- [ ] 3.8 Nightly job that rebuilds every balance from the entries and raises a P1 event on any difference.
-- [ ] 3.9 Wallet and token APIs for the dashboard (balances, statements, buying tokens).
-- [ ] 3.10 v3 importer: opening balances, bonuses and commissions as one migration transaction per client; v3 transaction history as read-only migration records.
+- [x] 3.7 Reversals with maker-checker, as in system design §4.3. *Done 2026-11-09 (OQ-18): staff raise and approve over `/v1/ledger/staff/reversals` (finance lead at or above the pack's threshold, KES 2,000), clawback from named wallets newest lot first, pay-back reported over gRPC (`RecordPayback`); `TestReversal_WorkedExample`, `TestReversal_MakerChecker`, `TestReversal_Concurrent`, `TestPlanReversal_LotStillSumsToItsCost`.*
+- [x] 3.8 Nightly job that rebuilds every balance from the entries and raises a P1 event on any difference. *Done 2026-11-09 (OQ-19): `RebuildBalances`, ten report-only checks, one run per date (`rebuild_runs`), `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`; `TestRebuild_TamperedBalance` (the tamper test), `TestRebuild_EachCheck`, `TestRebuild_OncePerDate`.*
+- [x] 3.9 Wallet and token APIs for the dashboard (balances, statements, buying tokens). *Done 2026-11-09 (OQ-20): `/v1/ledger/tenants/{tenantId}/` balances, statement with running balance, prices in force, quote, purchase and auto-buy rules, checked by accounts' billing permissions; a dev-only sandbox top-up for staff; `TestStatement_WorkedExample`, `TestTenantOperations_NeedBillingPermissions`, `TestTokenBuying_Dashboard`.*
+- [>] 3.10 v3 importer: opening balances, bonuses and commissions as one migration transaction per client; v3 transaction history as read-only migration records. **Designed, not built** (2026-11-09, OQ-21): ADR 0011 is the design (a `migration_clearing` contra account, bonus as money, history in `ledger.v3_history`, client deals with maker-checker); it is built when a v3 export or anonymised copy exists (OQ-02), with ADR 0009's.
 
 **Tests specific to this phase**
 
@@ -838,10 +838,10 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] All ledger invariants above are green.
-- [ ] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *First figure 2026-11-04 (3.3, dev machine, not the reference machine): 1,504/s on separate wallets, 765/s on one wallet; see STATUS.*
-- [ ] Finance has reviewed the worked examples and the reversal rules.
-- [ ] The v3 balance import dry run reproduces v3 totals per client to the cent.
+- [x] All ledger invariants above are green. *2026-11-09: property `TestLedger_RandomOperationsKeepInvariants`; concurrency `TestHolds_200ConcurrentHoldsNeverOverspend` (`-race`); golden `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`, `TestDrawLots_WorkedExample`; pricing `TestPurchaseTokens_Pricing`, `TestTokenPrices_Constraints`; `TestJournal_AppendOnly`, `TestBalanceGuard_CheckedAtCommit`; own-maker reversal in `TestOtherTables_Constraints`; tamper `TestRebuild_TamperedBalance`; UGX and fractional tokens in the property, purchase and domain tests. All green in `make check`.*
+- [x] Benchmark recorded: holds and captures per second on the reference machine, kept as a baseline. *2026-11-10: the reference machine is defined as the development machine (Apple M4, 10 cores, 16 GB; Postgres 16 in Docker Desktop 28.0.4's VM with 10 CPUs and about 8 GB; pgx's default pool). `go test -tags=integration -run '^$' -bench BenchmarkHoldCapture -benchtime=5s -count=3 ./internal/ledger/app/`. Median of 3: **1,360 hold+capture pairs/s on separate wallets** (735 µs; runs 1,514, 1,360, 1,335) and **761/s on one wallet** (1.31 ms; runs 631, 761, 793). Re-measure on production hardware in Phase 17.*
+- [ ] Finance has reviewed the worked examples and the reversal rules. *Open: Phase 3 merged without it (your call, 2026-11-10); the review is still owed, see STATUS Blockers.*
+- [ ] The v3 balance import dry run reproduces v3 totals per client to the cent. *Open: waits for 3.10's build (ADR 0011) and a v3 export or anonymised copy, like Phase 2's importer box.*
 
 **Kickoff prompt**
 

@@ -28,6 +28,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/adapters"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/api"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/app"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/domain"
 	ledgergrpc "github.com/Fredrick-Kairu/vaspro-v4/internal/ledger/grpc"
 )
 
@@ -56,13 +57,28 @@ type Config struct {
 	// ledger starts while identity is down; staff actions then fail
 	// closed.
 	IdentityGRPCAddr string `env:"LEDGER_IDENTITY_GRPC_ADDR,required"`
+	// AccountsGRPCAddr is accounts' internal gRPC API, asked on every
+	// dashboard call whether the user may work in the account with a
+	// billing permission (task 3.9). Dialled lazily; dashboard calls
+	// fail closed while accounts is down.
+	AccountsGRPCAddr string `env:"LEDGER_ACCOUNTS_GRPC_ADDR,required"`
+	// DevTopUps lets staff credit main wallets from the sandbox rail
+	// (task 3.9, OQ-20). Dev environments only: never set it where real
+	// money moves.
+	DevTopUps bool `env:"LEDGER_DEV_TOPUPS" envDefault:"false"`
 	// SettlementWindow is how often usage settles (task 3.5, OD-07's
 	// default); every replica settles the same grid of windows.
 	SettlementWindow time.Duration `env:"LEDGER_SETTLEMENT_WINDOW" envDefault:"5m"`
 	// PacksDir holds schema.json and one <cc>/pack.yaml per country: the
 	// VAT rates settlement uses.
 	PacksDir string `env:"LEDGER_PACKS_DIR" envDefault:"packs"`
+	// RebuildAt is when the nightly rebuild runs, HH:MM UTC (task 3.8,
+	// OQ-19); empty is the default, 21:30 (00:30 in Nairobi). One
+	// replica runs each date.
+	RebuildAt string `env:"LEDGER_REBUILD_AT" envDefault:"21:30"`
 }
+
+const defaultRebuildAt = "21:30"
 
 // Service wires the ledger's dependencies together and runs them.
 type Service struct {
@@ -75,10 +91,13 @@ type Service struct {
 
 // New builds a Service from already-connected dependencies and the
 // loaded country packs, by country code.
-func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity, loaded map[string]*packs.Pack) *Service {
+func New(cfg Config, pool *db.Pool, b *bus.Bus, identity adapters.Identity, accounts adapters.Accounts, loaded map[string]*packs.Pack) *Service {
+	if cfg.DevTopUps {
+		slog.Warn("ledger: LEDGER_DEV_TOPUPS is on: staff can credit main wallets from the sandbox rail. Dev environments only.")
+	}
 	a := app.New(app.Deps{
-		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity,
-		Packs: loaded, SettlementWindow: cfg.SettlementWindow,
+		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Identity: identity, Accounts: accounts,
+		DevTopUps: cfg.DevTopUps, Packs: loaded, SettlementWindow: cfg.SettlementWindow,
 	})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
@@ -102,11 +121,15 @@ func Bootstrap(ctx context.Context) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ledger: %w", err)
 	}
+	accounts, err := adapters.DialAccounts(cfg.AccountsGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: %w", err)
+	}
 	loaded, err := loadPacks(cfg.PacksDir)
 	if err != nil {
 		return nil, err
 	}
-	return New(cfg, pool, b, identity, loaded), nil
+	return New(cfg, pool, b, identity, accounts, loaded), nil
 }
 
 // loadPacks loads every <dir>/<cc>/pack.yaml against <dir>/schema.json.
@@ -131,6 +154,14 @@ func relaySubject(eventType string) string { return "ledger." + eventType }
 // Run starts the gRPC and HTTP servers and the outbox relay, and
 // blocks until ctx is cancelled.
 func (s *Service) Run(ctx context.Context) error {
+	rebuildAt := s.cfg.RebuildAt
+	if rebuildAt == "" {
+		rebuildAt = defaultRebuildAt
+	}
+	at, err := domain.ParseTimeOfDay(rebuildAt)
+	if err != nil {
+		return fmt.Errorf("ledger: LEDGER_REBUILD_AT: %w", err)
+	}
 	// The packs are the source of VAT rates (task 3.5); a rate changed
 	// without a new date, or two packs sharing a currency, stops startup.
 	if err := s.app.SyncTaxRates(ctx); err != nil {
@@ -143,6 +174,12 @@ func (s *Service) Run(ctx context.Context) error {
 	go func() {
 		defer close(settleDone)
 		s.settleEachWindow(ctx)
+	}()
+
+	rebuildDone := make(chan struct{})
+	go func() {
+		defer close(rebuildDone)
+		s.rebuildNightly(ctx, at)
 	}()
 
 	relay := outbox.NewRelay(s.pool, s.bus, relaySubject)
@@ -184,7 +221,38 @@ func (s *Service) Run(ctx context.Context) error {
 	<-grpcDone
 	<-relayDone
 	<-settleDone
+	<-rebuildDone
 	return err
+}
+
+// rebuildNightly runs the nightly rebuild (task 3.8) at the configured
+// time each day. Every replica wakes; the one that claims the date runs
+// it. A failed run is logged, and the date's row is taken over after an
+// hour by any replica that wakes again; the next night runs regardless.
+func (s *Service) rebuildNightly(ctx context.Context, at domain.TimeOfDay) {
+	clk := clock.Real{}
+	for {
+		next, runDate := domain.NextRebuild(clk.Now(), at)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(next.Sub(clk.Now())):
+		}
+		sum, err := s.app.RebuildBalances(ctx, runDate)
+		switch {
+		case err != nil:
+			slog.ErrorContext(ctx, "ledger: P1 the nightly rebuild couldn't run", "run_date", runDate.Format(time.DateOnly), "error", err)
+		case sum.Ran:
+			slog.InfoContext(ctx, "ledger: nightly rebuild", "run_date", runDate.Format(time.DateOnly), "passed", sum.Passed,
+				"differences", len(sum.Differences), "accounts", sum.AccountsChecked, "transactions", sum.TransactionsChecked)
+		}
+		// Past this run's time, so the next wake is tomorrow's.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // settleEachWindow wakes just after each window boundary, settles the

@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,4 +83,29 @@ func scaledDecimal(s string) (decimal.Decimal, error) {
 		return decimal.Zero, fmt.Errorf("%q has more than %d places", s, TokenScale)
 	}
 	return d, nil
+}
+
+// PricesInForce is what a client is shown for one service and currency
+// (task 3.9): the tiers SelectPrice chooses from at at. Those are the
+// client's deal rows in force when it has any, else the list's,
+// lowest tier first.
+func PricesInForce(rows []PriceRow, tenant uuid.UUID, at time.Time) []PriceRow {
+	var deal, list []PriceRow
+	for _, r := range rows {
+		if !r.inForce(at) {
+			continue
+		}
+		switch {
+		case r.TenantID == nil:
+			list = append(list, r)
+		case *r.TenantID == tenant:
+			deal = append(deal, r)
+		}
+	}
+	out := list
+	if len(deal) > 0 {
+		out = deal
+	}
+	slices.SortFunc(out, func(a, b PriceRow) int { return a.MinTokens.Cmp(b.MinTokens) })
+	return out
 }

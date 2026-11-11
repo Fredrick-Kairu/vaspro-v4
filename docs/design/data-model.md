@@ -732,6 +732,21 @@ CREATE TABLE ledger.reversals (
 > - **CHECKs:** `auto_buy_rules.below_tokens ≥ 0`, `buy_tokens > 0`.
 > - **`ledger_settlement`** also reads active holds, for the expiry job.
 
+> **Built in task 3.7 (9 Nov 2026, OQ-18).** Additions to `reversals`:
+> - **Columns:** `kind` (`payback`, `chargeback`, `operator`), `currency`, `clawback_services` (the wallets the maker named, in order), `rejected_by` and `rejection_reason`, `payback_transaction_id`, `payback_attempts`, `last_payback_error`.
+> - **CHECKs:** each status carries exactly its decision columns; a rejection is never by its maker; `payback_pending` and `paid_back` only for `payback`, `posted` only for the others; `paid_back` names its pay-back transaction.
+> - **Postings:** the reversal (`reverses_id` the top-up) debits the main wallet up to its available balance, then the named wallets' unused, unheld tokens, newest lot first (recorded in `lot_consumptions`); it credits reversal clearing for a pay-back, or the rail's provider clearing for a chargeback or operator reversal. The pay-back moves reversal clearing to provider clearing. No VAT moves: top-ups carry none.
+> - **Cap:** the live reversals of a top-up never exceed what it credited, checked under the main wallet's balance lock.
+> - **`ledger_reversal_review`** reads reversals across clients for the staff queue. `identity.staff_members.finance_lead` marks finance leads.
+
+> **Built in task 3.8 (9 Nov 2026, OQ-19).** The nightly rebuild compares every copy with the journal and corrects nothing.
+> - **`ledger.rebuild_runs`** (an addition): one row per date (`running`, `passed`, `failed`, with counts), claimed by the replica that runs it.
+> - **Checks:** every transaction and currency balances; balance rows against entries on the normal side; held money and tokens against holds; each lot's remaining against its consumptions; each service wallet's money against its lots' remaining value; the wallet floor.
+> - **Events:** `ledger.rebuild_failed` (P1) or `ledger.rebuild_passed`.
+> - **`ledger_audit`** reads every client's journal and copies, only for the rebuild.
+
+> **Built in task 3.9 (9 Nov 2026, OQ-20).** No schema change. The dashboard reads balances, statements (each line with the balance after it, from one snapshot), the prices in force and quotes, and buys tokens and sets auto-buy rules, with access checked by accounts (billing:read, billing:manage). Dev environments can credit main wallets from VASPRO's `sandbox` rail clearing (LEDGER_DEV_TOPUPS), as ordinary top-ups.
+
 **Worked example (Kenya, a client deal of KES 0.80 per SMS, renegotiated to KES 0.50; prices include VAT at 16%)**
 
 | Step | Debit | Credit | KES | SMS units |
@@ -768,12 +783,12 @@ Buying tokens (steps 2 and 5) carries no VAT, because it only moves the client's
 
 | v3 table or column | v4 | Notes |
 | --- | --- | --- |
-| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client |
-| `client_balance.bonus`, `client_app_bonus` | Bonus account | Usable on any service unless restricted |
+| `client_balance.balance` | Main wallet | Opening balance posted as one `migration` transaction per client, against VASPRO's `migration_clearing` (OQ-21, ADR 0011) |
+| `client_balance.bonus`, `client_app_bonus` | Bonus account | Money, usable on any service unless restricted (OQ-21; system design §4.2's "bonus tokens" wording is superseded) |
 | `client_balance.subscription_balance` | `revenue_share_payable` | Assumed to be premium subscription revenue owed to the client; to confirm |
 | `client_balance.alert_threshold` | Client alert rule (Monitoring, Part 4) | Not ledger data |
 | `user_balance.commissions` | `commission_payable` | Reseller and agent commissions |
-| `transactions` (reference types 1 to 30) | `transactions` and `entries` | v3 history is imported read-only as `migration` transactions with the v3 reference kept. Balances are checked against v3 totals before cut-over |
+| `transactions` (reference types 1 to 30) | `ledger.v3_history` | v3 history is imported read-only, with the v3 reference kept, into its own table, never journal entries (OQ-21, ADR 0011: entries would count it twice alongside the opening balance). Balances are checked against v3 totals before cut-over |
 | `client_services.unit_cost`, `discount` | `token_prices` with `tenant_id` set | Each client's current SMS price (unit\_cost less discount) becomes its negotiated deal from cut-over |
 | `manual_payments` | `topup` transactions with `created_by` | v4 adds maker-checker for manual loads |
 | `invoices`, `invoice_status`, `mpesa_transactions` | Billing and Payments (Part 2) |  |

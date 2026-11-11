@@ -16,9 +16,12 @@ import (
 // Identity is what the ledger asks identity before a staff action (task
 // 3.4b): whether a user is staff, asked on every call so a revocation
 // takes effect at once (2.9), and whether a session's step-up is fresh,
-// before a price is approved or withdrawn.
+// before a price is approved or withdrawn. Since task 3.7 it also asks
+// whether a staff member is a finance lead, who approves reversals at
+// or above the pack's threshold.
 type Identity interface {
 	IsStaff(ctx context.Context, userID uuid.UUID) (bool, error)
+	IsFinanceLead(ctx context.Context, userID uuid.UUID) (bool, error)
 	IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error)
 }
 
@@ -45,6 +48,15 @@ func (g *GRPCIdentity) IsStaff(ctx context.Context, userID uuid.UUID) (bool, err
 		return false, fmt.Errorf("adapters: checking staff: %w", err)
 	}
 	return resp.GetIsStaff(), nil
+}
+
+// IsFinanceLead is true only for staff with the finance-lead flag.
+func (g *GRPCIdentity) IsFinanceLead(ctx context.Context, userID uuid.UUID) (bool, error) {
+	resp, err := g.client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: userID.String()})
+	if err != nil {
+		return false, fmt.Errorf("adapters: checking finance lead: %w", err)
+	}
+	return resp.GetIsStaff() && resp.GetFinanceLead(), nil
 }
 
 func (g *GRPCIdentity) IsStepUpFresh(ctx context.Context, userID, sessionID uuid.UUID) (bool, error) {

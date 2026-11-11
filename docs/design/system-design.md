@@ -128,7 +128,7 @@ The shaded boxes are service token wallets; the five shown are examples, and eve
 - **Consumption per message** comes from the country pack. For example, one SMS segment to a Kenyan network might use 1 token and an international one more. The exact rates are a pricing decision.
 - **Auto-buy** is opt-in per service: when tokens drop below the client's level, the rule buys a set amount from the main wallet. Without it, a service stops at zero tokens, as the team asked.
 - **Holds** (section 5) now reserve tokens in the service wallet, not money in the main wallet.
-- **v3 migration:** v3 balances move into each client's main wallet; v3 bonus balances become bonus tokens per the client's plan.
+- **v3 migration:** v3 balances move into each client's main wallet; v3 bonus balances become bonus tokens per the client's plan. *Superseded 9 Nov 2026 (OQ-21, ADR 0011): v3 bonus moves as money into the client's bonus account.*
 
 ### 4.3 Reversals
 
@@ -577,7 +577,7 @@ I made these design choices to draw the flows; confirm or change them in your re
 - [x] **Token units:** are tokens message units with a consumption rate per route (as drawn), or a money balance per service?
 - [ ] **Unused tokens:** can they be moved back to the main wallet or refunded, and do they expire?
 - [x] **Tax point:** is VAT charged on the top-up, on the token purchase, or on use? This decides when invoices are issued.
-- [ ] **Reversals:** the amount above which a finance lead must approve, and who holds that role.
+- [x] **Reversals:** the amount above which a finance lead must approve, and who holds that role. *Answered 9 Nov 2026 (OQ-18): a per-currency threshold in the country pack, KES 2,000 in Kenya; finance leads are staff flagged by the ops CLI.*
 - [ ] **Payment window** for approved codes, per country, and whether any deposit is taken at application.
 - [ ] **Billing day and proration** policy for assets added mid-cycle.
 - [x] **Holding client money:** collections straight to the client's own paybill, or through VASPRO accounts with sweeps? The second option needs legal advice on payment service provider licensing.

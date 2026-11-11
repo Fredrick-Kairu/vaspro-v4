@@ -257,9 +257,10 @@ type IdentitySsoConnection struct {
 }
 
 type IdentityStaffMember struct {
-	UserID    uuid.UUID `json:"user_id"`
-	GrantedBy string    `json:"granted_by"`
-	GrantedAt time.Time `json:"granted_at"`
+	UserID      uuid.UUID `json:"user_id"`
+	GrantedBy   string    `json:"granted_by"`
+	GrantedAt   time.Time `json:"granted_at"`
+	FinanceLead bool      `json:"finance_lead"`
 }
 
 type IdentityUser struct {

@@ -159,3 +159,70 @@ func TestUnlockByStaff(t *testing.T) {
 		}
 	})
 }
+
+// A finance lead approves reversals at or above the pack's threshold
+// (task 3.7, OQ-18). Only staff can be one; revoking staff drops it.
+func TestStaffMembers_FinanceLead(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, sender, _, _ := newTestService(t)
+	q := store.New(pool)
+	ada := signedInUserID(t, ctx, svc, sender, "ada@example.com")
+	signedInUserID(t, ctx, svc, sender, "bob@example.com")
+
+	role := func(id uuid.UUID) app.StaffRole {
+		t.Helper()
+		r, err := svc.StaffRole(ctx, id)
+		if err != nil {
+			t.Fatalf("StaffRole: %v", err)
+		}
+		return r
+	}
+
+	if err := svc.GrantFinanceLead(ctx, "bob@example.com", "ops"); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("finance lead for a non-staff user: got %v, want ErrNotFound", err)
+	}
+	if err := svc.GrantStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if r := role(ada); !r.Staff || r.FinanceLead {
+		t.Fatalf("plain staff: %+v", r)
+	}
+	if err := svc.GrantFinanceLead(ctx, "ADA@example.com", "ops"); err != nil {
+		t.Fatalf("GrantFinanceLead: %v", err)
+	}
+	if err := svc.GrantFinanceLead(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatalf("granting again should change nothing, got %v", err)
+	}
+	if r := role(ada); !r.Staff || !r.FinanceLead {
+		t.Fatalf("finance lead: %+v", r)
+	}
+	if got := securityEventTypes(t, ctx, q, ada)["finance_lead_granted"]; got != 1 {
+		t.Fatalf("%d finance_lead_granted events, want 1", got)
+	}
+
+	if err := svc.RevokeFinanceLead(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatalf("RevokeFinanceLead: %v", err)
+	}
+	if r := role(ada); !r.Staff || r.FinanceLead {
+		t.Fatalf("after revoking finance lead: %+v, want still staff", r)
+	}
+	if got := securityEventTypes(t, ctx, q, ada)["finance_lead_revoked"]; got != 1 {
+		t.Fatalf("%d finance_lead_revoked events, want 1", got)
+	}
+	if err := svc.RevokeFinanceLead(ctx, "ada@example.com", "ops"); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("revoking a non-finance-lead: got %v, want ErrNotFound", err)
+	}
+
+	if err := svc.GrantFinanceLead(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RevokeStaff(ctx, "ada@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if r := role(ada); r.Staff || r.FinanceLead {
+		t.Fatalf("revoked staff: %+v, want neither", r)
+	}
+	if err := svc.GrantFinanceLead(ctx, "ada@example.com", " "); !errors.Is(err, app.ErrValidation) {
+		t.Fatalf("no operator name: got %v, want ErrValidation", err)
+	}
+}

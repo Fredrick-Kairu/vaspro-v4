@@ -148,6 +148,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: AUTH-4026
+    status: 403
+    title: Finance lead approval required
+    cause: The reversal is at or above the country pack's finance-lead threshold, and the approver isn't a finance lead (system design §4.3).
+    fix: Ask a finance lead to approve the reversal.
+    retryable: false
+    billable: false
+
   - code: KYC-4020
     status: 403
     title: Account tier too low for this service
@@ -284,6 +292,22 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4015
+    status: 409
+    title: Reversal exceeds the original
+    cause: This reversal and the open or completed reversals of the same top-up together would be more than the top-up.
+    fix: Reverse at most what's left of the top-up; a rejected reversal frees its share.
+    retryable: false
+    billable: false
+
+  - code: VAL-4016
+    status: 409
+    title: Reversal isn't awaiting pay-back
+    cause: Only a pay-back reversal that's posted and not yet paid back can record a pay-back.
+    fix: Read the reversal's status; chargebacks and operator reversals have no pay-back.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance
@@ -329,6 +353,14 @@ codes:
     title: Account not open
     cause: The ledger account is frozen or closed, so it takes no new postings or holds.
     fix: Ask VASPRO support why the account was frozen or closed.
+    retryable: false
+    billable: false
+
+  - code: BAL-4007
+    status: 409
+    title: Reversal not covered
+    cause: The main wallet's available money plus the unused, unheld tokens in the named service wallets don't cover the reversal (system design §4.3).
+    fix: Name more service wallets to claw back from, release holds, or reverse a smaller amount.
     retryable: false
     billable: false
 

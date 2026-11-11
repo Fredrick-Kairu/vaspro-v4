@@ -109,6 +109,17 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		wallet domain.AccountKey
 	}
 	var active []openHold
+	// Top-ups and pending pay-backs, for the reversal steps (task 3.7).
+	type topUpRef struct {
+		tenant   uuid.UUID
+		id       uuid.UUID
+		amount   int64
+		currency string
+	}
+	var topUps []topUpRef
+	var pendingPaybacks []app.Reversal
+	reversed := map[uuid.UUID]int64{} // what each top-up's live reversals take
+	maker, lead := newStaff(h), financeLead(h)
 	// Top-ups are larger than spends, so wallets have money and the
 	// hold, capture and release paths are reached often.
 	const steps = 400
@@ -128,11 +139,70 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 
 		var op string
 		var err error
-		switch rng.IntN(11) {
+		switch rng.IntN(13) {
 		case 0, 1:
 			op = "top-up"
 			amount *= 10
-			_, err = h.svc.Post(ctx, post(tenant, domain.TxnTopup, d(cur.clear, amount), c(main, amount)))
+			var res app.PostResult
+			res, err = h.svc.Post(ctx, post(tenant, domain.TxnTopup, d(cur.clear, amount), c(main, amount)))
+			if err == nil {
+				topUps = append(topUps, topUpRef{tenant: tenant, id: res.TransactionID, amount: amount, currency: cur.code})
+			}
+		case 11:
+			// A reversal of part of a top-up, sometimes clawing tokens
+			// back, approved at once; one that isn't covered is rejected.
+			if len(topUps) == 0 {
+				continue
+			}
+			op = "reversal"
+			top := topUps[rng.IntN(len(topUps))]
+			kind := []domain.ReversalKind{domain.ReversalPayback, domain.ReversalChargeback, domain.ReversalOperator}[rng.IntN(3)]
+			left := top.amount - reversed[top.id]
+			if left <= 0 {
+				continue
+			}
+			reverse := rng.Int64N(left) + 1
+			var services []string
+			if rng.IntN(2) == 0 {
+				// The client turned most of its main wallet into tokens,
+				// then the top-up is reversed: aim just past what the main
+				// wallet has left, so the SMS wallet's tokens are clawed back.
+				services = []string{"sms"}
+				mainKey := domain.AccountKey{Type: domain.MainWallet, Currency: top.currency}
+				perToken := map[string]int64{"KES": 81, "UGX": 13}[top.currency] // just over each list price
+				if spend := balanceOf(t, h, top.tenant, mainKey).AvailableMinor / perToken; spend > 0 {
+					if _, perr := h.svc.PurchaseTokens(ctx, purchase(top.tenant, "sms", top.currency, decimal.NewFromInt(spend).String())); perr != nil {
+						t.Fatalf("seed %d step %d: spending the main wallet: %v", seed, step, perr)
+					}
+				}
+				reverse = min(left, max(balanceOf(t, h, top.tenant, mainKey).AvailableMinor, 0)+rng.Int64N(1500)+1)
+			}
+			var requested, approved app.Reversal
+			if requested, err = h.svc.RequestReversal(ctx, maker.user, maker.session, reversalOf(top.tenant, top.id, kind, reverse, services...)); err == nil {
+				reversed[top.id] += reverse
+				approved, err = h.svc.ApproveReversal(ctx, lead.user, lead.session, requested.ID)
+				switch {
+				case errors.Is(err, domain.ErrReversalNotCovered):
+					if _, rerr := h.svc.RejectReversal(ctx, lead.user, lead.session, requested.ID, "not covered"); rerr != nil {
+						t.Fatalf("seed %d step %d: rejecting: %v", seed, step, rerr)
+					}
+					reversed[top.id] -= reverse
+				case err == nil && approved.Status == domain.ReversalPaybackPending:
+					pendingPaybacks = append(pendingPaybacks, approved)
+				}
+			}
+		case 12:
+			if len(pendingPaybacks) == 0 {
+				continue
+			}
+			op = "pay-back"
+			i := rng.IntN(len(pendingPaybacks))
+			r := pendingPaybacks[i]
+			ok := rng.IntN(3) != 0
+			if ok {
+				pendingPaybacks = append(pendingPaybacks[:i], pendingPaybacks[i+1:]...)
+			}
+			_, err = h.svc.RecordPayback(ctx, app.PaybackReport{TenantID: r.TenantID, ReversalID: r.ID, Succeeded: ok, Error: "retry"})
 		case 2:
 			op = "token purchase"
 			_, err = h.svc.PurchaseTokens(ctx, purchase(tenant, "sms", cur.code, tokens.String()))
@@ -217,6 +287,8 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			succeeded[op]++
 		case errors.Is(err, app.ErrInsufficientBalance), errors.Is(err, app.ErrInsufficientTokens):
 			refused[op]++
+		case op == "reversal" && (errors.Is(err, domain.ErrReversalExceedsOriginal) || errors.Is(err, domain.ErrReversalNotCovered)):
+			refused[op]++
 		case op == "token purchase" && errors.Is(err, app.ErrValidation):
 			// A tiny quantity can cost under one minor unit (0.02 UGX tokens
 			// at 12.5 is 0.25 shillings), which a purchase rightly refuses.
@@ -228,10 +300,20 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 			t.Fatalf("seed %d step %d after %s: %s", seed, step, op, msg)
 		}
 	}
+	// The nightly rebuild (task 3.8) is a second, independent check: it
+	// must agree that the random ledger holds together.
+	if sum, err := h.svc.RebuildBalances(ctx, h.clk.Now()); err != nil || !sum.Ran || !sum.Passed {
+		t.Fatalf("seed %d: the rebuild on the random ledger: %v, %+v", seed, err, sum.Differences)
+	}
 	batches := count(t, h, `SELECT count(*) FROM usage_batches WHERE transaction_id IS NOT NULL`)
 	autoBuys := count(t, h, `SELECT count(*) FROM outbox_events WHERE event_type = 'autobuy.triggered'`)
 	expired := count(t, h, `SELECT count(*) FROM holds WHERE status = 'expired'`)
-	t.Logf("succeeded %v; refused for balance %v; %d usage batches, %d auto-buys, %d holds expired", succeeded, refused, batches, autoBuys, expired)
+	clawbacks := count(t, h, `SELECT count(DISTINCT lc.transaction_id) FROM lot_consumptions lc JOIN transactions t ON t.id = lc.transaction_id WHERE t.type = 'reversal'`)
+	t.Logf("succeeded %v; refused for balance %v; %d usage batches, %d auto-buys, %d holds expired, %d reversals clawed tokens back",
+		succeeded, refused, batches, autoBuys, expired, clawbacks)
+	if clawbacks == 0 {
+		t.Error("no reversal clawed tokens back: the sequence isn't exercising it")
+	}
 	if autoBuys == 0 || expired == 0 {
 		t.Errorf("%d auto-buys and %d expiries: the sequence isn't exercising both", autoBuys, expired)
 	}
@@ -239,7 +321,7 @@ func TestLedger_RandomOperationsKeepInvariants(t *testing.T) {
 		t.Error("no settlement posted a usage batch: the sequence isn't exercising it")
 	}
 	for _, op := range []string{"top-up", "token purchase", "main-wallet charge", "token hold", "money hold",
-		"release", "token capture", "money capture with posting", "settlement"} {
+		"release", "token capture", "money capture with posting", "settlement", "reversal", "pay-back"} {
 		if succeeded[op] == 0 {
 			t.Errorf("no %s succeeded in %d steps: the sequence isn't exercising it", op, steps)
 		}
@@ -287,6 +369,19 @@ func checkInvariants(ctx context.Context, h harness) string {
 			  SELECT coalesce(sum(round(l.tokens_bought * l.minor_per_token)
 			    - (SELECT coalesce(sum(lc.value_minor), 0) FROM lot_consumptions lc WHERE lc.lot_id = l.id)), 0)
 			  FROM token_lots l WHERE l.account_id = b.account_id)`},
+		{"reversal clearing that differs from the pay-backs still owed", `
+			SELECT count(*) FROM currencies cur
+			WHERE (SELECT coalesce(sum(CASE e.direction WHEN 'C' THEN e.amount_minor ELSE -e.amount_minor END), 0)
+			       FROM entries e JOIN accounts a ON a.id = e.account_id
+			       WHERE a.type = 'reversal_clearing' AND a.currency = cur.code)
+			   <> (SELECT coalesce(sum(r.amount_minor), 0) FROM reversals r
+			       WHERE r.status = 'payback_pending' AND r.currency = cur.code)`},
+		{"a top-up reversed beyond what it paid in", `
+			SELECT count(*) FROM transactions t
+			WHERE t.type = 'topup' AND (SELECT coalesce(sum(r.amount_minor), 0) FROM reversals r
+			                            WHERE r.original_transaction_id = t.id AND r.status <> 'rejected')
+			  > (SELECT sum(e.amount_minor) FROM entries e JOIN accounts a ON a.id = e.account_id
+			     WHERE e.transaction_id = t.id AND a.type = 'main_wallet' AND e.direction = 'C')`},
 		{"a wallet below zero available", `
 			SELECT count(*) FROM balances b JOIN accounts a ON a.id = b.account_id
 			WHERE ledger.is_client_wallet(a.type) AND b.balance_minor - b.held_minor < 0`},

@@ -256,4 +256,20 @@ func TestIsStaff(t *testing.T) {
 	if _, err := client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: "x"}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("malformed id: got %v, want InvalidArgument", err)
 	}
+
+	// The finance-lead flag rides on the same answer (task 3.7).
+	if err := svc.GrantStaff(ctx, "bob@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: bob})
+	if err != nil || !resp.GetIsStaff() || resp.GetFinanceLead() {
+		t.Fatalf("plain staff: %v, %v", resp, err)
+	}
+	if err := svc.GrantFinanceLead(ctx, "bob@example.com", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.IsStaff(ctx, &identityv1.IsStaffRequest{UserId: bob})
+	if err != nil || !resp.GetIsStaff() || !resp.GetFinanceLead() {
+		t.Fatalf("finance lead: %v, %v", resp, err)
+	}
 }

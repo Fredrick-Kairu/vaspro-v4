@@ -221,6 +221,17 @@ type LedgerRateCard struct {
 	EffectiveTo      pgtype.Timestamptz `json:"effective_to"`
 }
 
+type LedgerRebuildRun struct {
+	ID                  uuid.UUID          `json:"id"`
+	RunDate             pgtype.Date        `json:"run_date"`
+	Status              string             `json:"status"`
+	StartedAt           time.Time          `json:"started_at"`
+	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
+	AccountsChecked     pgtype.Int8        `json:"accounts_checked"`
+	TransactionsChecked pgtype.Int8        `json:"transactions_checked"`
+	Differences         pgtype.Int4        `json:"differences"`
+}
+
 type LedgerReversal struct {
 	ID                    uuid.UUID          `json:"id"`
 	TenantID              uuid.UUID          `json:"tenant_id"`
@@ -235,6 +246,14 @@ type LedgerReversal struct {
 	PaybackReference      pgtype.Text        `json:"payback_reference"`
 	CreatedAt             time.Time          `json:"created_at"`
 	DecidedAt             pgtype.Timestamptz `json:"decided_at"`
+	Kind                  string             `json:"kind"`
+	Currency              string             `json:"currency"`
+	ClawbackServices      []string           `json:"clawback_services"`
+	RejectedBy            pgtype.UUID        `json:"rejected_by"`
+	RejectionReason       pgtype.Text        `json:"rejection_reason"`
+	PaybackTransactionID  pgtype.UUID        `json:"payback_transaction_id"`
+	PaybackAttempts       int32              `json:"payback_attempts"`
+	LastPaybackError      pgtype.Text        `json:"last_payback_error"`
 }
 
 type LedgerTaxRate struct {

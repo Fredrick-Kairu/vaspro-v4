@@ -31,4 +31,5 @@ Data model §5 says wallet balances are "a copy of the journal, updated in the s
 - Reading a VASPRO account's balance costs a sum over its entries (indexed by `entries_account`). The finance views that need it (Phase 9 and the console) should use a periodic snapshot rather than summing on every request. That snapshot is a later task, not part of this decision.
 - `held_minor` is changed only by the hold, capture and release use cases (3.3).
 - Post-paid clients (tier 3, credit limits) would need an exception to the wallet floor. It isn't designed yet; it comes with a credit-limit design.
+- The nightly rebuild is built (task 3.8, OQ-19). It reports and never corrects: a difference stays in place as evidence for finance, and a fix is a posting made by staff.
 - If EXPLAIN shows the `EXISTS` RLS checks on `entries`/`balances` are slow, adding a `tenant_id` column to them is the fallback (OQ-13).
