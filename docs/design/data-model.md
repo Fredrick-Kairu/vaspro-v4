@@ -1373,6 +1373,14 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 -- Plus the shared outbox_events, idempotency_keys and processed_events tables.
 ```
 
+> **Agreed for Phase 4 (11 Nov 2026, OQ-22), built from task 4.1.** Additions to the schema above:
+> - **`payments.topup_accounts`** (`tenant_id`, `rail_account_id`, `account_number`, unique per rail account): each client's account number on VASPRO's paybill, 8 characters with 2 check characters.
+> - **`payments.stk_callbacks`**: every STK result callback, unique by `CheckoutRequestID`, so a repeat is ignored even for a failure (which has no receipt), and one that arrives before the intent's `rail_request_id` is saved waits here until it is.
+> - **`recon_exceptions.kind`** gains `ledger_mismatch`: a notice with no provider-clearing entry, or an entry with no notice.
+> - **Roles:** NOLOGIN `payments_system` (rows with no tenant: VASPRO's paybill, its credentials, unmatched notices) and `payments_operations` (staff: suspense and reconciliation), both `WITH INHERIT FALSE`, used only through `WithRoleTx`.
+> - **Callbacks** are checked by source (Safaricom's published ranges) and a path token, HMAC(secret, rail account ID), since Daraja doesn't sign them.
+> - **Events** besides those below: `collection_notice.matched` (a staff match from suspense) and `recon.statement_imported`.
+
 **Where the money goes**
 
 | Flow | Rail account | Ledger |

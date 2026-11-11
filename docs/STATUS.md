@@ -1,9 +1,79 @@
 # Build status
 
-**Updated:** 2026-11-10
-**Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.9 done, 3.10 designed (2026-11-09), and the exit gate gone through (2026-11-10): ready for the PR to `main`, with finance's review and the v3 dry run still open (see Blockers).
-**Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
+**Updated:** 2026-11-11
+**Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
+**Current task:** 4.2 done (the Daraja fake and adapter, 2026-11-11). Next: 4.1, the `payments` migrations.
+**Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
+
+## Phase 4 plan (agreed 2026-11-11)
+Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adapter (4.2) come first, as the kickoff asks, because they need no schema.
+
+| # | Task | Tests first |
+|---|---|---|
+| 4.2 | `tools/fakes/daraja`, then `internal/payments/adapters` (OAuth in Redis, STK push and query, C2B registration, callback parsing) | each outcome → its PAY code; one OAuth call for 50 pushes; a refused token retried once; pending then final; malformed callbacks |
+| 4.1 | `payments` service skeleton, migration (§7's Phase 4 tables plus `topup_accounts`, `stk_callbacks`, `ledger_mismatch`), sqlc, `payments_system`/`payments_operations` | every CHECK and key; RLS, including notices by `matched_tenant_id`; roles only in `WithRoleTx` |
+| 4.3 | `rails` in packs (KE `mpesa_ke`), ops CLI for VASPRO's paybill and its credentials, account numbers | check characters catch every single typo and adjacent swap; unique under concurrency; credentials never returned or logged |
+| 4.4 | STK top-up: intent, push, callback (source and path token), ledger posting after commit with a sweeper, expiry by query | every outcome; duplicate and early callbacks; the amount mismatch flagged; 20 concurrent callbacks credit once; ledger down then posted once |
+| 4.5 | C2B: validation accepts, confirmation matches or goes to suspense, staff match with step-up | suspense; one credit under 10 concurrent matches; a typo to suspense; bad source or token writes nothing |
+| 4.6 | Org-portal CSV upload, matching, `ListClearingEntries` on the ledger, exceptions | each exception kind; a day of fake traffic with zero exceptions (exit gate) |
+| 4.8 | Checkout API and a server-rendered `/pay/{token}` page | tampered, expired and used links; no payer data leaked; gateway e2e |
+| 4.7 | Airtel Money KE | deferred (`[>]`), the account isn't ready |
+
+**Proposed and agreed with the plan** (data model §7 now lists them):
+- `stk_callbacks` keyed by CheckoutRequestID: it deduplicates failures (no receipt) and parks callbacks that beat the request ID;
+- callbacks checked by Safaricom's CIDRs (the gateway forwards a trusted `X-Vaspro-Client-Ip`) and a path token HMAC(secret, rail account);
+- ledger postings after commit, keyed `topup:<intent>` or `c2b:<notice>`, with a sweeper;
+- the callback's amount wins, and a mismatch opens `amount_mismatch`;
+- STK amounts in whole shillings.
+
+## Done in Phase 4
+- 4.2 Daraja fake and adapter (OQ-22). There's no payments service yet: the adapter package stands alone until 4.1 scaffolds the service around it.
+  - **Codes:** **PAY-6502** (rail timeout, status being checked, as system design §8 names it), **PAY-6503** cancelled by the payer (1032), **PAY-6504** no response (1037), **PAY-6505** insufficient funds (1), **PAY-6506** wrong PIN (2001), **PAY-6507** refused or unavailable (any other result).
+  - **Fake** (`tools/fakes/daraja`), a real HTTP server like `kycvendor`:
+    - OAuth with Basic auth (`expires_in` as a string, as Daraja sends it), token TTL and early expiry, a count of tokens issued;
+    - STK push checks the bearer token, the password base64(shortcode + passkey + timestamp), the phone, a whole-shilling amount, and Daraja's 12/13-character reference and description limits;
+    - **outcomes** scripted per phone or queued for the next push: success, cancelled, timeout, insufficient funds, wrong PIN;
+    - **deliveries:** once, twice (identical bodies), **before the push's response returns**, never (only the query knows), or held until the test releases it;
+    - a callback amount that differs from the request;
+    - STK query: `500.001.1001` while pending, then the result;
+    - C2B: URL registration; `Pay` posts validation, then confirmation (optionally twice), and an unreachable validation follows ResponseType;
+    - `Statement(day)` renders the Nairobi day as the org-portal CSV, with omitted and extra lines. **The columns are assumed** (`StatementHeader`) until an anonymised export confirms them (OQ-22).
+    - Fixtures use only Safaricom's published sandbox number (`SandboxMSISDN`). `.claude/rules/tests.md` names `packs/<cc>/sandbox.yaml` for test numbers, but no pack has one yet; adding it fits 4.3's pack work.
+  - **Adapter** (`internal/payments/adapters/daraja.go`):
+    - `STKPush`, `STKQuery` (pending until final), `RegisterC2BURLs` (ResponseType Completed, per OQ-22);
+    - `ParseSTKCallback` and `ParseC2BCallback`: amounts read as decimal strings into minor units with no float, more than two decimals refused; times in the pack's zone; a masked C2B MSISDN left out rather than refused;
+    - `C2BResponse`, `STKResult.ErrorCode`, `ErrorCodeFor`;
+    - credentials through a `CredentialSource`, read at call time;
+    - **token cache in Redis:** keyed by rail account and a fingerprint of the consumer key; TTL `expires_in` less 60s (a token with less isn't cached); `singleflight` so concurrent callers in one process share a fetch; a refused token (401 or `404.001.03`) is deleted only if it's still the cached one (a compare-and-delete script) and the call retried once;
+    - errors: `ErrRailTimeout`, `ErrRailUnavailable`, `ErrRailRefused` (with `*RailError`), `ErrInvalidRequest` (checked before calling the rail), `ErrBadCallback`.
+    - It logs nothing, and its errors carry no credential, token or payer data.
+    - **Not here:** the callbacks' source and path-token check, which sits on the routes (4.4, 4.5).
+  - **Real sandbox:** `TestDarajaSandbox` (tags `integration,daraja_sandbox`) pushes 1 shilling to the sandbox number and queries for up to a minute. `.github/workflows/daraja-nightly.yml` runs it at 01:30 UTC and on demand, never on a PR. It skips until you add the repository secrets `DARAJA_SANDBOX_CONSUMER_KEY`, `_CONSUMER_SECRET`, `_SHORTCODE` and `_PASSKEY`. Checked: it skips locally, and actionlint passes.
+  - **Tests:**
+    - **fake:** OAuth; push refusals; every outcome with its callback, query and recorded transaction; the metadata and a different paid amount; twice, before the response, never and manual; an unknown checkout; C2B accepted, rejected, and unreachable under both response types; the statement for one day, with omit and extra.
+    - **adapter, unit:** callback parsing (success, failure, 9 malformed cases), C2B parsing (a masked MSISDN, no balance, 6 malformed cases), every result code and error mapped to its catalogue code, the C2B responses, and the Nairobi timestamp in the password.
+    - **adapter, integration** (real Redis, the fake):
+      - each outcome end to end, callback and query;
+      - the callback's own amount;
+      - pending then final;
+      - **50 concurrent pushes, one token**;
+      - the cache TTL and a key without the consumer key;
+      - a short-lived token not cached;
+      - an expired token fetched again and the new one cached;
+      - **a rail refusing every token is tried exactly twice**;
+      - timeout, unreachable and 503 mapped;
+      - a credential-store error stops before OAuth;
+      - 6 invalid requests refused before any call;
+      - C2B registration then validation and confirmation parsed;
+      - no credential or token in errors.
+    - **Order of work:**
+      - the adapter's tests were seen failing against stubs (all 13);
+      - **the fake's tests were written first but first run against the finished fake** and passed, so mutations stand in for seeing them fail.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - **fake:** the early callback sent in the background; the statement ignoring omitted receipts; the password not checked.
+      - **adapter:** no `singleflight` (the 50-push test); no retry after a refused token; no 60s skew; 1032 mapped as a timeout; timestamps in UTC.
+  - **`make check`** (after staging, dev stack down): the first run stopped at lint on one gosec G704 (SSRF taint) in the fake's test helper, which calls only the fake's own `httptest` URL; it's marked `nolint` with the reason. The second run was green: lint 0 issues, 38 packages fresh (`payments/adapters`, `fakes/daraja` and the packages the new error codes touch), 37 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Docs:** OQ-22; data model §7's agreed additions; ROADMAP 4.2 ticked, 4.7 `[>]`, and a note that the exit gate's "on staging" waits for staging (OD-02, Phase 8).
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1207,17 +1277,19 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. The PR of `p3/phase-3` to `main`; merge only after its CI is green and you confirm it.
-2. After the merge, on `ops/dev-environment`:
+1. 4.1 `payments` migrations and sqlc, in a new conversation (plan above).
+2. Then 4.3, 4.4, 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
+4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
    - the compose file gains the accounts address;
    - `docs/api/API.md` is regenerated.
-3. Phase 4 (Payments I, wallet top-ups).
-4. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
-5. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
-6. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
+5. 2.11's and 3.10's builds once a v3 export exists; finance's review of Phase 3.
+6. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
+7. Still open from Phase 0: the clean-machine `make up` M0 check.
 
 ## Blockers
+- The M-Pesa org-portal statement columns (4.6) are assumed until an anonymised export confirms them (OQ-22).
 - 2.11's and 3.10's builds, and Phase 2's and Phase 3's importer dry-run exit-gate boxes, need a v3 export or anonymised copy (OQ-02, OQ-12, OQ-21, ADRs 0009 and 0011).
 - Phase 3's "finance has reviewed the worked examples and the reversal rules" box needs finance's review, which only you can arrange. It was merged without it (your call, 2026-11-10).
 

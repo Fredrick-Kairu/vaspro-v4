@@ -427,3 +427,51 @@ codes:
     fix: Confirm the recipient's number and that they're registered for this rail.
     retryable: false
     billable: false
+
+  - code: PAY-6502
+    status: 504
+    title: Rail timed out, status being checked
+    cause: The payment rail didn't answer in time, so the outcome isn't known yet.
+    fix: Don't resend. VASPRO asks the rail for the outcome and updates the payment; check its status.
+    retryable: false
+    billable: false
+
+  - code: PAY-6503
+    status: 422
+    title: Cancelled by the payer
+    cause: The payer cancelled the payment prompt on their phone.
+    fix: Start a new payment if the payer wants to try again.
+    retryable: true
+    billable: false
+
+  - code: PAY-6504
+    status: 422
+    title: Payer didn't respond
+    cause: The payment prompt reached no one or wasn't answered in time.
+    fix: Check the phone is on and has signal, then start a new payment.
+    retryable: true
+    billable: false
+
+  - code: PAY-6505
+    status: 422
+    title: Payer has insufficient funds
+    cause: The payer's mobile money balance couldn't cover the payment.
+    fix: Ask the payer to add funds, then start a new payment.
+    retryable: false
+    billable: false
+
+  - code: PAY-6506
+    status: 422
+    title: Wrong PIN entered
+    cause: The payer entered a wrong PIN on the payment prompt.
+    fix: Start a new payment and ask the payer to enter their PIN carefully.
+    retryable: true
+    billable: false
+
+  - code: PAY-6507
+    status: 503
+    title: Rail refused or unavailable
+    cause: The payment rail refused the request or couldn't be reached.
+    fix: Retry later; if it keeps happening, contact support with the request ID from the response.
+    retryable: true
+    billable: false

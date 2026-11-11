@@ -858,12 +858,12 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 **Tasks**
 
 - [ ] 4.1 `payments` migrations for rails, rail accounts, rail credentials, payment intents, collection notices, statement imports and lines, recon exceptions.
-- [ ] 4.2 Daraja adapter: OAuth token cached in Redis, STK push, STK query, C2B URL registration, validation and confirmation callbacks. Callbacks are checked by source and shared secret.
+- [x] 4.2 Daraja adapter: OAuth token cached in Redis, STK push, STK query, C2B URL registration, validation and confirmation callbacks. Callbacks are checked by source and shared secret. *Done 2026-11-11 (OQ-22): the fake `tools/fakes/daraja` (every outcome, duplicate, early and lost callbacks, C2B, statements) and `internal/payments/adapters` (`TestDaraja_STKOutcomes`, `TestDaraja_TokenCache`, `TestParseSTKCallback`, `TestParseC2BCallback`). The source and shared-secret check sits on the callback routes, so it is built and tested with them in 4.4 and 4.5.*
 - [ ] 4.3 VASPRO's own paybill as a rail account; a unique account number per client.
 - [ ] 4.4 Top-up by STK: intent → callback → ledger top-up posting (debit provider clearing, credit main wallet).
 - [ ] 4.5 Top-up by paybill (C2B): match on account number; unmatched money goes to suspense; staff match it later, once.
 - [ ] 4.6 Daily reconciliation of VASPRO's paybill against provider clearing in the ledger.
-- [ ] 4.7 Airtel Money KE adapter, if the account is ready; otherwise left for later.
+- [>] 4.7 Airtel Money KE adapter, if the account is ready; otherwise left for later. **Deferred** (2026-11-11, OQ-22): the account isn't ready. The rail interface stays free of Daraja types so Airtel fits later.
 - [ ] 4.8 A minimal hosted checkout page, reused by Pay now in Phase 9.
 
 **Tests specific to this phase**
@@ -877,7 +877,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] A real Daraja sandbox top-up credits a wallet end to end on staging.
+- [ ] A real Daraja sandbox top-up credits a wallet end to end on staging. *Staging doesn't exist until Phase 8 (OD-02); the nightly `.github/workflows/daraja-nightly.yml` covers the adapter against the real sandbox meanwhile, once its secrets are set.*
 - [ ] A day of fake traffic reconciles with zero unexplained differences.
 
 **Kickoff prompt**
