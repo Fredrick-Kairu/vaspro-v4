@@ -107,6 +107,7 @@ func TestService_TopsUpByStkEndToEnd(t *testing.T) {
 		CredentialsKMSKey: base64.StdEncoding.EncodeToString(kmsKey),
 		CallbackBaseURL:   gateway.URL, CallbackSecret: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32)),
 		DarajaCallbackCIDRs: "127.0.0.1/32", SweepInterval: 200 * time.Millisecond,
+		CheckoutSecret: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{6}, 32)),
 	}
 	accounts, ledger := tenantinfo.New(), ledgerposter.New()
 	svc, err := payments.New(cfg, pool, b, payments.Clients{Accounts: accounts, Identity: staffdirectory.New(), Ledger: ledger, Cache: testkit.StartRedis(t)}, loaded)
@@ -203,6 +204,57 @@ func TestService_TopsUpByStkEndToEnd(t *testing.T) {
 	var env platformevents.Envelope
 	if err := json.Unmarshal(msg.Data, &env); err != nil || env.TenantID != tenant {
 		t.Fatalf("event %s %v", msg.Data, err)
+	}
+
+	// A checkout link (task 4.8): created by the client, opened and paid
+	// with no session, credited once, then shown paid.
+	linkBody, _ := json.Marshal(map[string]any{"amount_minor": 200000})
+	req, _ = http.NewRequest(http.MethodPost, gateway.URL+"/v1/payments/tenants/"+tenant.String()+"/checkout-links", bytes.NewReader(linkBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.NewString())
+	req.Header.Set(api.HeaderUserID, user.String())
+	resp, err = http.DefaultClient.Do(req) //nolint:gosec // the test's own server
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&link)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("checkout link: %d %v", resp.StatusCode, link)
+	}
+	token := link["token"].(string)
+	page, err := http.Get(gateway.URL + "/pay/" + token) //nolint:gosec,noctx // the test's own server
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Body.Close()
+	if page.StatusCode != http.StatusOK || page.Header.Get("Content-Security-Policy") == "" {
+		t.Fatalf("the page: %d", page.StatusCode)
+	}
+	payBody, _ := json.Marshal(map[string]any{"payer_phone": "+" + daraja.SandboxMSISDN})
+	req, _ = http.NewRequest(http.MethodPost, gateway.URL+"/v1/payments/checkout/"+token+"/payments", bytes.NewReader(payBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.NewString())
+	resp, err = http.DefaultClient.Do(req) //nolint:gosec // the test's own server
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("paying the link: %d", resp.StatusCode)
+	}
+	fake.Wait()
+	waitFor(t, "the checkout to be credited", func() bool { return ledger.Credited(tenant) == 350000 })
+	var view map[string]any
+	viewResp, err := http.Get(gateway.URL + "/v1/payments/checkout/" + token) //nolint:gosec,noctx // the test's own server
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.NewDecoder(viewResp.Body).Decode(&view)
+	_ = viewResp.Body.Close()
+	if view["status"] != "paid" {
+		t.Fatalf("the link after paying: %v", view)
 	}
 
 	cancel()

@@ -13,6 +13,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkoutPaid = `-- name: CheckoutPaid :one
+SELECT EXISTS (SELECT 1 FROM payments.payment_intents WHERE payment_link_id = $1 AND status = 'succeeded')
+`
+
+func (q *Queries) CheckoutPaid(ctx context.Context, paymentLinkID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, checkoutPaid, paymentLinkID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const completePaymentIntent = `-- name: CompletePaymentIntent :one
 UPDATE payments.payment_intents
 SET status = $2, rail_receipt = $3, result_code = $4, error_code = $5, completed_at = $6
@@ -64,6 +75,20 @@ func (q *Queries) CompletePaymentIntent(ctx context.Context, arg CompletePayment
 	return i, err
 }
 
+const countCheckoutAttempts = `-- name: CountCheckoutAttempts :one
+SELECT count(*) FROM payments.payment_intents WHERE payment_link_id = $1
+`
+
+// CountCheckoutAttempts and CheckoutPaid read a checkout link's
+// payments across tenants (payments_system): links are stateless, so
+// their intents are their state (task 4.8).
+func (q *Queries) CountCheckoutAttempts(ctx context.Context, paymentLinkID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countCheckoutAttempts, paymentLinkID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPaymentIntent = `-- name: CreatePaymentIntent :one
 INSERT INTO payments.payment_intents (id, tenant_id, purpose, rail_account_id, method, amount_minor, currency,
   payer_phone_e164, account_reference, invoice_id, payment_link_id, idempotency_key, expires_at, created_at)
@@ -105,6 +130,43 @@ func (q *Queries) CreatePaymentIntent(ctx context.Context, arg CreatePaymentInte
 		arg.ExpiresAt,
 		arg.CreatedAt,
 	)
+	var i PaymentsPaymentIntent
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Purpose,
+		&i.RailAccountID,
+		&i.Method,
+		&i.AmountMinor,
+		&i.Currency,
+		&i.PayerPhoneE164,
+		&i.AccountReference,
+		&i.InvoiceID,
+		&i.PaymentLinkID,
+		&i.Status,
+		&i.RailRequestID,
+		&i.RailReceipt,
+		&i.ResultCode,
+		&i.ErrorCode,
+		&i.IdempotencyKey,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const getCheckoutPayment = `-- name: GetCheckoutPayment :one
+SELECT id, tenant_id, purpose, rail_account_id, method, amount_minor, currency, payer_phone_e164, account_reference, invoice_id, payment_link_id, status, rail_request_id, rail_receipt, result_code, error_code, idempotency_key, expires_at, created_at, completed_at FROM payments.payment_intents WHERE id = $1 AND payment_link_id = $2
+`
+
+type GetCheckoutPaymentParams struct {
+	ID            uuid.UUID   `json:"id"`
+	PaymentLinkID pgtype.UUID `json:"payment_link_id"`
+}
+
+func (q *Queries) GetCheckoutPayment(ctx context.Context, arg GetCheckoutPaymentParams) (PaymentsPaymentIntent, error) {
+	row := q.db.QueryRow(ctx, getCheckoutPayment, arg.ID, arg.PaymentLinkID)
 	var i PaymentsPaymentIntent
 	err := row.Scan(
 		&i.ID,

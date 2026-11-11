@@ -37,7 +37,10 @@ type harness struct {
 	staff  *staffdirectory.Fake
 }
 
-var callbackSecret = bytes.Repeat([]byte{5}, 32)
+var (
+	callbackSecret = bytes.Repeat([]byte{5}, 32)
+	checkoutSecret = bytes.Repeat([]byte{6}, 32)
+)
 
 func newHarness(t *testing.T) harness {
 	t.Helper()
@@ -63,6 +66,7 @@ func newHarness(t *testing.T) harness {
 	access, staff := tenantinfo.New(), staffdirectory.New()
 	svc := app.New(app.Deps{
 		Pool: pool, Accounts: access, Identity: staff, Packs: map[string]*packs.Pack{"KE": ke}, Ledger: ledgerposter.New(),
+		CheckoutSecret: checkoutSecret, CheckoutBaseURL: "https://pay.example.test",
 		CallbackSecret: callbackSecret, CallbackCIDRs: []netip.Prefix{netip.MustParsePrefix("196.201.214.0/24")},
 	})
 	if err := svc.SyncRails(ctx); err != nil {
@@ -153,8 +157,11 @@ func TestTenantOperations_NeedBillingPermissions(t *testing.T) {
 	h.access.Grant(reader, tenant, "KE", "KES", app.PermBillingRead)
 	topup := h.seedTopup(t, tenant)
 
-	writes := map[string]bool{"createTopup": true}
-	bodies := map[string]any{"createTopup": map[string]any{"amount_minor": 150000, "payer_phone": "+254708374149"}}
+	writes := map[string]bool{"createTopup": true, "createCheckoutLink": true}
+	bodies := map[string]any{
+		"createTopup":        map[string]any{"amount_minor": 150000, "payer_phone": "+254708374149"},
+		"createCheckoutLink": map[string]any{"amount_minor": 150000},
+	}
 	var ops []string
 	for path, item := range spec.Paths.Map() {
 		if !strings.HasPrefix(path, "/v1/payments/tenants/") {
@@ -181,7 +188,7 @@ func TestTenantOperations_NeedBillingPermissions(t *testing.T) {
 		}
 	}
 	sort.Strings(ops)
-	if want := "createTopup,getTopup,getTopupDetails"; strings.Join(ops, ",") != want {
+	if want := "createCheckoutLink,createTopup,getTopup,getTopupDetails"; strings.Join(ops, ",") != want {
 		t.Fatalf("tenant operations in the spec %v, cases written for %s: add the new one's case", ops, want)
 	}
 }
@@ -381,4 +388,81 @@ func TestStatementImport_Codes(t *testing.T) {
 	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4012")
 	status, got = h.do(t, http.MethodPost, resolve, staffID, map[string]any{"status": "resolved", "resolution": "x"}, map[string]string{api.HeaderSessionID: session.String()})
 	wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
+}
+
+// rawGet fetches path and returns the response and its body.
+func (h harness) rawGet(t *testing.T, path string) (*http.Response, string) {
+	t.Helper()
+	resp, err := http.Get(h.srv.URL + path) //nolint:gosec,noctx // the test's own server
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, string(b)
+}
+
+// TestCheckout_PublicAPIAndPage (task 4.8): the checkout API needs no
+// session; the page is HTML under a strict CSP, escapes what it shows,
+// and carries no inline script.
+func TestCheckout_PublicAPIAndPage(t *testing.T) {
+	h := newHarness(t)
+	h.seedPaybill(t, "active")
+	user, tenant := uuid.New(), uuid.New()
+	h.access.Grant(user, tenant, "KE", "KES", app.PermBillingRead, app.PermBillingManage)
+	status, link := h.do(t, http.MethodPost, "/v1/payments/tenants/"+tenant.String()+"/checkout-links", user, map[string]any{"amount_minor": 500000}, nil)
+	if status != http.StatusCreated || link["url"] != "https://pay.example.test/pay/"+link["token"].(string) {
+		t.Fatalf("create: %d %v", status, link)
+	}
+	token := link["token"].(string)
+
+	status, got := h.get(t, "/v1/payments/checkout/"+token, uuid.Nil)
+	if status != http.StatusOK || got["status"] != "open" || got["amount_minor"] != float64(500000) || got["payee"] != "VASPRO" {
+		t.Fatalf("public view: %d %v", status, got)
+	}
+	status, got = h.get(t, "/v1/payments/checkout/not-a-token", uuid.Nil)
+	wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
+	status, got = h.do(t, http.MethodPost, "/v1/payments/checkout/"+token+"/payments", uuid.Nil, map[string]any{"payer_phone": "0708374149"}, nil)
+	wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+	status, got = h.get(t, "/v1/payments/checkout/"+token+"/payments/"+uuid.NewString(), uuid.Nil)
+	wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
+
+	t.Run("the page", func(t *testing.T) {
+		resp, body := h.rawGet(t, "/pay/"+token)
+		if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+			t.Fatalf("page: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+		csp := resp.Header.Get("Content-Security-Policy")
+		if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe-inline") ||
+			resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Referrer-Policy") != "no-referrer" {
+			t.Fatalf("headers: %v", resp.Header)
+		}
+		if !strings.Contains(body, "Pay 5000.00 KES") || !strings.Contains(body, `data-token="`+token+`"`) || !strings.Contains(body, `<form id="pay">`) {
+			t.Fatalf("body: %s", body)
+		}
+		for _, chunk := range strings.Split(body, "<script")[1:] {
+			if !strings.HasPrefix(chunk, ` src="/pay/static/checkout.js"></script>`) {
+				t.Fatalf("an inline or foreign script: <script%s", chunk[:min(len(chunk), 80)])
+			}
+		}
+	})
+	t.Run("a link that isn't valid", func(t *testing.T) {
+		resp, body := h.rawGet(t, "/pay/"+token[:len(token)-2]+"zz")
+		if resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "isn&#39;t valid") || strings.Contains(body, `<form`) {
+			t.Fatalf("tampered: %d %s", resp.StatusCode, body)
+		}
+		resp, body = h.rawGet(t, `/pay/%3Cscript%3Ealert(1)%3C%2Fscript%3E`)
+		if resp.StatusCode != http.StatusNotFound || strings.Contains(body, "<script>alert") {
+			t.Fatalf("markup in the token was rendered: %s", body)
+		}
+	})
+	t.Run("the assets", func(t *testing.T) {
+		resp, body := h.rawGet(t, "/pay/static/checkout.js")
+		if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") || !strings.Contains(body, "/v1/payments/checkout/") {
+			t.Fatalf("js: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+		if resp, _ := h.rawGet(t, "/pay/static/checkout.css"); resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/css") {
+			t.Fatalf("css: %d", resp.StatusCode)
+		}
+	})
 }

@@ -96,6 +96,12 @@ type Config struct {
 	// statement must be imported before recon.statement_missing (task
 	// 4.6), e.g. 12h for noon.
 	StatementDue time.Duration `env:"PAYMENTS_STATEMENT_DUE" envDefault:"12h"`
+	// CheckoutSecret signs checkout links (base64 of 32 bytes, task 4.8).
+	// Changing it invalidates every link already sent.
+	CheckoutSecret string `env:"PAYMENTS_CHECKOUT_SECRET,required"`
+	// CheckoutBaseURL is the public URL checkout pages are served on (the
+	// gateway's); empty is CallbackBaseURL.
+	CheckoutBaseURL string `env:"PAYMENTS_CHECKOUT_BASE_URL"`
 }
 
 // Clients are the outside services payments calls.
@@ -133,6 +139,14 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, c Clients, loaded map[string]*pa
 	if err != nil || len(secret) != 32 {
 		return nil, errors.New("payments: PAYMENTS_CALLBACK_SECRET must be base64 of 32 bytes")
 	}
+	checkoutSecret, err := base64.StdEncoding.DecodeString(cfg.CheckoutSecret)
+	if err != nil || len(checkoutSecret) != 32 {
+		return nil, errors.New("payments: PAYMENTS_CHECKOUT_SECRET must be base64 of 32 bytes")
+	}
+	checkoutBase := cfg.CheckoutBaseURL
+	if checkoutBase == "" {
+		checkoutBase = cfg.CallbackBaseURL
+	}
 	cidrs, err := domain.ParseCIDRs(cfg.DarajaCallbackCIDRs)
 	if err != nil {
 		return nil, fmt.Errorf("payments: PAYMENTS_DARAJA_CALLBACK_CIDRS: %w", err)
@@ -158,6 +172,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, c Clients, loaded map[string]*pa
 		KMS: kms, Rails: rails, Ledger: c.Ledger,
 		CallbackBaseURL: cfg.CallbackBaseURL, CallbackSecret: secret, CallbackCIDRs: cidrs,
 		STKExpiry: cfg.STKExpiry, STKGiveUp: cfg.STKGiveUp, StatementDue: cfg.StatementDue,
+		CheckoutSecret: checkoutSecret, CheckoutBaseURL: checkoutBase,
 	})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },

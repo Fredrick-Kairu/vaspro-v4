@@ -471,6 +471,136 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/payments/tenants/{tenantId}/checkout-links:
+    post:
+      operationId: createCheckoutLink
+      summary: Create a checkout link to top up the main wallet
+      description: >
+        A signed link anyone can open, with no sign-in, to pay this
+        amount into the account's main wallet by STK push (task 4.8):
+        send it to whoever pays, often your finance team. It expires
+        (default 24 hours, at most 7 days) and stops working once paid.
+        Needs billing:manage (AUTH-4024 otherwise); PAY-6507 while
+        VASPRO's paybill isn't available.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutLinkRequest'
+            example:
+              amount_minor: 500000
+              expires_in_minutes: 1440
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutLink'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}:
+    get:
+      operationId: getCheckout
+      summary: What a checkout link asks for (public)
+      description: >
+        No sign-in: the link's signature is the credential (task 4.8). A
+        link that isn't VASPRO's is VAL-4003. An expired or paid link is
+        shown with its status.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+      responses:
+        "200":
+          description: The checkout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checkout'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}/payments:
+    post:
+      operationId: createCheckoutPayment
+      summary: Pay a checkout link by STK push (public)
+      description: >
+        Prompts the payer's phone (task 4.8). A repeated Idempotency-Key
+        returns the same payment without prompting again. A paid link is
+        VAL-4014; an expired or foreign one VAL-4003; more than five
+        attempts on one link RATE-4290.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutPaymentRequest'
+            example:
+              payer_phone: "+254708374149"
+      responses:
+        "201":
+          description: The payment, usually pending until the payer answers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutPayment'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "429":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/checkout/{token}/payments/{paymentId}:
+    get:
+      operationId: getCheckoutPayment
+      summary: A checkout payment's status (public)
+      description: Only a payment made through this link (VAL-4003 otherwise). No receipt or phone number is shown.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CheckoutToken'
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutPayment'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -501,6 +631,12 @@ components:
       schema:
         type: string
     CallbackToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckoutToken:
       name: token
       in: path
       required: true
@@ -705,6 +841,76 @@ components:
           type: string
           enum: [resolved, written_off]
         resolution:
+          type: string
+    CheckoutLinkRequest:
+      type: object
+      required: [amount_minor]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Whole units of the account's currency, in minor units.
+        expires_in_minutes:
+          type: integer
+          minimum: 5
+          maximum: 10080
+    CheckoutLink:
+      type: object
+      required: [link_id, token, url, amount_minor, currency, expires_at]
+      properties:
+        link_id:
+          type: string
+        token:
+          type: string
+        url:
+          type: string
+          description: The page to send the payer to.
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    Checkout:
+      type: object
+      required: [amount_minor, currency, payee, account_reference, status, expires_at]
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        payee:
+          type: string
+          description: The paybill's registered name.
+        account_reference:
+          type: string
+        status:
+          type: string
+          enum: [open, paid, expired]
+        expires_at:
+          type: string
+          format: date-time
+    CheckoutPaymentRequest:
+      type: object
+      required: [payer_phone]
+      properties:
+        payer_phone:
+          type: string
+          description: E.164, e.g. +254708374149.
+    CheckoutPayment:
+      type: object
+      required: [payment_id, status]
+      properties:
+        payment_id:
+          type: string
+        status:
+          type: string
+          enum: [created, pending, succeeded, failed, expired, cancelled]
+        error_code:
           type: string
     Problem:
       type: object

@@ -1408,6 +1408,11 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 > - **The ledger check is by reference:** each notice must have exactly its amount debited to provider clearing; every clearing debit posted in the day must be a notice's. The ledger's `ListClearingEntries` serves it, read as `ledger_audit`.
 > - **Exceptions:** each gap is an exception with no tenant (`missing_in_vaspro`, `missing_on_rail`, `amount_mismatch`, `duplicate`, `ledger_mismatch`), each with `recon.exception_opened`. Money out (withdrawals, pay-backs) is recorded and left to Phase 13.
 > - **`recon.statement_missing`** (an addition) reports a day with no import by the due time the next day, once.
+>
+> **Built in task 4.8 (11 Nov 2026, OQ-22).** No schema change.
+> - **Checkout links** for top-ups are stateless: a signed token (HMAC-SHA256 under the checkout secret) carries the link ID, tenant, amount, currency and expiry.
+> - **A link's payments are its state:** they're intents of purpose `wallet_topup` with `payment_link_id` set to the link ID. Paid means one succeeded; five attempts is the cap.
+> - `payment_links` (above) stays Phase 13's: clients' own pay pages for their customers.
 
 **Where the money goes**
 

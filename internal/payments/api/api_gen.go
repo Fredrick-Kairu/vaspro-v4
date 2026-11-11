@@ -16,6 +16,57 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for CheckoutStatus.
+const (
+	CheckoutStatusExpired CheckoutStatus = "expired"
+	CheckoutStatusOpen    CheckoutStatus = "open"
+	CheckoutStatusPaid    CheckoutStatus = "paid"
+)
+
+// Valid indicates whether the value is a known member of the CheckoutStatus enum.
+func (e CheckoutStatus) Valid() bool {
+	switch e {
+	case CheckoutStatusExpired:
+		return true
+	case CheckoutStatusOpen:
+		return true
+	case CheckoutStatusPaid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckoutPaymentStatus.
+const (
+	CheckoutPaymentStatusCancelled CheckoutPaymentStatus = "cancelled"
+	CheckoutPaymentStatusCreated   CheckoutPaymentStatus = "created"
+	CheckoutPaymentStatusExpired   CheckoutPaymentStatus = "expired"
+	CheckoutPaymentStatusFailed    CheckoutPaymentStatus = "failed"
+	CheckoutPaymentStatusPending   CheckoutPaymentStatus = "pending"
+	CheckoutPaymentStatusSucceeded CheckoutPaymentStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the CheckoutPaymentStatus enum.
+func (e CheckoutPaymentStatus) Valid() bool {
+	switch e {
+	case CheckoutPaymentStatusCancelled:
+		return true
+	case CheckoutPaymentStatusCreated:
+		return true
+	case CheckoutPaymentStatusExpired:
+		return true
+	case CheckoutPaymentStatusFailed:
+		return true
+	case CheckoutPaymentStatusPending:
+		return true
+	case CheckoutPaymentStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReconExceptionKind.
 const (
 	AmountMismatch  ReconExceptionKind = "amount_mismatch"
@@ -105,28 +156,28 @@ func (e SuspenseNoticeStatus) Valid() bool {
 
 // Defines values for TopupStatus.
 const (
-	Cancelled TopupStatus = "cancelled"
-	Created   TopupStatus = "created"
-	Expired   TopupStatus = "expired"
-	Failed    TopupStatus = "failed"
-	Pending   TopupStatus = "pending"
-	Succeeded TopupStatus = "succeeded"
+	TopupStatusCancelled TopupStatus = "cancelled"
+	TopupStatusCreated   TopupStatus = "created"
+	TopupStatusExpired   TopupStatus = "expired"
+	TopupStatusFailed    TopupStatus = "failed"
+	TopupStatusPending   TopupStatus = "pending"
+	TopupStatusSucceeded TopupStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the TopupStatus enum.
 func (e TopupStatus) Valid() bool {
 	switch e {
-	case Cancelled:
+	case TopupStatusCancelled:
 		return true
-	case Created:
+	case TopupStatusCreated:
 		return true
-	case Expired:
+	case TopupStatusExpired:
 		return true
-	case Failed:
+	case TopupStatusFailed:
 		return true
-	case Pending:
+	case TopupStatusPending:
 		return true
-	case Succeeded:
+	case TopupStatusSucceeded:
 		return true
 	default:
 		return false
@@ -152,6 +203,56 @@ func (e ListReconExceptionsParamsStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// Checkout defines model for Checkout.
+type Checkout struct {
+	AccountReference string    `json:"account_reference"`
+	AmountMinor      int64     `json:"amount_minor"`
+	Currency         string    `json:"currency"`
+	ExpiresAt        time.Time `json:"expires_at"`
+
+	// Payee The paybill's registered name.
+	Payee  string         `json:"payee"`
+	Status CheckoutStatus `json:"status"`
+}
+
+// CheckoutStatus defines model for Checkout.Status.
+type CheckoutStatus string
+
+// CheckoutLink defines model for CheckoutLink.
+type CheckoutLink struct {
+	AmountMinor int64     `json:"amount_minor"`
+	Currency    string    `json:"currency"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	LinkId      string    `json:"link_id"`
+	Token       string    `json:"token"`
+
+	// Url The page to send the payer to.
+	Url string `json:"url"`
+}
+
+// CheckoutLinkRequest defines model for CheckoutLinkRequest.
+type CheckoutLinkRequest struct {
+	// AmountMinor Whole units of the account's currency, in minor units.
+	AmountMinor      int64 `json:"amount_minor"`
+	ExpiresInMinutes *int  `json:"expires_in_minutes,omitempty"`
+}
+
+// CheckoutPayment defines model for CheckoutPayment.
+type CheckoutPayment struct {
+	ErrorCode *string               `json:"error_code,omitempty"`
+	PaymentId string                `json:"payment_id"`
+	Status    CheckoutPaymentStatus `json:"status"`
+}
+
+// CheckoutPaymentStatus defines model for CheckoutPayment.Status.
+type CheckoutPaymentStatus string
+
+// CheckoutPaymentRequest defines model for CheckoutPaymentRequest.
+type CheckoutPaymentRequest struct {
+	// PayerPhone E.164, e.g. +254708374149.
+	PayerPhone string `json:"payer_phone"`
 }
 
 // MatchRequest defines model for MatchRequest.
@@ -313,6 +414,9 @@ type TopupRequest struct {
 // CallbackToken defines model for CallbackToken.
 type CallbackToken = string
 
+// CheckoutToken defines model for CheckoutToken.
+type CheckoutToken = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -330,6 +434,12 @@ type ReceiveC2bValidationJSONBody = map[string]interface{}
 
 // ReceiveStkCallbackJSONBody defines parameters for ReceiveStkCallback.
 type ReceiveStkCallbackJSONBody = map[string]interface{}
+
+// CreateCheckoutPaymentParams defines parameters for CreateCheckoutPayment.
+type CreateCheckoutPaymentParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
 
 // MatchCollectionNoticeParams defines parameters for MatchCollectionNotice.
 type MatchCollectionNoticeParams struct {
@@ -365,6 +475,12 @@ type ListSuspenseParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// CreateCheckoutLinkParams defines parameters for CreateCheckoutLink.
+type CreateCheckoutLinkParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // CreateTopupParams defines parameters for CreateTopup.
 type CreateTopupParams struct {
 	// IdempotencyKey Required on every write (.claude/rules/api.md).
@@ -380,6 +496,9 @@ type ReceiveC2bValidationJSONRequestBody = ReceiveC2bValidationJSONBody
 // ReceiveStkCallbackJSONRequestBody defines body for ReceiveStkCallback for application/json ContentType.
 type ReceiveStkCallbackJSONRequestBody = ReceiveStkCallbackJSONBody
 
+// CreateCheckoutPaymentJSONRequestBody defines body for CreateCheckoutPayment for application/json ContentType.
+type CreateCheckoutPaymentJSONRequestBody = CheckoutPaymentRequest
+
 // MatchCollectionNoticeJSONRequestBody defines body for MatchCollectionNotice for application/json ContentType.
 type MatchCollectionNoticeJSONRequestBody = MatchRequest
 
@@ -388,6 +507,9 @@ type ResolveReconExceptionJSONRequestBody = ResolutionRequest
 
 // CreateStatementImportJSONRequestBody defines body for CreateStatementImport for application/json ContentType.
 type CreateStatementImportJSONRequestBody = StatementImportRequest
+
+// CreateCheckoutLinkJSONRequestBody defines body for CreateCheckoutLink for application/json ContentType.
+type CreateCheckoutLinkJSONRequestBody = CheckoutLinkRequest
 
 // CreateTopupJSONRequestBody defines body for CreateTopup for application/json ContentType.
 type CreateTopupJSONRequestBody = TopupRequest
@@ -403,6 +525,15 @@ type ServerInterface interface {
 	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
 	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
 	ReceiveStkCallback(w http.ResponseWriter, r *http.Request, railAccountId string, token string)
+	// GetCheckout What a checkout link asks for (public)
+	// (GET /v1/payments/checkout/{token})
+	GetCheckout(w http.ResponseWriter, r *http.Request, token CheckoutToken)
+	// CreateCheckoutPayment Pay a checkout link by STK push (public)
+	// (POST /v1/payments/checkout/{token}/payments)
+	CreateCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, params CreateCheckoutPaymentParams)
+	// GetCheckoutPayment A checkout payment's status (public)
+	// (GET /v1/payments/checkout/{token}/payments/{paymentId})
+	GetCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, paymentId string)
 	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 	MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams)
@@ -418,6 +549,9 @@ type ServerInterface interface {
 	// ListSuspense Payments in suspense (staff only)
 	// (GET /v1/payments/staff/suspense)
 	ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams)
+	// CreateCheckoutLink Create a checkout link to top up the main wallet
+	// (POST /v1/payments/tenants/{tenantId}/checkout-links)
+	CreateCheckoutLink(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateCheckoutLinkParams)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(w http.ResponseWriter, r *http.Request, tenantId TenantID)
@@ -451,6 +585,24 @@ func (_ Unimplemented) ReceiveStkCallback(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetCheckout What a checkout link asks for (public)
+// (GET /v1/payments/checkout/{token})
+func (_ Unimplemented) GetCheckout(w http.ResponseWriter, r *http.Request, token CheckoutToken) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateCheckoutPayment Pay a checkout link by STK push (public)
+// (POST /v1/payments/checkout/{token}/payments)
+func (_ Unimplemented) CreateCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, params CreateCheckoutPaymentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetCheckoutPayment A checkout payment's status (public)
+// (GET /v1/payments/checkout/{token}/payments/{paymentId})
+func (_ Unimplemented) GetCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, paymentId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 // (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 func (_ Unimplemented) MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams) {
@@ -478,6 +630,12 @@ func (_ Unimplemented) CreateStatementImport(w http.ResponseWriter, r *http.Requ
 // ListSuspense Payments in suspense (staff only)
 // (GET /v1/payments/staff/suspense)
 func (_ Unimplemented) ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateCheckoutLink Create a checkout link to top up the main wallet
+// (POST /v1/payments/tenants/{tenantId}/checkout-links)
+func (_ Unimplemented) CreateCheckoutLink(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateCheckoutLinkParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -604,6 +762,121 @@ func (siw *ServerInterfaceWrapper) ReceiveStkCallback(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReceiveStkCallback(w, r, railAccountId, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCheckout operation middleware
+func (siw *ServerInterfaceWrapper) GetCheckout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token CheckoutToken
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCheckout(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCheckoutPayment operation middleware
+func (siw *ServerInterfaceWrapper) CreateCheckoutPayment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token CheckoutToken
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateCheckoutPaymentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCheckoutPayment(w, r, token, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCheckoutPayment operation middleware
+func (siw *ServerInterfaceWrapper) GetCheckoutPayment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token CheckoutToken
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "paymentId" -------------
+	var paymentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "paymentId", chi.URLParam(r, "paymentId"), &paymentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "paymentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCheckoutPayment(w, r, token, paymentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -862,6 +1135,60 @@ func (siw *ServerInterfaceWrapper) ListSuspense(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSuspense(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCheckoutLink operation middleware
+func (siw *ServerInterfaceWrapper) CreateCheckoutLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateCheckoutLinkParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCheckoutLink(w, r, tenantId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1132,6 +1459,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/payments/staff/recon-exceptions/{exceptionId}/resolution", wrapper.ResolveReconException)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/tenants/{tenantId}/checkout-links", wrapper.CreateCheckoutLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/payments/checkout/{token}", wrapper.GetCheckout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/checkout/{token}/payments", wrapper.CreateCheckoutPayment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/payments/checkout/{token}/payments/{paymentId}", wrapper.GetCheckoutPayment)
+	})
 
 	return r
 }
@@ -1340,6 +1679,230 @@ type ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ReceiveStkCallbackdefaultApplicationProblemPlusJSONResponse) VisitReceiveStkCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckoutRequestObject struct {
+	Token CheckoutToken `json:"token"`
+}
+
+type GetCheckoutResponseObject interface {
+	VisitGetCheckoutResponse(w http.ResponseWriter) error
+}
+
+type GetCheckout200JSONResponse Checkout
+
+func (response GetCheckout200JSONResponse) VisitGetCheckoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckout404ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetCheckout404ApplicationProblemPlusJSONResponse) VisitGetCheckoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckoutdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetCheckoutdefaultApplicationProblemPlusJSONResponse) VisitGetCheckoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPaymentRequestObject struct {
+	Token  CheckoutToken `json:"token"`
+	Params CreateCheckoutPaymentParams
+	Body   *CreateCheckoutPaymentJSONRequestBody
+}
+
+type CreateCheckoutPaymentResponseObject interface {
+	VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error
+}
+
+type CreateCheckoutPayment201JSONResponse CheckoutPayment
+
+func (response CreateCheckoutPayment201JSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPayment400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheckoutPayment400ApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPayment404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutPayment404ApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPayment409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutPayment409ApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPayment429ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutPayment429ApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPayment503ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutPayment503ApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutPaymentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateCheckoutPaymentdefaultApplicationProblemPlusJSONResponse) VisitCreateCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckoutPaymentRequestObject struct {
+	Token     CheckoutToken `json:"token"`
+	PaymentId string        `json:"paymentId"`
+}
+
+type GetCheckoutPaymentResponseObject interface {
+	VisitGetCheckoutPaymentResponse(w http.ResponseWriter) error
+}
+
+type GetCheckoutPayment200JSONResponse CheckoutPayment
+
+func (response GetCheckoutPayment200JSONResponse) VisitGetCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckoutPayment404ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetCheckoutPayment404ApplicationProblemPlusJSONResponse) VisitGetCheckoutPaymentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCheckoutPaymentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetCheckoutPaymentdefaultApplicationProblemPlusJSONResponse) VisitGetCheckoutPaymentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -1869,6 +2432,119 @@ func (response ListSuspensedefaultApplicationProblemPlusJSONResponse) VisitListS
 	return err
 }
 
+type CreateCheckoutLinkRequestObject struct {
+	TenantId TenantID `json:"tenantId"`
+	Params   CreateCheckoutLinkParams
+	Body     *CreateCheckoutLinkJSONRequestBody
+}
+
+type CreateCheckoutLinkResponseObject interface {
+	VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error
+}
+
+type CreateCheckoutLink201JSONResponse CheckoutLink
+
+func (response CreateCheckoutLink201JSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLink400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheckoutLink400ApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLink401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutLink401ApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLink403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutLink403ApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLink404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutLink404ApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLink503ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCheckoutLink503ApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheckoutLinkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateCheckoutLinkdefaultApplicationProblemPlusJSONResponse) VisitCreateCheckoutLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTopupDetailsRequestObject struct {
 	TenantId TenantID `json:"tenantId"`
 }
@@ -2174,6 +2850,15 @@ type StrictServerInterface interface {
 	// ReceiveStkCallback Receive Daraja's STK result (Safaricom only)
 	// (POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk)
 	ReceiveStkCallback(ctx context.Context, request ReceiveStkCallbackRequestObject) (ReceiveStkCallbackResponseObject, error)
+	// GetCheckout What a checkout link asks for (public)
+	// (GET /v1/payments/checkout/{token})
+	GetCheckout(ctx context.Context, request GetCheckoutRequestObject) (GetCheckoutResponseObject, error)
+	// CreateCheckoutPayment Pay a checkout link by STK push (public)
+	// (POST /v1/payments/checkout/{token}/payments)
+	CreateCheckoutPayment(ctx context.Context, request CreateCheckoutPaymentRequestObject) (CreateCheckoutPaymentResponseObject, error)
+	// GetCheckoutPayment A checkout payment's status (public)
+	// (GET /v1/payments/checkout/{token}/payments/{paymentId})
+	GetCheckoutPayment(ctx context.Context, request GetCheckoutPaymentRequestObject) (GetCheckoutPaymentResponseObject, error)
 	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 	MatchCollectionNotice(ctx context.Context, request MatchCollectionNoticeRequestObject) (MatchCollectionNoticeResponseObject, error)
@@ -2189,6 +2874,9 @@ type StrictServerInterface interface {
 	// ListSuspense Payments in suspense (staff only)
 	// (GET /v1/payments/staff/suspense)
 	ListSuspense(ctx context.Context, request ListSuspenseRequestObject) (ListSuspenseResponseObject, error)
+	// CreateCheckoutLink Create a checkout link to top up the main wallet
+	// (POST /v1/payments/tenants/{tenantId}/checkout-links)
+	CreateCheckoutLink(ctx context.Context, request CreateCheckoutLinkRequestObject) (CreateCheckoutLinkResponseObject, error)
 	// GetTopupDetails Where and how the account tops up its main wallet
 	// (GET /v1/payments/tenants/{tenantId}/topup-details)
 	GetTopupDetails(ctx context.Context, request GetTopupDetailsRequestObject) (GetTopupDetailsResponseObject, error)
@@ -2334,6 +3022,93 @@ func (sh *strictHandler) ReceiveStkCallback(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReceiveStkCallbackResponseObject); ok {
 		if err := validResponse.VisitReceiveStkCallbackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCheckout operation middleware
+func (sh *strictHandler) GetCheckout(w http.ResponseWriter, r *http.Request, token CheckoutToken) {
+	var request GetCheckoutRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCheckout(ctx, request.(GetCheckoutRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCheckout")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCheckoutResponseObject); ok {
+		if err := validResponse.VisitGetCheckoutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCheckoutPayment operation middleware
+func (sh *strictHandler) CreateCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, params CreateCheckoutPaymentParams) {
+	var request CreateCheckoutPaymentRequestObject
+
+	request.Token = token
+	request.Params = params
+
+	var body CreateCheckoutPaymentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCheckoutPayment(ctx, request.(CreateCheckoutPaymentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCheckoutPayment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCheckoutPaymentResponseObject); ok {
+		if err := validResponse.VisitCreateCheckoutPaymentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCheckoutPayment operation middleware
+func (sh *strictHandler) GetCheckoutPayment(w http.ResponseWriter, r *http.Request, token CheckoutToken, paymentId string) {
+	var request GetCheckoutPaymentRequestObject
+
+	request.Token = token
+	request.PaymentId = paymentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCheckoutPayment(ctx, request.(GetCheckoutPaymentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCheckoutPayment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCheckoutPaymentResponseObject); ok {
+		if err := validResponse.VisitGetCheckoutPaymentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2487,6 +3262,40 @@ func (sh *strictHandler) ListSuspense(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSuspenseResponseObject); ok {
 		if err := validResponse.VisitListSuspenseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCheckoutLink operation middleware
+func (sh *strictHandler) CreateCheckoutLink(w http.ResponseWriter, r *http.Request, tenantId TenantID, params CreateCheckoutLinkParams) {
+	var request CreateCheckoutLinkRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateCheckoutLinkJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCheckoutLink(ctx, request.(CreateCheckoutLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCheckoutLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCheckoutLinkResponseObject); ok {
+		if err := validResponse.VisitCreateCheckoutLinkResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

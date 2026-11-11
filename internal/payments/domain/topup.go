@@ -27,16 +27,26 @@ type TopupRules struct {
 // the payer's number in E.164 for the country. Which mobile prefixes a
 // rail takes is the rail adapter's check.
 func ValidateTopup(amountMinor int64, phone string, r TopupRules) error {
-	unit := int64(1)
-	for range r.CurrencyExponent {
-		unit *= 10
-	}
-	if amountMinor <= 0 || amountMinor%unit != 0 {
-		return fmt.Errorf("%w: the amount must be a positive whole number of the currency's units", ErrInvalidTopup)
+	if err := ValidateTopupAmount(amountMinor, r.CurrencyExponent); err != nil {
+		return err
 	}
 	national, ok := strings.CutPrefix(phone, "+"+r.CountryCode)
 	if !ok || len(national) != r.NationalNumberLength || strings.Trim(national, "0123456789") != "" {
 		return fmt.Errorf("%w: the payer's number must be +%s and %d digits", ErrInvalidTopup, r.CountryCode, r.NationalNumberLength)
+	}
+	return nil
+}
+
+// ValidateTopupAmount checks a top-up's amount alone: positive and in
+// whole units of a currency with exponent decimals (a checkout link's,
+// task 4.8, before anyone gives a phone number).
+func ValidateTopupAmount(amountMinor int64, exponent int) error {
+	unit := int64(1)
+	for range exponent {
+		unit *= 10
+	}
+	if amountMinor <= 0 || amountMinor%unit != 0 {
+		return fmt.Errorf("%w: the amount must be a positive whole number of the currency's units", ErrInvalidTopup)
 	}
 	return nil
 }

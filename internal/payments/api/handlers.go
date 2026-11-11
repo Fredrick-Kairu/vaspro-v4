@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -178,6 +179,53 @@ func reconExceptionResponse(e app.ReconException) ReconException {
 	return out
 }
 
+func (h *Handlers) CreateCheckoutLink(ctx context.Context, request CreateCheckoutLinkRequestObject) (CreateCheckoutLinkResponseObject, error) {
+	ttl := time.Duration(0)
+	if request.Body.ExpiresInMinutes != nil {
+		ttl = time.Duration(*request.Body.ExpiresInMinutes) * time.Minute
+	}
+	l, err := h.app.CreateCheckoutLink(ctx, callerFromContext(ctx), parseOrNil(request.TenantId), request.Body.AmountMinor, ttl)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateCheckoutLink201JSONResponse{
+		LinkId: l.LinkID.String(), Token: l.Token, Url: l.URL, AmountMinor: l.AmountMinor, Currency: l.Currency, ExpiresAt: l.ExpiresAt,
+	}, nil
+}
+
+func (h *Handlers) GetCheckout(ctx context.Context, request GetCheckoutRequestObject) (GetCheckoutResponseObject, error) {
+	v, err := h.app.GetCheckout(ctx, request.Token)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return GetCheckout200JSONResponse{
+		AmountMinor: v.AmountMinor, Currency: v.Currency, Payee: v.Payee, AccountReference: v.AccountReference,
+		Status: CheckoutStatus(v.Status), ExpiresAt: v.ExpiresAt,
+	}, nil
+}
+
+func (h *Handlers) CreateCheckoutPayment(ctx context.Context, request CreateCheckoutPaymentRequestObject) (CreateCheckoutPaymentResponseObject, error) {
+	p, err := h.app.PayCheckout(ctx, request.Token, request.Params.IdempotencyKey, request.Body.PayerPhone)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateCheckoutPayment201JSONResponse(checkoutPaymentResponse(p)), nil
+}
+
+func (h *Handlers) GetCheckoutPayment(ctx context.Context, request GetCheckoutPaymentRequestObject) (GetCheckoutPaymentResponseObject, error) {
+	p, err := h.app.GetCheckoutPayment(ctx, request.Token, parseOrNil(request.PaymentId))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return GetCheckoutPayment200JSONResponse(checkoutPaymentResponse(p)), nil
+}
+
+// checkoutPaymentResponse shows the payer the status only: no receipt,
+// no phone number.
+func checkoutPaymentResponse(p app.Topup) CheckoutPayment {
+	return CheckoutPayment{PaymentId: p.ID.String(), Status: CheckoutPaymentStatus(p.Status), ErrorCode: nonEmpty(p.ErrorCode)}
+}
+
 func noticeResponse(n app.Notice) SuspenseNotice {
 	out := SuspenseNotice{
 		Id: n.ID.String(), Receipt: n.Receipt, AmountMinor: n.AmountMinor, Currency: n.Currency,
@@ -239,6 +287,10 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4017, err.Error())
 	case errors.Is(err, app.ErrExceptionClosed):
 		return problem.New(problem.VAL4014, "the exception is already closed")
+	case errors.Is(err, app.ErrCheckoutPaid):
+		return problem.New(problem.VAL4014, "this link has been paid")
+	case errors.Is(err, app.ErrTooManyAttempts):
+		return problem.New(problem.RATE4290, "too many payment attempts on this link")
 	case errors.Is(err, app.ErrValidation):
 		return problem.New(problem.VAL4000, err.Error())
 	}

@@ -44,3 +44,15 @@ WHERE status IN ('created', 'pending') AND expires_at < $1
   AND (status = 'created' OR result_code IS NULL)
 ORDER BY expires_at
 LIMIT $2;
+
+-- CountCheckoutAttempts and CheckoutPaid read a checkout link's
+-- payments across tenants (payments_system): links are stateless, so
+-- their intents are their state (task 4.8).
+-- name: CountCheckoutAttempts :one
+SELECT count(*) FROM payments.payment_intents WHERE payment_link_id = $1;
+
+-- name: CheckoutPaid :one
+SELECT EXISTS (SELECT 1 FROM payments.payment_intents WHERE payment_link_id = $1 AND status = 'succeeded');
+
+-- name: GetCheckoutPayment :one
+SELECT * FROM payments.payment_intents WHERE id = $1 AND payment_link_id = $2;

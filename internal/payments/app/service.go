@@ -98,6 +98,10 @@ type Deps struct {
 	// StatementDue is how long after local midnight yesterday's statement
 	// is due before recon.statement_missing (task 4.6).
 	StatementDue time.Duration
+	// CheckoutSecret signs checkout links; CheckoutBaseURL is the public
+	// URL their page is served on (task 4.8).
+	CheckoutSecret  []byte
+	CheckoutBaseURL string
 	// Rand feeds account numbers; crypto/rand when nil.
 	Rand io.Reader
 }
@@ -120,6 +124,8 @@ type Service struct {
 	expiry   time.Duration
 	giveUp   time.Duration
 	stmtDue  time.Duration
+	coSecret []byte
+	coBase   string
 	rand     io.Reader
 }
 
@@ -154,5 +160,6 @@ func New(d Deps) *Service {
 		packs: d.Packs, kms: d.KMS, fpKey: d.FingerprintKey, rails: d.Rails, ledger: d.Ledger,
 		cbBase: strings.TrimRight(d.CallbackBaseURL, "/"), cbSecret: d.CallbackSecret, cbCIDRs: d.CallbackCIDRs,
 		expiry: d.STKExpiry, giveUp: d.STKGiveUp, stmtDue: d.StatementDue, rand: d.Rand,
+		coSecret: d.CheckoutSecret, coBase: strings.TrimRight(d.CheckoutBaseURL, "/"),
 	}
 }

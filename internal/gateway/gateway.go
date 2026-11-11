@@ -159,6 +159,12 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 		r.Handle("/*", ledgerProxy)
 	})
 
+	// payments' hosted checkout page (task 4.8): HTML for anyone with a
+	// link, no session, and not API, so no spec validation. The link's
+	// token is in the path; the audit log records unmatched paths as
+	// "unmatched", so it's never logged.
+	proxied.Handle("/pay/*", paymentsProxy)
+
 	// payments: the same, against payments' spec (task 4.3).
 	proxied.Route("/v1/payments", func(r chi.Router) {
 		r.Use(requireSessionUnlessPublic(sessions, paymentsRoutes))

@@ -76,16 +76,22 @@ func (s *Service) StartTopup(ctx context.Context, user, tenant uuid.UUID, idempo
 	if err != nil {
 		return Topup{}, err
 	}
+	return s.startTopup(ctx, tenant, info.CountryCode, info.Currency, idempotencyKey, amountMinor, phone, nil)
+}
+
+// startTopup is StartTopup once the tenant is known: from the dashboard,
+// or from a checkout link (task 4.8), whose payments carry its link ID.
+func (s *Service) startTopup(ctx context.Context, tenant uuid.UUID, country, currency, idempotencyKey string, amountMinor int64, phone string, link *uuid.UUID) (Topup, error) {
 	if idempotencyKey == "" {
 		return Topup{}, fmt.Errorf("%w: an idempotency key is required", ErrValidation)
 	}
-	pack, ok := s.packs[info.CountryCode]
+	pack, ok := s.packs[country]
 	if !ok {
-		return Topup{}, fmt.Errorf("%w: no pack for %s", ErrTopupUnavailable, info.CountryCode)
+		return Topup{}, fmt.Errorf("%w: no pack for %s", ErrTopupUnavailable, country)
 	}
 	rail, ok := pack.TopupRail()
 	if !ok {
-		return Topup{}, fmt.Errorf("%w: %s has no top-up rail", ErrTopupUnavailable, info.CountryCode)
+		return Topup{}, fmt.Errorf("%w: %s has no top-up rail", ErrTopupUnavailable, country)
 	}
 	rules := domain.TopupRules{CurrencyExponent: pack.Currency.Exponent, CountryCode: pack.Numbering.CountryCode, NationalNumberLength: pack.Numbering.NationalSignificantNumberLength}
 	if err := domain.ValidateTopup(amountMinor, phone, rules); err != nil {
@@ -100,7 +106,11 @@ func (s *Service) StartTopup(ctx context.Context, user, tenant uuid.UUID, idempo
 		intent   store.PaymentsPaymentIntent
 		replayed bool
 	)
-	err = s.pool.WithTenantTx(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+	linkID := pgtype.UUID{}
+	if link != nil {
+		linkID = pgtype.UUID{Bytes: *link, Valid: true}
+	}
+	err := s.pool.WithTenantTx(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		prev, err := q.GetPaymentIntentByIdempotencyKey(ctx, store.GetPaymentIntentByIdempotencyKeyParams{TenantID: tenant, IdempotencyKey: idempotencyKey})
 		if err == nil {
@@ -131,9 +141,9 @@ func (s *Service) StartTopup(ctx context.Context, user, tenant uuid.UUID, idempo
 		now := s.clk.Now()
 		intent, err = q.CreatePaymentIntent(ctx, store.CreatePaymentIntentParams{
 			ID: id, TenantID: tenant, Purpose: store.PaymentsIntentPurposeWalletTopup, RailAccountID: paybill.ID,
-			Method: "stk_push", AmountMinor: amountMinor, Currency: info.Currency,
+			Method: "stk_push", AmountMinor: amountMinor, Currency: currency,
 			PayerPhoneE164: pgtype.Text{String: phone, Valid: true}, AccountReference: number,
-			IdempotencyKey: idempotencyKey, ExpiresAt: now.Add(s.expiry), CreatedAt: now,
+			PaymentLinkID: linkID, IdempotencyKey: idempotencyKey, ExpiresAt: now.Add(s.expiry), CreatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("app: recording the top-up: %w", err)

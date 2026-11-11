@@ -426,3 +426,34 @@ func TestGatewayBackends_StatementImportLimit(t *testing.T) {
 		t.Fatalf("2 MB elsewhere: %d", status)
 	}
 }
+
+// TestGatewayBackends_Checkout (task 4.8): the hosted page and the
+// public checkout API reach payments with no session, the page without
+// spec validation; a client-sent user header is still stripped.
+func TestGatewayBackends_Checkout(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	gw := newBackendsGateway(t, identity, accounts, fakeSessions{}, ledger, payments)
+	token := "eyJsIjoiMSJ9.c2lnbmF0dXJl" // gitleaks:allow -- a made-up token: base64 of {"l":"1"} and "signature"; the recording backend never checks it
+	spoof := map[string]string{headerUserID: "33333333-3333-3333-3333-333333333333"}
+
+	if status, _ := send(t, gw, http.MethodGet, "/pay/"+token, spoof, nil); status != http.StatusOK {
+		t.Fatalf("the page: %d", status)
+	}
+	if req := payments.last(t); req.URL.Path != "/pay/"+token || req.Header.Get(headerUserID) != "" {
+		t.Fatalf("forwarded %s with user %q", req.URL.Path, req.Header.Get(headerUserID))
+	}
+	if status, _ := send(t, gw, http.MethodGet, "/pay/static/checkout.js", nil, nil); status != http.StatusOK || payments.last(t).URL.Path != "/pay/static/checkout.js" {
+		t.Fatalf("the script: %d", status)
+	}
+	if status, body := send(t, gw, http.MethodGet, "/v1/payments/checkout/"+token, nil, nil); status != http.StatusOK {
+		t.Fatalf("the public API: %d %v", status, body)
+	}
+	if status, body := send(t, gw, http.MethodPost, "/v1/payments/checkout/"+token+"/payments", map[string]string{"Idempotency-Key": "c1"},
+		map[string]any{"payer_phone": "+254708374149"}); status != http.StatusOK {
+		t.Fatalf("a payment: %d %v", status, body)
+	}
+	before := payments.count()
+	if status, _ := send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details", nil, nil); status != http.StatusUnauthorized || payments.count() != before {
+		t.Fatalf("a dashboard route still needs a session: %d", status)
+	}
+}

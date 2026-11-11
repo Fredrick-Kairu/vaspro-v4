@@ -87,6 +87,8 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz(ready...))
 
+	mountCheckoutPage(r, h.app)
+
 	strict := NewStrictHandlerWithOptions(h, nil, StrictHTTPServerOptions{
 		ResponseErrorHandlerFunc: respondProblem,
 	})
@@ -95,8 +97,8 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		// The last entry runs first (1.2's lesson): requireCaller sets
 		// the scope idempotency.Middleware needs.
 		Middlewares: []MiddlewareFunc{
-			exceptRailCallbacks(idempotency.Middleware(idemStore, idempotencyKeyTTL)),
-			exceptRailCallbacks(requireCaller),
+			exceptPublic(idempotency.Middleware(idemStore, idempotencyKeyTTL)),
+			exceptPublic(requireCaller),
 			keepCallbackBody,
 		},
 	})
@@ -113,6 +115,17 @@ func bodyLimit(r *http.Request) int64 {
 	return 1 << 20
 }
 
+// checkoutPrefix is the public checkout API (task 4.8): a link's
+// signature is its credential, so no session; a payment's
+// Idempotency-Key is kept by the app on the link's payment.
+const checkoutPrefix = "/v1/payments/checkout/"
+
+// isPublic is a request with no signed-in user: a rail callback or the
+// checkout API.
+func isPublic(r *http.Request) bool {
+	return isRailCallback(r) || strings.HasPrefix(r.URL.Path, checkoutPrefix)
+}
+
 // railCallbackPrefix is where payment rails call back (task 4.4). A rail
 // sends neither a session nor an Idempotency-Key: its source address
 // and path token authenticate it, and a repeated callback is recorded
@@ -121,12 +134,12 @@ const railCallbackPrefix = "/v1/payments/callbacks/"
 
 func isRailCallback(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, railCallbackPrefix) }
 
-// exceptRailCallbacks runs mw for every request but a rail callback.
-func exceptRailCallbacks(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// exceptPublic runs mw for every request but a public one.
+func exceptPublic(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		wrapped := mw(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isRailCallback(r) {
+			if isPublic(r) {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -864,7 +864,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 4.5 Top-up by paybill (C2B): match on account number; unmatched money goes to suspense; staff match it later, once. *Done 2026-11-11 (OQ-22): C2B validation and confirmation through the gateway, suspense in the ledger, staff matching by account number with step-up, `vaspro payments register-c2b`; `TestC2B_Confirmations`, `TestC2B_StaffMatch`, `TestPost_PaymentsTopupShapes`.*
 - [x] 4.6 Daily reconciliation of VASPRO's paybill against provider clearing in the ledger. *Done 2026-11-11 (OQ-22): staff import the org-portal statement for a local day; receipts matched to notices, notices checked against provider clearing by reference (`LedgerService.ListClearingEntries`), every gap an exception; `recon.statement_missing`; `TestReconcile_DayOfFakeTraffic`, `TestReconcile_Exceptions`, `TestLedgerService_ListClearingEntries`.*
 - [>] 4.7 Airtel Money KE adapter, if the account is ready; otherwise left for later. **Deferred** (2026-11-11, OQ-22): the account isn't ready. The rail interface stays free of Daraja types so Airtel fits later.
-- [ ] 4.8 A minimal hosted checkout page, reused by Pay now in Phase 9.
+- [x] 4.8 A minimal hosted checkout page, reused by Pay now in Phase 9. *Done 2026-11-11 (OQ-22): signed, stateless checkout links (`createCheckoutLink`), a public checkout API (`getCheckout`, `createCheckoutPayment`, `getCheckoutPayment`) and a server-rendered `/pay/{token}` page under a strict CSP; `TestCheckoutToken`, `TestCheckout`, `TestCheckout_PublicAPIAndPage`, `TestService_TopsUpByStkEndToEnd`.*
 
 **Tests specific to this phase**
 

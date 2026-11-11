@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.1–4.6 done (2026-11-11), with the exit gate's "a day of fake traffic reconciles" box ticked. Next: 4.8, the hosted checkout.
+**Current task:** Phase 4's tasks are done (2026-11-11): 4.1–4.6 and 4.8, with 4.7 (Airtel) deferred. Next: the PR of `p4/phase-4` to `main`.
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -566,6 +566,71 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
     - the ledger's login role already reaches `ledger_audit`.
   - **Not in 4.6:** money out (withdrawals and pay-backs, Phase 13); client paybills' reconciliation (Phase 13); paging the import itself for statements over 10 MB.
   - **The exit gate's other box,** a real Daraja sandbox top-up on staging, waits for staging (OD-02, Phase 8) and the sandbox secrets.
+
+- 4.8 A minimal hosted checkout (OQ-22: both an API and a page).
+  - **Contract:**
+    - **`createCheckoutLink`** (`POST /v1/payments/tenants/{tenantId}/checkout-links`, billing:manage): `{amount_minor, expires_in_minutes}` (default a day, 5 minutes to 7 days) gives a signed link, `<PAYMENTS_CHECKOUT_BASE_URL>/pay/<token>`.
+    - **Public** (`security: []`; the link's signature is the credential):
+      - `getCheckout` gives the amount, payee, account reference, and open, paid or expired;
+      - `createCheckoutPayment` (`{payer_phone}`, Idempotency-Key);
+      - `getCheckoutPayment` gives the status only: no receipt, no phone.
+      - Refusals:
+        - a link VASPRO didn't sign, or an expired one, is VAL-4003;
+        - a paid one VAL-4014;
+        - **a sixth attempt RATE-4290**.
+    - **The page** `/pay/{token}` (with `/pay/static/checkout.js` and `.css`):
+      - `html/template`, embedded;
+      - **CSP `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'`**, plus `nosniff`, `no-referrer` and `X-Frame-Options: DENY`;
+      - no inline script;
+      - the script posts the payment with a fresh Idempotency-Key and polls.
+    - **Links are stateless** (an addition, data model §7): the token is base64url(payload) and an HMAC-SHA256 under `PAYMENTS_CHECKOUT_SECRET`, decoded strictly. A link's payments are intents with `payment_link_id` set, which are its state. §7's `payment_links` stays Phase 13's.
+    - **Gateway:** `/pay/*` goes to payments with no session and no spec validation; its token is logged as `unmatched`, never as the path.
+  - **Rules:**
+    - `domain.SignCheckout`/`ParseCheckout`;
+    - `domain.ValidateTopupAmount` (split out of `ValidateTopup`, for a link's amount before anyone gives a phone).
+  - **App** (`app/checkout.go`):
+    - `CreateCheckoutLink` (billing:manage, the amount in whole units, an active paybill, nothing stored);
+    - `GetCheckout`;
+    - `PayCheckout`: a replayed key returns its payment first; then paid and five attempts are checked; then **the same push path as the dashboard's** (`StartTopup` refactored into a shared `startTopup`), with key `checkout:<link>:<key>` and the link's ID on the intent;
+    - `GetCheckoutPayment` (this link's payments only).
+    - The tenant's country comes from the pack with the link's currency.
+  - **Config:** `PAYMENTS_CHECKOUT_SECRET` (required, base64 of 32 bytes) and `PAYMENTS_CHECKOUT_BASE_URL` (default `PAYMENTS_CALLBACK_BASE_URL`).
+  - **Tests:**
+    - **domain:** the round trip; **every single-character change, anywhere in the token, refused**; another secret, truncated, unsigned, empty and garbage refused; expired.
+    - **app:**
+      - creating needs billing:manage, whole units and a valid lifetime;
+      - the link is open with the payee and the account number;
+      - a cancelled attempt leaves it open;
+      - a replayed key doesn't prompt again;
+      - **paying credits the tenant once, then the link is paid** and refuses more;
+      - **the sixth attempt is RATE-4290**, recording nothing;
+      - a tampered link, an expired link (shown expired, not payable) and another link's payment ID are refused, recording nothing.
+    - **API:**
+      - the tenant test covers `createCheckoutLink`;
+      - the public routes need no session (VAL-4003, VAL-4000);
+      - **the page**: its headers, the amount, the token in its data attribute, **no inline or foreign script**, a tampered link's page (404, no form), and markup in the path not rendered;
+      - the assets with their content types.
+    - **gateway:** `TestGatewayBackends_Checkout`: the page and script reach payments with no session and a spoofed user stripped; the public API passes; a dashboard route still needs a session.
+    - **service:** `TestService_TopsUpByStkEndToEnd` now also creates a link over HTTP, loads the page through the stand-in gateway, pays through the public API, and sees the tenant credited and the link paid.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - the API, gateway and service tests came with their code; the mutations below stand in.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - the signature not checked;
+      - expiry ignored;
+      - no attempt cap;
+      - a paid link payable again;
+      - the CSP dropped;
+      - the checkout API behind a session;
+      - no `/pay/` route in the gateway.
+      - Two first drafts of these didn't compile (unused variables) and were redone as always-false conditions.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 12 packages fresh, 69 from the cache; no container retries.
+  - **gitleaks** found the gateway test's made-up checkout token (base64 of `{"l":"1"}` and `signature`). It's now marked `gitleaks:allow` with that reason, as the repo's other example tokens are, and the tree scans clean. That's a comment-only change after the `make check` above.
+  - **Deployment notes:**
+    - `PAYMENTS_CHECKOUT_SECRET` is new and required; changing it voids every link already sent;
+    - the gateway serves `/pay/` publicly;
+    - the attempt cap counts every attempt, so two simultaneous sixth attempts could both pass (the gateway's per-IP limit still applies).
+  - **Not in 4.8:** invoices on the page (Phase 9's Pay now); clients' own payment links (Phase 13); translations.
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1769,8 +1834,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.8 the hosted checkout (plan above).
-2. Then the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. The PR of `p4/phase-4` to `main`, merged only after CI is green and you confirm.
+2. Add the `DARAJA_SANDBOX_*` secrets; the exit gate's sandbox-on-staging box waits for staging (Phase 8).
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
