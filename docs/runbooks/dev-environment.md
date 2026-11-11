@@ -1,6 +1,6 @@
 # Dev environment
 
-A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts** and the **ledger** behind the **gateway**, with a fake KYC vendor, on a private Docker network.
+A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts**, the **ledger** and **payments** behind the **gateway**, with a fake KYC vendor, on a private Docker network.
 
 Only two ports are published, both on the host's loopback:
 
@@ -46,6 +46,7 @@ deploy/compose/dev-secrets.sh   # writes deploy/compose/.env; refuses to overwri
 
 Then edit `deploy/compose/.env`:
 
+- `PAYMENTS_CALLBACK_BASE_URL`: `https://<API_DOMAIN>`. Required: `make dev-up` stops until it's set (see "Payments").
 - `GATEWAY_CORS_ALLOWED_ORIGINS`: the frontend team's dev-server origins (see "CORS").
 - `IDENTITY_WEBAUTHN_RP_ID` and `IDENTITY_WEBAUTHN_ORIGINS`: the dashboard's domain and its exact origins.
 - `GATEWAY_HOST_PORT` / `MAILPIT_HOST_PORT`: only if 18080 or 18025 is taken on the host.
@@ -127,7 +128,7 @@ Re-rendering replaces certbot's 443 blocks. After installing a new render, run `
 | `make dev-kyc` / `make dev-kyc ID=… STATUS=…` | Lists the fake vendor's checks / decides one |
 | `make dev-staff EMAIL=… BY=…` | Makes a user staff |
 
-To deploy a new version, pull the branch and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart. Nginx needs nothing. It returns 502 for the few seconds the gateway is restarting.
+To deploy a new version, pull the branch, run `deploy/compose/dev-secrets.sh --add-missing`, and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart. `--add-missing` appends any setting a newer `env.example` has and `.env` lacks, with fresh secrets, and changes nothing already there; it prints the names it added, so check whether one needs a value of yours (such as `PAYMENTS_CALLBACK_BASE_URL`). Nginx needs nothing. It returns 502 for the few seconds the gateway is restarting.
 
 Below, `$DC` stands for `docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env`.
 
@@ -146,9 +147,10 @@ Nothing else is published. Everything else is reachable only on the `vaspro-dev`
 | identity | `identity:8080` HTTP, `identity:9090` gRPC | |
 | accounts | `accounts:8082` HTTP, `accounts:9091` gRPC | |
 | ledger | `ledger:8083` HTTP, `ledger:9092` gRPC | |
+| payments | `payments:8084` HTTP | Top-ups, M-Pesa callbacks, reconciliation, checkout pages |
 | kyc-vendor | `kyc-vendor:8090` | The fake KYC vendor |
 | postgres | `postgres:5432` | One database; one schema per service |
-| redis | `redis:6379` | DB 0 identity sessions, DB 1 gateway rate limits |
+| redis | `redis:6379` | DB 0 identity sessions, DB 1 gateway rate limits, DB 2 payments' Daraja tokens |
 | nats | `nats:4222` | Event bus (JetStream) |
 | object-storage | `object-storage:8333` | SeaweedFS S3, documents bucket |
 | clamav | `clamav:3310` | Virus scanning of uploads |
@@ -177,14 +179,14 @@ Compose enforces it with `depends_on`:
 
 1. postgres, redis, nats, object-storage, clamav, mailpit become healthy;
 2. `db-setup` runs once and must exit 0;
-3. identity, accounts and ledger start; each waits for its own infrastructure and reports ready;
-4. the gateway starts once all three are ready, and the kyc-vendor starts alongside it.
+3. identity, accounts, ledger and payments start; each waits for its own infrastructure and reports ready;
+4. the gateway starts once all four are ready, and the kyc-vendor starts alongside it.
 
-Identity and accounts dial each other's gRPC lazily, so neither waits for the other. The host's nginx is independent and only needs the two loopback ports.
+Identity and accounts dial each other's gRPC lazily, so neither waits for the other; payments dials accounts, identity and the ledger lazily too. The host's nginx is independent and only needs the two loopback ports.
 
 ## Database
 
-`db-setup` runs as the PostgreSQL superuser and can be run again safely. For each of `identity`, `accounts` and `ledger`, it creates:
+`db-setup` runs as the PostgreSQL superuser and can be run again safely. For each of `identity`, `accounts`, `ledger` and `payments`, it creates:
 
 - `<svc>_owner`: runs the goose migrations, so it owns the schema and its tables. It has `CREATEROLE`, because the migrations create their own narrow roles, and `BYPASSRLS`, because migrations seed rows no tenant may write (accounts' built-in roles). Nothing else connects as it.
 - `<svc>_app`: the service's login role. It owns nothing, so row-level security and the ledger's grants bind it.
@@ -195,11 +197,12 @@ Grants made after the migrations:
 
 - identity and accounts: DML on every table and sequence in their schema, plus default privileges, so new migrations' tables are covered.
 - ledger: `ledger_app` is granted `ledger_service`. The ledger's migrations already give that role exactly what the service may do: no UPDATE or DELETE on the journal, and no writes to `balance_minor`.
+- payments: `payments_app` is granted `payments_service`, in the same way: its updates are limited to status and posting columns, and it deletes nothing but idempotency keys.
 - These narrow roles, `WITH INHERIT FALSE`, reached only through `SET ROLE` inside `WithRoleTx`:
   - for `identity_app`: `identity_token_exchange` and `identity_sso_domain_lookup`;
   - for `accounts_app`: `accounts_membership_lookup`, `accounts_kyc_webhook`, `accounts_registration_lookup` and `accounts_staff_review`.
 
-  The ledger's `ledger_system`, `ledger_price_review`, `ledger_settlement`, `ledger_reversal_review` and `ledger_audit` reach `ledger_app` through `ledger_service`.
+  The ledger's `ledger_system`, `ledger_price_review`, `ledger_settlement`, `ledger_reversal_review` and `ledger_audit` reach `ledger_app` through `ledger_service`, and payments' `payments_system` and `payments_operations` reach `payments_app` through `payments_service`.
 
 To look at the data: `$DC exec postgres psql -U vaspro`.
 
@@ -213,6 +216,9 @@ All of them are in `deploy/compose/env.example`, grouped by service with what ea
 | `DEV_SUBNET` | `10.213.0.0/24` | The private network |
 | `GATEWAY_TRUSTED_PROXIES` | `10.213.0.1` | The first address of `DEV_SUBNET` (see "Client addresses") |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | See below |
+| `PAYMENTS_CALLBACK_BASE_URL` | (none; required) | `https://<API_DOMAIN>`: M-Pesa calls back on it, and checkout links point at it |
+| `DARAJA_BASE_URL` | `https://sandbox.safaricom.co.ke` | Safaricom's Daraja sandbox |
+| `PAYMENTS_DARAJA_CALLBACK_CIDRS` | empty | Safaricom's callback ranges; empty refuses every M-Pesa callback (see "Payments") |
 | `IDENTITY_WEBAUTHN_RP_ID` | `localhost` | The dashboard's domain. Passkeys only work on it or its subdomains |
 | `IDENTITY_WEBAUTHN_ORIGINS` | the two localhost origins | The dashboard's exact origins, comma-separated |
 | `IDENTITY_GOOGLE_*` | empty (off) | Google sign-in needs a Google OAuth client, and a redirect URL registered with Google |
@@ -225,10 +231,11 @@ The database URLs aren't in `.env`: compose builds them from the `*_DB_PASSWORD`
 
 Secrets in `.env`, all generated by `dev-secrets.sh`:
 
-- the six database passwords;
+- the eight database passwords;
 - the identity keys `IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY` and `IDENTITY_CHALLENGE_SIGNING_KEY`;
 - `ACCOUNTS_DOCUMENTS_KMS_KEY`;
-- `ACCOUNTS_KYC_WEBHOOK_SECRET`, which the fake vendor shares.
+- `ACCOUNTS_KYC_WEBHOOK_SECRET`, which the fake vendor shares;
+- payments' `PAYMENTS_CREDENTIALS_KMS_KEY`, `PAYMENTS_CALLBACK_SECRET`, `PAYMENTS_CHECKOUT_SECRET` and `PAYMENTS_CREDENTIAL_FINGERPRINT_KEY` (the last only the `vaspro` CLI uses).
 
 The keys are base64 of 32 random bytes. `.env` is gitignored: never commit it, and don't reuse its values anywhere else. Mailpit's password isn't in `.env`; it's in nginx's htpasswd file.
 
@@ -262,7 +269,7 @@ On the host itself, `http://127.0.0.1:18025` reaches Mailpit without the passwor
 3. `POST /v1/auth/sessions` returns a `session_token`; send it as `Authorization: Bearer …`.
 4. `POST /v1/accounts/tenants`, then `PUT /v1/auth/sessions/current/tenant`.
 
-Every write needs an `Idempotency-Key` header. The contracts are `docs/api/{identity,accounts,ledger}.yaml`.
+Every write needs an `Idempotency-Key` header. The contracts are `docs/api/{identity,accounts,ledger,payments}.yaml`.
 
 **KYC.** After `POST /v1/accounts/tenants/{id}/kyc-checks`, the check is pending until the fake vendor decides it:
 
@@ -289,9 +296,32 @@ $DC run --rm vaspro identity grant-finance-lead -by <your name> <email>
 $DC run --rm vaspro identity revoke-finance-lead -by <your name> <email>
 ```
 
-**Money for testing.** There are no real top-ups yet (Payments, Phase 4). Staff credit a client's main wallet from the sandbox rail with `POST /v1/ledger/staff/dev-top-ups`; the client then buys tokens through `/v1/ledger/tenants/{tenantId}/token-purchases`, which needs a token price (list or deal) for the service first.
+**Money for testing.** M-Pesa top-ups need VASPRO's paybill set up against the Daraja sandbox (see "Payments"). Until then, staff credit a client's main wallet from the sandbox rail with `POST /v1/ledger/staff/dev-top-ups`; the client then buys tokens through `/v1/ledger/tenants/{tenantId}/token-purchases`, which needs a token price (list or deal) for the service first.
 
 **Documents** (KYB) are scanned by ClamAV, encrypted, and stored in SeaweedFS. Uploads are capped at 10 MB, as PDF, JPEG or PNG. Nginx refuses any request body over 11 MB (`client_max_body_size 11m`, the gateway's own largest limit) with its plain 413 page, not the API's problem+json. The gateway answers anything smaller itself (VAL-4008 for a file over 10 MB).
+
+## Payments
+
+Payments runs from the start, but takes no M-Pesa money until VASPRO's paybill is set up. Until then, `GET /v1/payments/tenants/{tenantId}/topup-details` and new top-ups answer PAY-6507, and dev top-ups (above) are the way to fund a wallet.
+
+**VASPRO's paybill on the Daraja sandbox.** With the sandbox app's consumer key and secret, its shortcode and passkey (from Safaricom's developer portal), a staff member (`-by`) runs:
+
+```sh
+$DC run --rm vaspro payments add-rail-account -by <staff email> -rail mpesa_ke -number <shortcode> -name "VASPRO (sandbox)"
+printf '%s' '<consumer key>'    | $DC run --rm -T vaspro payments set-rail-credential -by <staff email> -account <id> -kind app_key
+printf '%s' '<consumer secret>' | $DC run --rm -T vaspro payments set-rail-credential -by <staff email> -account <id> -kind app_secret
+printf '%s' '<passkey>'         | $DC run --rm -T vaspro payments set-rail-credential -by <staff email> -account <id> -kind passkey
+$DC run --rm vaspro payments verify-rail-account -by <staff email> -account <id>
+$DC run --rm vaspro payments register-c2b -by <staff email> -account <id>
+```
+
+Each secret is read from stdin (`-T`), never from the command line. Check each command's flags with `$DC run --rm vaspro payments`. A leading space keeps a line out of most shells' history. `verify-rail-account` makes a real OAuth call to the sandbox; the passkey is proven only by the first STK push.
+
+**Callbacks.** Safaricom calls `https://<API_DOMAIN>/v1/payments/callbacks/...`. Nginx passes the caller's address and the gateway trusts it (see "Client addresses"). Payments then accepts only addresses in `PAYMENTS_DARAJA_CALLBACK_CIDRS`. Put Safaricom's published callback ranges there, from their documentation. They aren't in the repository. Empty, the default, refuses every callback: an STK top-up then waits, and the sweep's query finds a failure but never credits a payment (STATUS 4.4).
+
+**Checkout links** (`POST /v1/payments/tenants/{tenantId}/checkout-links`) open at `https://<API_DOMAIN>/pay/<token>`, through the gateway with no session.
+
+**Reconciliation.** Staff upload a day's org-portal CSV with `POST /v1/payments/staff/statement-imports` (up to 10 MB, within nginx's limit). The CSV's columns are still assumed (OQ-22). An unimported day raises `recon.statement_missing` at noon the next day; in this environment that's just an event.
 
 ## Rotating keys and passwords
 
@@ -300,7 +330,8 @@ $DC run --rm vaspro identity revoke-finance-lead -by <your name> <email>
 - **`IDENTITY_CHALLENGE_SIGNING_KEY`:** change it and run `make dev-up`. Only in-flight sign-in challenges (5 minutes) are lost.
 - **Mailpit's password:** `sudo htpasswd /etc/nginx/.htpasswd-vaspro-mail tester` (without `-c`). Nginx reads the file on each request, so no reload is needed.
 - **`ACCOUNTS_KYC_WEBHOOK_SECRET`:** change it and run `make dev-up`. The fake vendor picks it up too.
-- **LocalKMS keys** (`IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY`, `ACCOUNTS_DOCUMENTS_KMS_KEY`): data sealed under the old key becomes unreadable (TOTP secrets, signing keys, documents), and there's no re-encryption tool. In this environment, rotating one means `make dev-reset`.
+- **`PAYMENTS_CALLBACK_SECRET` / `PAYMENTS_CHECKOUT_SECRET`:** change it and run `make dev-up`. Pushes in flight lose their callbacks / every checkout link already sent stops working.
+- **LocalKMS keys** (`IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY`, `ACCOUNTS_DOCUMENTS_KMS_KEY`, `PAYMENTS_CREDENTIALS_KMS_KEY`): data sealed under the old key becomes unreadable (TOTP secrets, signing keys, documents, rail credentials), and there's no re-encryption tool. In this environment, rotating one means `make dev-reset`.
 - **TLS certificates:** certbot renews them on its own timer and reloads nginx.
 
 ## Known limits
@@ -308,4 +339,5 @@ $DC run --rm vaspro identity revoke-finance-lead -by <your name> <email>
 - **Identity sees the gateway's IP** for sign-ins and login alerts (see "Client addresses").
 - **Unreachable fake-vendor link.** The KYC "hosted flow" URL points into the private network, and the fake serves no page there. Testers decide checks with `make dev-kyc`.
 - **Unused infrastructure.** RabbitMQ, ClickHouse and Grafana aren't in this stack, because nothing built uses them yet.
+- **No Daraja fake here.** Payments talks to Safaricom's real sandbox, so M-Pesa flows need sandbox credentials and Safaricom's callback ranges. Outcomes can't be scripted the way the tests do with `tools/fakes/daraja`.
 - **UGX wallets don't settle.** Only Kenya has a pack, so the ledger logs a settlement failure for such wallets each window (see STATUS 3.5).

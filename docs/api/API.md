@@ -2,7 +2,7 @@
 
 # VASPRO API reference
 
-This is the HTTP API of VASPRO v4 as built so far: identity (sign-up, sign-in, two-factor, credentials), accounts (client accounts, members, services, KYC/KYB, documents) and the ledger's staff price API. The first part explains the conventions every endpoint shares; the second lists every endpoint with its parameters, request body, response and errors; the last part is the full error catalogue.
+This is the HTTP API of VASPRO v4 as built so far: identity (sign-up, sign-in, two-factor, credentials), accounts (client accounts, members, services, KYC/KYB, documents) the ledger (wallets, token purchases, staff prices and reversals) and payments (M-Pesa top-ups, staff matching and reconciliation, checkout links). The first part explains the conventions every endpoint shares; the second lists every endpoint with its parameters, request body, response and errors; the last part is the full error catalogue.
 
 This file is generated from the OpenAPI specs in `docs/api/` (the source of truth, also usable in Postman, Insomnia or Swagger UI), so it always matches them.
 
@@ -15,7 +15,7 @@ All three APIs sit behind one gateway, on one host:
 | Dev environment | `https://<API_DOMAIN>`, the API domain you were given |
 | On the dev host itself | `http://127.0.0.1:18080` |
 
-Paths are versioned (`/v1/...`). The gateway routes `/v1/auth/*` and `/v1/oauth/*` to identity, `/v1/accounts/*` to accounts and `/v1/ledger/*` to the ledger. Clients never talk to a service directly.
+Paths are versioned (`/v1/...`). The gateway routes `/v1/auth/*` and `/v1/oauth/*` to identity, `/v1/accounts/*` to accounts and `/v1/ledger/*` to the ledger, and `/v1/payments/*` and the hosted checkout pages under `/pay/` to payments. Clients never talk to a service directly.
 
 ## 2. Conventions
 
@@ -359,6 +359,30 @@ The data is test data and may be reset at any time.
 - [`POST /v1/ledger/tenants/{tenantId}/token-purchases`](#op-createtokenpurchase) Buy tokens for a service from the main wallet
 - [`GET /v1/ledger/tenants/{tenantId}/auto-buy-rules`](#op-listtenantautobuyrules) The account's auto-buy rules
 - [`PUT /v1/ledger/tenants/{tenantId}/auto-buy-rules/{serviceCode}/{currency}`](#op-settenantautobuyrule) Set the auto-buy rule for a service and currency
+
+**Payments API**
+
+
+*Other*
+
+- [`GET /v1/payments/tenants/{tenantId}/topup-details`](#op-gettopupdetails) Where and how the account tops up its main wallet
+- [`POST /v1/payments/tenants/{tenantId}/topups`](#op-createtopup) Top up the main wallet by STK push
+- [`GET /v1/payments/tenants/{tenantId}/topups/{topupId}`](#op-gettopup) One STK top-up and its outcome
+- [`POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk`](#op-receivestkcallback) Receive Daraja's STK result (Safaricom only)
+- [`POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation`](#op-receivec2bvalidation) Validate a paybill payment (Safaricom only)
+- [`POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation`](#op-receivec2bconfirmation) Receive a paybill payment's confirmation (Safaricom only)
+- [`POST /v1/payments/tenants/{tenantId}/checkout-links`](#op-createcheckoutlink) Create a checkout link to top up the main wallet
+- [`GET /v1/payments/checkout/{token}`](#op-getcheckout) What a checkout link asks for (public)
+- [`POST /v1/payments/checkout/{token}/payments`](#op-createcheckoutpayment) Pay a checkout link by STK push (public)
+- [`GET /v1/payments/checkout/{token}/payments/{paymentId}`](#op-getcheckoutpayment) A checkout payment's status (public)
+
+*Staff tools*
+
+- [`GET /v1/payments/staff/suspense`](#op-listsuspense) Payments in suspense (staff only)
+- [`POST /v1/payments/staff/collection-notices/{noticeId}/match`](#op-matchcollectionnotice) Credit a payment in suspense to a client (staff only)
+- [`POST /v1/payments/staff/statement-imports`](#op-createstatementimport) Import and reconcile a day's paybill statement (staff only)
+- [`GET /v1/payments/staff/recon-exceptions`](#op-listreconexceptions) Reconciliation exceptions (staff only)
+- [`POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution`](#op-resolvereconexception) Close a reconciliation exception (staff only)
 
 
 ---
@@ -6303,6 +6327,907 @@ Example:
 
 ---
 
+## Payments API
+
+### Other
+
+<a id="op-gettopupdetails"></a>
+#### Where and how the account tops up its main wallet
+
+```
+GET /v1/payments/tenants/{tenantId}/topup-details
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getTopupDetails`
+
+VASPRO's M-Pesa paybill for the account's country and the account's own account number on it. A payment to that paybill with that account number credits the main wallet. The number is issued the first time it's asked for and never changes; it has two check characters, so a mistyped one is never credited to another account. Needs billing:read in the account (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003, as if it didn't exist. PAY-6507 while VASPRO's paybill for the country isn't available.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: The paybill and account number.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `rail` | string | yes | The payment rail, e.g. mpesa_ke. |
+| `paybill_number` | string | yes | VASPRO's paybill (business number) to pay. |
+| `paybill_name` | string | yes | The name the payer's phone shows for the paybill. |
+| `account_number` | string | yes | The account number to enter; 8 characters, letters and digits without 0, 1, I or O. |
+| `currency` | string | yes | ISO 4217, e.g. KES. |
+
+```json
+{
+  "rail": "mpesa_ke",
+  "paybill_number": "600100",
+  "paybill_name": "VASPRO",
+  "account_number": "ABC23456",
+  "currency": "KES"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `PAY-6507` | 503 | Rail refused or unavailable | The payment rail refused the request or couldn't be reached. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createtopup"></a>
+#### Top up the main wallet by STK push
+
+```
+POST /v1/payments/tenants/{tenantId}/topups
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createTopup`
+
+Prompts the payer's phone to pay VASPRO's paybill for the account's country, with the account's number as the reference. The wallet is credited only when M-Pesa confirms the payment, by the amount M-Pesa reports; poll getTopup or wait for the wallet.credited webhook. Replaying the Idempotency-Key returns the same top-up and never prompts again. An outcome the rail gives at once (refused, timed out) comes back as status failed with its PAY code, not as an HTTP error. Needs billing:manage (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003. PAY-6507 while VASPRO's paybill isn't available.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_minor` | integer (int64) | yes | In minor units of the account's currency, a whole number of shillings (STK pushes whole units). |
+| `payer_phone` | string | yes | The phone to prompt, in E.164, e.g. +254708374149. |
+
+Example:
+
+```json
+{
+  "amount_minor": 150000,
+  "payer_phone": "+254708374149"
+}
+```
+
+**Response `201`**: The top-up, usually pending until the payer answers the prompt.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `status` | string: `created`, `pending`, `succeeded`, `failed`, `expired`, `cancelled` | yes |  |
+| `amount_minor` | integer (int64) | yes | The amount asked for. |
+| `currency` | string | yes |  |
+| `payer_phone` | string | yes |  |
+| `account_reference` | string | yes | The account's number on VASPRO's paybill, sent as the payment's reference. |
+| `receipt` | string | no | The M-Pesa receipt, once succeeded. |
+| `error_code` | string | no | The PAY code, when failed, cancelled or expired. |
+| `created_at` | string (date-time) | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+| `completed_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192c3a1-7f00-7000-8000-0000000000aa",
+  "status": "pending",
+  "amount_minor": 150000,
+  "currency": "KES",
+  "payer_phone": "+254708374149",
+  "account_reference": "ABC23456",
+  "created_at": "2026-11-11T09:00:00Z",
+  "expires_at": "2026-11-11T09:03:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `PAY-6507` | 503 | Rail refused or unavailable | The payment rail refused the request or couldn't be reached. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-gettopup"></a>
+#### One STK top-up and its outcome
+
+```
+GET /v1/payments/tenants/{tenantId}/topups/{topupId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getTopup`
+
+succeeded with the M-Pesa receipt once confirmed; failed, cancelled or expired with a PAY code otherwise. Needs billing:read (AUTH-4024 otherwise); an account or top-up the caller can't see is VAL-4003.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `topupId` | path | yes | string |  |
+
+**Response `200`**: The top-up.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `status` | string: `created`, `pending`, `succeeded`, `failed`, `expired`, `cancelled` | yes |  |
+| `amount_minor` | integer (int64) | yes | The amount asked for. |
+| `currency` | string | yes |  |
+| `payer_phone` | string | yes |  |
+| `account_reference` | string | yes | The account's number on VASPRO's paybill, sent as the payment's reference. |
+| `receipt` | string | no | The M-Pesa receipt, once succeeded. |
+| `error_code` | string | no | The PAY code, when failed, cancelled or expired. |
+| `created_at` | string (date-time) | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+| `completed_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "status": "created",
+  "amount_minor": 1,
+  "currency": "KES",
+  "payer_phone": "+254700000000",
+  "account_reference": "string",
+  "receipt": "string",
+  "error_code": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "expires_at": "2026-11-05T09:30:00Z",
+  "completed_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-receivestkcallback"></a>
+#### Receive Daraja's STK result (Safaricom only)
+
+```
+POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/stk
+```
+
+**Auth:** none  
+**Operation ID:** `receiveStkCallback`
+
+Called by Safaricom's Daraja, not by clients, so it carries no session and no Idempotency-Key. Daraja can't sign callbacks: the source address must be one of Safaricom's published ranges and the path token VASPRO gave Daraja for this paybill must match; otherwise AUTH-4013 and nothing is recorded. A repeated callback changes nothing. One that arrives before the push it answers is recorded and applied as soon as the push is.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `railAccountId` | path | yes | string |  |
+| `token` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+Example:
+
+```json
+{}
+```
+
+**Response `200`**: Received.
+
+```json
+{}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4013` | 401 | HMAC signature invalid or request expired | The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-receivec2bvalidation"></a>
+#### Validate a paybill payment (Safaricom only)
+
+```
+POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/validation
+```
+
+**Auth:** none  
+**Operation ID:** `receiveC2bValidation`
+
+Called by Safaricom's Daraja before a payment to VASPRO's paybill completes, when external validation is enabled. It accepts every payment that could be VASPRO's, unknown account numbers included; only a payment to another shortcode or of no amount is refused (C2B00016). Checked by source and path token like the STK callback (AUTH-4013).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `railAccountId` | path | yes | string |  |
+| `token` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+Example:
+
+```json
+{}
+```
+
+**Response `200`**: Accepted, or refused with a C2B result code.
+
+```json
+{}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4013` | 401 | HMAC signature invalid or request expired | The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-receivec2bconfirmation"></a>
+#### Receive a paybill payment's confirmation (Safaricom only)
+
+```
+POST /v1/payments/callbacks/daraja/{railAccountId}/{token}/c2b/confirmation
+```
+
+**Auth:** none  
+**Operation ID:** `receiveC2bConfirmation`
+
+Called by Safaricom's Daraja when a payment to VASPRO's paybill completes. A valid account number credits that account's main wallet; anything else goes to suspense for staff. A repeated confirmation, or one for a receipt an STK callback already recorded, changes nothing. Checked by source and path token (AUTH-4013).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `railAccountId` | path | yes | string |  |
+| `token` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+Example:
+
+```json
+{}
+```
+
+**Response `200`**: Received.
+
+```json
+{}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4013` | 401 | HMAC signature invalid or request expired | The request's X-Signature doesn't match its method, path, body and timestamp; the timestamp is outside the 5-minute validity window; or the nonce has already been used. Deliberately not distinguished in the response. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createcheckoutlink"></a>
+#### Create a checkout link to top up the main wallet
+
+```
+POST /v1/payments/tenants/{tenantId}/checkout-links
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createCheckoutLink`
+
+A signed link anyone can open, with no sign-in, to pay this amount into the account's main wallet by STK push: send it to whoever pays, often your finance team. It expires (default 24 hours, at most 7 days) and stops working once paid. Needs billing:manage (AUTH-4024 otherwise); PAY-6507 while VASPRO's paybill isn't available.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_minor` | integer (int64) | yes | Whole units of the account's currency, in minor units. |
+| `expires_in_minutes` | integer | no |  |
+
+Example:
+
+```json
+{
+  "amount_minor": 500000,
+  "expires_in_minutes": 1440
+}
+```
+
+**Response `201`**: The link.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `link_id` | string | yes |  |
+| `token` | string | yes |  |
+| `url` | string | yes | The page to send the payer to. |
+| `amount_minor` | integer (int64) | yes |  |
+| `currency` | string | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "link_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "token": "opaque-token",
+  "url": "https://example.com/path",
+  "amount_minor": 1,
+  "currency": "KES",
+  "expires_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `PAY-6507` | 503 | Rail refused or unavailable | The payment rail refused the request or couldn't be reached. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getcheckout"></a>
+#### What a checkout link asks for (public)
+
+```
+GET /v1/payments/checkout/{token}
+```
+
+**Auth:** none  
+**Operation ID:** `getCheckout`
+
+No sign-in: the link's signature is the credential. A link that isn't VASPRO's is VAL-4003. An expired or paid link is shown with its status.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string |  |
+
+**Response `200`**: The checkout.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_minor` | integer (int64) | yes |  |
+| `currency` | string | yes |  |
+| `payee` | string | yes | The paybill's registered name. |
+| `account_reference` | string | yes |  |
+| `status` | string: `open`, `paid`, `expired` | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "amount_minor": 1,
+  "currency": "KES",
+  "payee": "string",
+  "account_reference": "string",
+  "status": "open",
+  "expires_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createcheckoutpayment"></a>
+#### Pay a checkout link by STK push (public)
+
+```
+POST /v1/payments/checkout/{token}/payments
+```
+
+**Auth:** none  
+**Operation ID:** `createCheckoutPayment`
+
+Prompts the payer's phone. A repeated Idempotency-Key returns the same payment without prompting again. A paid link is VAL-4014; an expired or foreign one VAL-4003; more than five attempts on one link RATE-4290.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `payer_phone` | string | yes | E.164, e.g. +254708374149. |
+
+Example:
+
+```json
+{
+  "payer_phone": "+254708374149"
+}
+```
+
+**Response `201`**: The payment, usually pending until the payer answers.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `payment_id` | string | yes |  |
+| `status` | string: `created`, `pending`, `succeeded`, `failed`, `expired`, `cancelled` | yes |  |
+| `error_code` | string | no |  |
+
+```json
+{
+  "payment_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "status": "created",
+  "error_code": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `RATE-4290` | 429 | Rate limit exceeded | This credential has made more requests than its configured rate limit allows in the current window. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getcheckoutpayment"></a>
+#### A checkout payment's status (public)
+
+```
+GET /v1/payments/checkout/{token}/payments/{paymentId}
+```
+
+**Auth:** none  
+**Operation ID:** `getCheckoutPayment`
+
+Only a payment made through this link (VAL-4003 otherwise). No receipt or phone number is shown.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string |  |
+| `paymentId` | path | yes | string |  |
+
+**Response `200`**: The payment.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `payment_id` | string | yes |  |
+| `status` | string: `created`, `pending`, `succeeded`, `failed`, `expired`, `cancelled` | yes |  |
+| `error_code` | string | no |  |
+
+```json
+{
+  "payment_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "status": "created",
+  "error_code": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+### Staff tools
+
+<a id="op-listsuspense"></a>
+#### Payments in suspense (staff only)
+
+```
+GET /v1/payments/staff/suspense
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `listSuspense`
+
+Payments to VASPRO's paybill that named no client, oldest first, for staff to match. Paged with next_cursor. Staff only (AUTH-4025).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `cursor` | query | no | string |  |
+| `limit` | query | no | integer |  |
+
+**Response `200`**: A page of the queue.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `notices` | array of object | yes |  |
+| `notices[].id` | string | yes |  |
+| `notices[].receipt` | string | yes |  |
+| `notices[].amount_minor` | integer (int64) | yes |  |
+| `notices[].currency` | string | yes |  |
+| `notices[].bill_ref` | string | no | The account number as the payer typed it. |
+| `notices[].payer_name` | string | no |  |
+| `notices[].payer_phone` | string | no |  |
+| `notices[].paid_at` | string (date-time) | yes |  |
+| `notices[].status` | string: `suspense`, `matched` | yes |  |
+| `notices[].tenant_id` | string | no | The client credited, once matched. |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "notices": [
+    {
+      "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "receipt": "string",
+      "amount_minor": 1,
+      "currency": "KES",
+      "bill_ref": "string",
+      "payer_name": "Ada Lovelace",
+      "payer_phone": "+254700000000",
+      "paid_at": "2026-11-05T09:30:00Z",
+      "status": "suspense",
+      "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f"
+    }
+  ],
+  "next_cursor": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-matchcollectionnotice"></a>
+#### Credit a payment in suspense to a client (staff only)
+
+```
+POST /v1/payments/staff/collection-notices/{noticeId}/match
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + a fresh step-up + VASPRO staff only  
+**Operation ID:** `matchCollectionNotice`
+
+Moves a payment out of suspense into the main wallet of the client whose account number staff name: an issued number only (VAL-4003 otherwise), with a reason. A payment is matched once: a second match is VAL-4014. One not yet in the ledger's suspense account is PAY-6507; try again shortly. Staff only (AUTH-4025), with a fresh step-up (AUTH-4012).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `noticeId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `account_number` | string | yes | The client's account number on VASPRO's paybill. |
+| `reason` | string | yes | Why this payment is the client's; kept with the match. |
+
+Example:
+
+```json
+{
+  "account_number": "ABC23456",
+  "reason": "Payer called; typed 0 for O in the account number"
+}
+```
+
+**Response `200`**: The payment, now matched.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `receipt` | string | yes |  |
+| `amount_minor` | integer (int64) | yes |  |
+| `currency` | string | yes |  |
+| `bill_ref` | string | no | The account number as the payer typed it. |
+| `payer_name` | string | no |  |
+| `payer_phone` | string | no |  |
+| `paid_at` | string (date-time) | yes |  |
+| `status` | string: `suspense`, `matched` | yes |  |
+| `tenant_id` | string | no | The client credited, once matched. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "receipt": "string",
+  "amount_minor": 1,
+  "currency": "KES",
+  "bill_ref": "string",
+  "payer_name": "Ada Lovelace",
+  "payer_phone": "+254700000000",
+  "paid_at": "2026-11-05T09:30:00Z",
+  "status": "suspense",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. |
+| `PAY-6507` | 503 | Rail refused or unavailable | The payment rail refused the request or couldn't be reached. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4012` | 401 | Step-up verification required | The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list). |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-createstatementimport"></a>
+#### Import and reconcile a day's paybill statement (staff only)
+
+```
+POST /v1/payments/staff/statement-imports
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `createStatementImport`
+
+Staff upload the M-Pesa org portal's statement export for one of VASPRO's paybills and one local day. Every completed payment in on it is matched to VASPRO's records by receipt, and every record of the day must be on it; every record must also be in the ledger's provider clearing for its amount, and every clearing debit of the day must be a record's. Each gap opens an exception. A day is imported once (VAL-4017). A file that isn't the export is VAL-4000 and nothing is recorded. Staff only (AUTH-4025).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `rail_account_id` | string | yes | VASPRO's paybill the statement is for. |
+| `date` | string | yes | The local day the statement covers, YYYY-MM-DD. |
+| `csv` | string | yes | The org portal's statement export, as downloaded. |
+
+Example:
+
+```json
+{
+  "rail_account_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "date": "string",
+  "csv": "string"
+}
+```
+
+**Response `201`**: Imported and reconciled.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `lines` | integer | yes |  |
+| `matched` | integer | yes |  |
+| `exceptions_opened` | integer | yes |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "lines": 1,
+  "matched": 1,
+  "exceptions_opened": 1
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4017` | 409 | Statement already imported | A statement for this paybill and day has already been imported and reconciled. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listreconexceptions"></a>
+#### Reconciliation exceptions (staff only)
+
+```
+GET /v1/payments/staff/recon-exceptions
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + VASPRO staff only  
+**Operation ID:** `listReconExceptions`
+
+Oldest first, optionally by status; paged with next_cursor. Staff only (AUTH-4025).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `status` | query | no | string: `open`, `resolved`, `written_off` |  |
+| `cursor` | query | no | string |  |
+| `limit` | query | no | integer |  |
+
+**Response `200`**: A page of exceptions.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `exceptions` | array of object | yes |  |
+| `exceptions[].id` | string | yes |  |
+| `exceptions[].rail_account_id` | string | yes |  |
+| `exceptions[].kind` | string: `missing_in_vaspro`, `missing_on_rail`, `amount_mismatch`, `status_mismatch`, `duplicate`, `ledger_mismatch` | yes |  |
+| `exceptions[].status` | string: `open`, `resolved`, `written_off` | yes |  |
+| `exceptions[].tenant_id` | string | no |  |
+| `exceptions[].statement_line_id` | integer (int64) | no |  |
+| `exceptions[].reference_type` | string | no |  |
+| `exceptions[].reference_id` | string | no |  |
+| `exceptions[].resolution` | string | no |  |
+| `exceptions[].resolved_by` | string | no |  |
+| `exceptions[].opened_at` | string (date-time) | yes |  |
+| `exceptions[].resolved_at` | string (date-time) | no |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "exceptions": [
+    {
+      "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "rail_account_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "kind": "missing_in_vaspro",
+      "status": "open",
+      "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "statement_line_id": 1,
+      "reference_type": "string",
+      "reference_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+      "resolution": "string",
+      "resolved_by": "string",
+      "opened_at": "2026-11-05T09:30:00Z",
+      "resolved_at": "2026-11-05T09:30:00Z"
+    }
+  ],
+  "next_cursor": "string"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-resolvereconexception"></a>
+#### Close a reconciliation exception (staff only)
+
+```
+POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`) + a fresh step-up + VASPRO staff only  
+**Operation ID:** `resolveReconException`
+
+resolved (explained) or written_off, always with how. Only an open exception can be closed (VAL-4014). Staff only (AUTH-4025), with a fresh step-up (AUTH-4012).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `exceptionId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `status` | string: `resolved`, `written_off` | yes |  |
+| `resolution` | string | yes |  |
+
+Example:
+
+```json
+{
+  "status": "resolved",
+  "resolution": "The payer was refunded by Safaricom; reversal R-12 matches it."
+}
+```
+
+**Response `200`**: The exception, closed.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `rail_account_id` | string | yes |  |
+| `kind` | string: `missing_in_vaspro`, `missing_on_rail`, `amount_mismatch`, `status_mismatch`, `duplicate`, `ledger_mismatch` | yes |  |
+| `status` | string: `open`, `resolved`, `written_off` | yes |  |
+| `tenant_id` | string | no |  |
+| `statement_line_id` | integer (int64) | no |  |
+| `reference_type` | string | no |  |
+| `reference_id` | string | no |  |
+| `resolution` | string | no |  |
+| `resolved_by` | string | no |  |
+| `opened_at` | string (date-time) | yes |  |
+| `resolved_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "rail_account_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "kind": "missing_in_vaspro",
+  "status": "open",
+  "tenant_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "statement_line_id": 1,
+  "reference_type": "string",
+  "reference_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "resolution": "string",
+  "resolved_by": "string",
+  "opened_at": "2026-11-05T09:30:00Z",
+  "resolved_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. |
+| `AUTH-4025` | 403 | Staff only | This action is for VASPRO staff, and you aren't listed as staff. |
+| `AUTH-4012` | 401 | Step-up verification required | The session is signed in but hasn't proved fresh MFA recently enough for this action (system design §3's step-up list). |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+---
+
 ## Error catalogue
 
 Every code the platform defines. Codes from families that aren't live yet (messaging, routing, payments) are listed so clients can be ready for them.
@@ -6344,6 +7269,7 @@ Every code the platform defines. Codes from families that aren't live yet (messa
 | `VAL-4014` | 409 | Price already decided | The token price was already approved or withdrawn, so it can't be approved again. | Read the price's status; to change an approved price, enter a new one and withdraw the old. |
 | `VAL-4015` | 409 | Reversal exceeds the original | This reversal and the open or completed reversals of the same top-up together would be more than the top-up. | Reverse at most what's left of the top-up; a rejected reversal frees its share. |
 | `VAL-4016` | 409 | Reversal isn't awaiting pay-back | Only a pay-back reversal that's posted and not yet paid back can record a pay-back. | Read the reversal's status; chargebacks and operator reversals have no pay-back. |
+| `VAL-4017` | 409 | Statement already imported | A statement for this paybill and day has already been imported and reconciled. | Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import. |
 | `BAL-4001` | 402 | Insufficient balance | The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold). | Top up the wallet, or reduce the request. |
 | `BAL-4002` | 402 | No tokens left for this service | The service's token wallet doesn't have enough tokens left (beyond those already held) for this request. | Buy tokens for the service, or turn on auto-buy. |
 | `BAL-4003` | 409 | Hold can't change this way | The hold was already captured, released or expired, or the capture is larger than the hold. | Read the hold's status; capture at most its amount, and only while it's active. |
@@ -6359,3 +7285,9 @@ Every code the platform defines. Codes from families that aren't live yet (messa
 | `SYS-5030` | 503 | Request timed out | The handler didn't finish within the service's configured timeout. | Retry; if it keeps happening, contact support with the request ID from the response. |
 | `LIM-4501` | 429 | Daily message limit reached | The client's own configured daily send limit for this service has been reached. | Wait for the limit to reset, or raise it in the dashboard. |
 | `PAY-6501` | 422 | Recipient wallet not registered | The destination mobile money account isn't registered with the rail for this payout. | Confirm the recipient's number and that they're registered for this rail. |
+| `PAY-6502` | 504 | Rail timed out, status being checked | The payment rail didn't answer in time, so the outcome isn't known yet. | Don't resend. VASPRO asks the rail for the outcome and updates the payment; check its status. |
+| `PAY-6503` | 422 | Cancelled by the payer | The payer cancelled the payment prompt on their phone. | Start a new payment if the payer wants to try again. |
+| `PAY-6504` | 422 | Payer didn't respond | The payment prompt reached no one or wasn't answered in time. | Check the phone is on and has signal, then start a new payment. |
+| `PAY-6505` | 422 | Payer has insufficient funds | The payer's mobile money balance couldn't cover the payment. | Ask the payer to add funds, then start a new payment. |
+| `PAY-6506` | 422 | Wrong PIN entered | The payer entered a wrong PIN on the payment prompt. | Start a new payment and ask the payer to enter their PIN carefully. |
+| `PAY-6507` | 503 | Rail refused or unavailable | The payment rail refused the request or couldn't be reached. | Retry later; if it keeps happening, contact support with the request ID from the response. |

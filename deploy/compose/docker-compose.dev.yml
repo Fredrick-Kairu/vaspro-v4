@@ -1,4 +1,4 @@
-# Dev environment: identity, accounts and the ledger behind the gateway,
+# Dev environment: identity, accounts, the ledger and payments behind the gateway,
 # on a private network, for testers and the frontend team. Only two ports
 # are published, on loopback: the gateway and Mailpit's web UI. The host's
 # own nginx serves them on the API and mail domains (deploy/nginx/).
@@ -135,6 +135,8 @@ services:
       ACCOUNTS_DB_PASSWORD: ${ACCOUNTS_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}
       LEDGER_OWNER_PASSWORD: ${LEDGER_OWNER_PASSWORD:?run deploy/compose/dev-secrets.sh}
       LEDGER_DB_PASSWORD: ${LEDGER_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_OWNER_PASSWORD: ${PAYMENTS_OWNER_PASSWORD:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -224,6 +226,38 @@ services:
       db-setup: { condition: service_completed_successfully }
       nats: { condition: service_healthy }
 
+  payments:
+    <<: *service
+    image: vaspro-dev/payments
+    build: { context: ../.., dockerfile: deploy/docker/payments.Dockerfile }
+    environment:
+      PAYMENTS_DATABASE_URL: postgres://payments_app:${PAYMENTS_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}@postgres:5432/${POSTGRES_DB:-vaspro}?sslmode=disable&search_path=payments,public
+      PAYMENTS_NATS_URL: ${PAYMENTS_NATS_URL:-nats://nats:4222}
+      PAYMENTS_HTTP_ADDR: ${PAYMENTS_HTTP_ADDR:-:8084}
+      PAYMENTS_REDIS_URL: ${PAYMENTS_REDIS_URL:-redis://redis:6379/2}
+      PAYMENTS_ACCOUNTS_GRPC_ADDR: ${PAYMENTS_ACCOUNTS_GRPC_ADDR:-accounts:9091}
+      PAYMENTS_IDENTITY_GRPC_ADDR: ${PAYMENTS_IDENTITY_GRPC_ADDR:-identity:9090}
+      PAYMENTS_LEDGER_GRPC_ADDR: ${PAYMENTS_LEDGER_GRPC_ADDR:-ledger:9092}
+      PAYMENTS_PACKS_DIR: ${PAYMENTS_PACKS_DIR:-packs}
+      DARAJA_BASE_URL: ${DARAJA_BASE_URL:-https://sandbox.safaricom.co.ke}
+      PAYMENTS_CREDENTIALS_KMS_KEY: ${PAYMENTS_CREDENTIALS_KMS_KEY:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_CALLBACK_BASE_URL: ${PAYMENTS_CALLBACK_BASE_URL:?set it to https://<API_DOMAIN> in deploy/compose/.env}
+      PAYMENTS_CALLBACK_SECRET: ${PAYMENTS_CALLBACK_SECRET:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_DARAJA_CALLBACK_CIDRS: ${PAYMENTS_DARAJA_CALLBACK_CIDRS:-}
+      PAYMENTS_CHECKOUT_SECRET: ${PAYMENTS_CHECKOUT_SECRET:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_CHECKOUT_BASE_URL: ${PAYMENTS_CHECKOUT_BASE_URL:-}
+      PAYMENTS_STK_EXPIRY: ${PAYMENTS_STK_EXPIRY:-3m}
+      PAYMENTS_STK_GIVE_UP: ${PAYMENTS_STK_GIVE_UP:-10m}
+      PAYMENTS_SWEEP_INTERVAL: ${PAYMENTS_SWEEP_INTERVAL:-30s}
+      PAYMENTS_STATEMENT_DUE: ${PAYMENTS_STATEMENT_DUE:-12h}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8084/readyz || exit 1"]
+      <<: *readyz-timing
+    depends_on:
+      db-setup: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
   gateway:
     <<: *service
     image: vaspro-dev/gateway
@@ -234,6 +268,7 @@ services:
       GATEWAY_IDENTITY_GRPC_ADDR: ${GATEWAY_IDENTITY_GRPC_ADDR:-identity:9090}
       GATEWAY_ACCOUNTS_BASE_URL: ${GATEWAY_ACCOUNTS_BASE_URL:-http://accounts:8082}
       GATEWAY_LEDGER_BASE_URL: ${GATEWAY_LEDGER_BASE_URL:-http://ledger:8083}
+      GATEWAY_PAYMENTS_BASE_URL: ${GATEWAY_PAYMENTS_BASE_URL:-http://payments:8084}
       GATEWAY_REDIS_URL: ${GATEWAY_REDIS_URL:-redis://redis:6379/1}
       GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-}
       GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:-10.213.0.1}
@@ -248,6 +283,7 @@ services:
       identity: { condition: service_healthy }
       accounts: { condition: service_healthy }
       ledger: { condition: service_healthy }
+      payments: { condition: service_healthy }
 
   # --- Fakes and tools -------------------------------------------------------
 
@@ -268,6 +304,8 @@ services:
 
   # The operations CLI, run on demand:
   #   docker compose ... run --rm vaspro identity grant-staff -by <operator> <email>
+  # and the payments commands (VASPRO's paybill), with the secret on stdin:
+  #   docker compose ... run --rm -T vaspro payments set-rail-credential ...
   vaspro:
     image: vaspro-dev/vaspro
     build: { context: ../.., dockerfile: deploy/docker/vaspro.Dockerfile }
@@ -276,6 +314,13 @@ services:
     environment:
       IDENTITY_DATABASE_URL: postgres://identity_app:${IDENTITY_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}@postgres:5432/${POSTGRES_DB:-vaspro}?sslmode=disable&search_path=identity,public
       IDENTITY_SIGNING_KEYS_KMS_KEY: ${IDENTITY_SIGNING_KEYS_KMS_KEY:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_DATABASE_URL: postgres://payments_app:${PAYMENTS_DB_PASSWORD:?run deploy/compose/dev-secrets.sh}@postgres:5432/${POSTGRES_DB:-vaspro}?sslmode=disable&search_path=payments,public
+      PAYMENTS_IDENTITY_GRPC_ADDR: ${PAYMENTS_IDENTITY_GRPC_ADDR:-identity:9090}
+      PAYMENTS_CREDENTIALS_KMS_KEY: ${PAYMENTS_CREDENTIALS_KMS_KEY:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_CREDENTIAL_FINGERPRINT_KEY: ${PAYMENTS_CREDENTIAL_FINGERPRINT_KEY:?run deploy/compose/dev-secrets.sh}
+      PAYMENTS_CALLBACK_BASE_URL: ${PAYMENTS_CALLBACK_BASE_URL:?set it to https://<API_DOMAIN> in deploy/compose/.env}
+      PAYMENTS_CALLBACK_SECRET: ${PAYMENTS_CALLBACK_SECRET:?run deploy/compose/dev-secrets.sh}
+      DARAJA_BASE_URL: ${DARAJA_BASE_URL:-https://sandbox.safaricom.co.ke}
 
 volumes:
   postgres-data:

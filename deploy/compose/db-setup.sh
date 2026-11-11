@@ -20,7 +20,7 @@
 # never printed.
 set -eu
 
-SERVICES="identity accounts ledger"
+SERVICES="identity accounts ledger payments"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/app/migrations}"
 
 for svc in $SERVICES; do
@@ -94,6 +94,10 @@ GRANT accounts_staff_review        TO accounts_app WITH INHERIT FALSE;
 -- what the service may do, and it reaches ledger_system,
 -- ledger_price_review and ledger_settlement itself (WITH INHERIT FALSE).
 GRANT ledger_service TO ledger_app;
+-- Payments follows the ledger (task 4.1): payments_service has the
+-- column-limited grants and reaches payments_system and
+-- payments_operations itself (WITH INHERIT FALSE).
+GRANT payments_service TO payments_app;
 SQL
 
 echo "db-setup: done"

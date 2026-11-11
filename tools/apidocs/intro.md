@@ -1,6 +1,6 @@
 # VASPRO API reference
 
-This is the HTTP API of VASPRO v4 as built so far: identity (sign-up, sign-in, two-factor, credentials), accounts (client accounts, members, services, KYC/KYB, documents) and the ledger's staff price API. The first part explains the conventions every endpoint shares; the second lists every endpoint with its parameters, request body, response and errors; the last part is the full error catalogue.
+This is the HTTP API of VASPRO v4 as built so far: identity (sign-up, sign-in, two-factor, credentials), accounts (client accounts, members, services, KYC/KYB, documents) the ledger (wallets, token purchases, staff prices and reversals) and payments (M-Pesa top-ups, staff matching and reconciliation, checkout links). The first part explains the conventions every endpoint shares; the second lists every endpoint with its parameters, request body, response and errors; the last part is the full error catalogue.
 
 This file is generated from the OpenAPI specs in `docs/api/` (the source of truth, also usable in Postman, Insomnia or Swagger UI), so it always matches them.
 
@@ -13,7 +13,7 @@ All three APIs sit behind one gateway, on one host:
 | Dev environment | `https://<API_DOMAIN>`, the API domain you were given |
 | On the dev host itself | `http://127.0.0.1:18080` |
 
-Paths are versioned (`/v1/...`). The gateway routes `/v1/auth/*` and `/v1/oauth/*` to identity, `/v1/accounts/*` to accounts and `/v1/ledger/*` to the ledger. Clients never talk to a service directly.
+Paths are versioned (`/v1/...`). The gateway routes `/v1/auth/*` and `/v1/oauth/*` to identity, `/v1/accounts/*` to accounts and `/v1/ledger/*` to the ledger, and `/v1/payments/*` and the hosted checkout pages under `/pay/` to payments. Clients never talk to a service directly.
 
 ## 2. Conventions
 

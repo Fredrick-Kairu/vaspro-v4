@@ -1380,6 +1380,40 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
   - **`docs/api/API.md`:** regenerated with 3.7's and 3.9's routes.
   - **Checks:** `make gen-check` is clean, the compose file renders the new variables, and gitleaks finds no leaks in the working tree.
   - **Not checked here:** a live `make dev-up` on the host.
+- **Phase 4 brought in (11 Nov):** `main` (PR #6, Go 1.26.11; PR #7, Phase 4) merged into `ops/dev-environment`, and **payments added to the stack**.
+  - **The merge:**
+    - **one conflict,** in `internal/gateway/gateway.go`: both sides parsed a new setting in the same place, and both are kept.
+    - **How the two sides combine:** 4.4's `X-Vaspro-Client-Ip` is set from `callerIP`, so behind nginx it's the client the trusted proxy names. That's what payments checks M-Pesa callbacks against. New `TestResolveClientIP_FeedsTheClientIPHeader`: through the trusted proxy, the client; from an untrusted peer, the peer; a client's own header is replaced. Mutation-checked: setting the header from the connection's address fails it.
+    - **Found while merging:**
+      - every Dockerfile built with `golang:1.26.10`, which `go.mod` no longer allows (the official images don't download a toolchain), so every build would have failed. All are now 1.26.11.
+      - The CORS test needed payments' URL and spec, which the gateway now requires.
+  - **Payments in the stack:**
+    - `deploy/docker/payments.Dockerfile`;
+    - the `payments` service, `payments:8084`, on Redis DB 2, which the gateway waits for;
+    - `db-setup` creates `payments_owner`/`payments_app`, runs payments' migrations, and grants `payments_service` to `payments_app` (the ledger's pattern);
+    - the `vaspro` tool gets payments' settings for the paybill commands.
+  - **Settings** (`env.example`, compose):
+    - every `PAYMENTS_*` and `GATEWAY_PAYMENTS_BASE_URL`;
+    - four new 32-byte secrets that `dev-secrets.sh` generates;
+    - `DARAJA_BASE_URL` defaults to Safaricom's sandbox;
+    - `PAYMENTS_DARAJA_CALLBACK_CIDRS` is empty: every callback is refused until Safaricom's ranges are set;
+    - **`PAYMENTS_CALLBACK_BASE_URL` has no default:** `make dev-up` stops until it's `https://<API_DOMAIN>`.
+  - **`dev-secrets.sh --add-missing`** appends the settings an existing `.env` lacks, with fresh secrets, and changes no line already there. Tested on a copy: a full `.env`, a refused rerun, the payments lines added to an older `.env`, a second run adding nothing, existing lines unchanged, mode 600.
+  - **The runbook:**
+    - a Payments section: the paybill set-up on the sandbox, callbacks and their ranges, checkout links, reconciliation;
+    - the deploy step now runs `--add-missing`;
+    - roles, ports, settings, secrets and known limits.
+  - **API reference:** `tools/apidocs` includes `payments.yaml`; `API.md` is regenerated.
+  - **Checked:**
+    - `docker compose config` with a generated `.env` (and its clear error without the callback URL);
+    - **a live run of the payments slice** under a throwaway project: postgres, redis, nats, `db-setup` and payments built from these Dockerfiles. The checks:
+      - `db-setup` exited 0, and a second run is clean;
+      - payments was healthy;
+      - the 12 tables are owned by `payments_owner`;
+      - `payments_app` holds `payments_service` and is refused a DELETE on intents;
+      - `mpesa_ke` was synced from the pack.
+  - **Not checked:** the whole stack (identity, accounts, ledger and the gateway with payments) on the host, and any Daraja sandbox call (no credentials here).
+  - **On the dev host:** `git pull`, `deploy/compose/dev-secrets.sh --add-missing`, set `PAYMENTS_CALLBACK_BASE_URL=https://<API_DOMAIN>` in `.env`, then `make dev-up`.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.

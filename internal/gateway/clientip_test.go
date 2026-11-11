@@ -85,3 +85,32 @@ func TestResolveClientIP_FeedsTheIPChecks(t *testing.T) {
 		t.Errorf("rate-limit key %q, want ip:203.0.113.42", key)
 	}
 }
+
+// Behind a trusted proxy, the client address payments checks a rail
+// callback's source against (X-Vaspro-Client-Ip, task 4.4) is the
+// client's; an untrusted peer can't choose it with X-Forwarded-For, nor
+// by sending the header itself.
+func TestResolveClientIP_FeedsTheClientIPHeader(t *testing.T) {
+	trusted, _ := parseIPAllowlist([]string{"10.213.0.10"})
+	for _, tc := range []struct {
+		name, remoteAddr, want string
+	}{
+		{"through the trusted proxy: the client it names", "10.213.0.10:5000", "196.201.214.200"},
+		{"from an untrusted peer: the peer", "198.51.100.9:1234", "198.51.100.9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			handler := resolveClientIP(trusted)(stripForwardedIdentity(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				got = r.Header.Get(headerClientIP)
+			})))
+			req := httptest.NewRequest(http.MethodPost, "/v1/payments/callbacks/daraja/x/y/stk", nil)
+			req.RemoteAddr = tc.remoteAddr
+			req.Header.Set("X-Forwarded-For", "196.201.214.200")
+			req.Header.Set(headerClientIP, "192.0.2.66")
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+			if got != tc.want {
+				t.Fatalf("%s = %q, want %s", headerClientIP, got, tc.want)
+			}
+		})
+	}
+}
