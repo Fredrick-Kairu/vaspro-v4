@@ -857,7 +857,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 4.1 `payments` migrations for rails, rail accounts, rail credentials, payment intents, collection notices, statement imports and lines, recon exceptions.
+- [x] 4.1 `payments` migrations for rails, rail accounts, rail credentials, payment intents, collection notices, statement imports and lines, recon exceptions. *Done 2026-11-11 (OQ-22): `migrations/payments/20261111090000_init.sql` (plus `topup_accounts` and `stk_callbacks`), `payments_service`/`payments_system`/`payments_operations`, RLS including notices by `matched_tenant_id`, column-limited updates; `TestConstraints`, `TestRLS_CollectionNotices`, `TestGrants`.*
 - [x] 4.2 Daraja adapter: OAuth token cached in Redis, STK push, STK query, C2B URL registration, validation and confirmation callbacks. Callbacks are checked by source and shared secret. *Done 2026-11-11 (OQ-22): the fake `tools/fakes/daraja` (every outcome, duplicate, early and lost callbacks, C2B, statements) and `internal/payments/adapters` (`TestDaraja_STKOutcomes`, `TestDaraja_TokenCache`, `TestParseSTKCallback`, `TestParseC2BCallback`). The source and shared-secret check sits on the callback routes, so it is built and tested with them in 4.4 and 4.5.*
 - [ ] 4.3 VASPRO's own paybill as a rail account; a unique account number per client.
 - [ ] 4.4 Top-up by STK: intent → callback → ledger top-up posting (debit provider clearing, credit main wallet).

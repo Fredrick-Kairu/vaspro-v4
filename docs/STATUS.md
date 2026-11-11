@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.2 done (the Daraja fake and adapter, 2026-11-11). Next: 4.1, the `payments` migrations.
+**Current task:** 4.2 and 4.1 done (2026-11-11). Next: 4.3, VASPRO's paybill and account numbers.
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -74,6 +74,93 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
       - **adapter:** no `singleflight` (the 50-push test); no retry after a refused token; no 60s skew; 1032 mapped as a timeout; timestamps in UTC.
   - **`make check`** (after staging, dev stack down): the first run stopped at lint on one gosec G704 (SSRF taint) in the fake's test helper, which calls only the fake's own `httptest` URL; it's marked `nolint` with the reason. The second run was green: lint 0 issues, 38 packages fresh (`payments/adapters`, `fakes/daraja` and the packages the new error codes touch), 37 from the cache, no container retries. gitleaks 8.30.1 through Docker found no leaks.
   - **Docs:** OQ-22; data model §7's agreed additions; ROADMAP 4.2 ticked, 4.7 `[>]`, and a note that the exit gate's "on staging" waits for staging (OD-02, Phase 8).
+
+- 4.1 `payments` schema, RLS, roles and sqlc (OQ-22). Like 3.1, there's no service code: a migration, starter queries and repository tests. The service skeleton comes with 4.3, where `Run` first has work to do (syncing rails from packs). **Changed from the phase plan**, which had the scaffold here.
+  - **Migration** `migrations/payments/20261111090000_init.sql`:
+    - **Tables:**
+      - §7's Phase 4 tables, copied exactly: rails, rail accounts, credentials, intents (with its two enums), notices, statement imports and lines, and recon exceptions;
+      - the OQ-22 additions: `topup_accounts` and `stk_callbacks`;
+      - `outbox_events` and `idempotency_keys`.
+      - No `processed_events`: payments consumes no events yet. Phase 13's tables come with Phase 13, not as untested schema now.
+    - **CHECKs and indexes** (additions, listed in data model §7):
+      - **rail accounts:**
+        - `uses` is non-empty and within its three names;
+        - `vaspro_topups` only with no tenant;
+        - **`active` only once `verified_at` is set**;
+      - **credentials:** retired exactly when `retired_at` is set;
+      - **intents:**
+        - an STK push has a phone;
+        - an invoice or link payment names it;
+        - `succeeded` has a receipt, `failed` an error code;
+        - a final status exactly when `completed_at` is set;
+        - it expires after it's created;
+        - a unique `(rail_account_id, rail_request_id)` for callbacks;
+      - **notices:**
+        - the amount is positive;
+        - a client's own collection is owned and unmatched;
+        - a match names its client;
+        - suspense has no client;
+        - never both owned and matched;
+        - a suspense-queue index;
+      - **statements:** a period ends after it starts; lines have non-negative amounts and name what they matched exactly when matched;
+      - **exceptions:** open exactly when there's no resolution, resolver or time;
+      - **account numbers:** match `^[2-9A-HJ-NP-Z]{8}$` (no 0, 1, I or O; 4.3 adds the check characters) and are unique per tenant and per paybill;
+      - **STK callbacks:** unique per paybill and checkout, applied exactly when they name their intent;
+      - currencies are three capitals.
+    - **Roles** (the ledger's pattern):
+      - `payments_service` is the grant role;
+        - **updates are column-limited**, so an amount, receipt, tenant or ciphertext is never rewritten;
+        - nothing but idempotency keys is ever deleted;
+        - account numbers can't be updated at all.
+      - `payments_system` (rows with no tenant, and lookups across tenants for callbacks) and `payments_operations` (staff: reads, and resolving exceptions; **no grant on credentials**) are NOLOGIN, `WITH INHERIT FALSE`, and used only through `WithRoleTx`.
+    - **RLS:**
+      - standard on intents and account numbers, plus reads across tenants for `payments_system` and staff;
+      - `rail_accounts` like the ledger's accounts: a tenant reads its own and VASPRO's, and writes its own;
+      - credentials own-only; VASPRO's are visible to `payments_system` alone;
+      - **notices** by `tenant_id` or `matched_tenant_id`:
+        - a tenant inserts only a top-up matched to itself;
+        - suspense and VASPRO's paybill rows belong to `payments_system`;
+        - staff read all;
+      - statements and exceptions own-only, VASPRO's for `payments_system`, all readable by staff;
+      - lines follow their import;
+      - STK callbacks are `payments_system` only;
+      - `rails` is global with no RLS.
+  - **sqlc:**
+    - a fourth `sqlc.yaml` entry; queries are schema-qualified (`payments.…`), as the ledger's are;
+    - a create and a lookup per table, plus `GetPaymentIntentByRailRequest`, `GetTopupAccountByNumber`, and `InsertCollectionNotice`/`InsertSTKCallback` with `ON CONFLICT DO NOTHING` (a repeat is `pgx.ErrNoRows`).
+  - **Tests** (`internal/payments/store/*_integration_test.go`), run as `payments_app`, a login role whose only privileges come from `payments_service`; the constraint cases run as the owner in rolled-back transactions:
+    - **schema:** a goose Down-to-0-then-Up round trip (schema and all three roles gone).
+    - **RLS:**
+      - `AssertRowLevelSecurity` on intents and account numbers;
+      - VASPRO's paybill is readable but not writable by tenants;
+      - credentials;
+      - notices: who sees what, a tenant can't record a top-up for another tenant or into suspense, a tenant can't claim a suspense payment, `payments_system` matches one;
+      - **a duplicate receipt is caught (23505), and `ON CONFLICT DO NOTHING` skips it, even when the first row is invisible to the inserter**;
+      - statements, lines and exceptions for tenants, `payments_system` and staff;
+      - STK callbacks;
+      - the narrow roles hidden outside `WithRoleTx`, checked by behaviour and in `pg_auth_members`.
+    - **grants:** status and posting columns update; an intent's amount and tenant, a notice's amount and receipt, an account number and a credential's ciphertext don't; nothing is deleted but idempotency keys; `payments_system` can't rewrite an amount either.
+    - **constraints:** 91 cases across every table, both ways.
+    - **sqlc:** a round trip in the tenant's transaction and as `payments_system`, including both repeats.
+    - 121 subtests in all.
+    - **Order of work:**
+      - the schema, RLS, grant and constraint tests were seen failing with no migration (the goose provider found none);
+      - with the migration they passed on the first run;
+      - the sqlc test came after `make gen`.
+      - The mutations below stand in for seeing each rule fail.
+    - **One expectation changed while writing:** operations staff were first expected to see zero credentials; they now have no grant at all, which is stronger, so the test expects permission denied.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - the notice insert policy loosened to any NULL-tenant row;
+      - tenants reading VASPRO's credentials;
+      - a full UPDATE grant on intents;
+      - no "active needs verified" CHECK;
+      - STK callbacks open to every role;
+      - the narrow roles granted with inheritance.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 4 packages fresh (`payments/store` 20s), 72 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - the service's login role is granted `payments_service` (with inheritance) and must not own the tables;
+    - it reaches `payments_system` and `payments_operations` through it (granted in the migration, `WITH INHERIT FALSE`).
+  - **Not in 4.1:** the service skeleton and the rails sync (4.3); account-number check characters (4.3); payout tables (Phase 13).
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1277,8 +1364,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.1 `payments` migrations and sqlc, in a new conversation (plan above).
-2. Then 4.3, 4.4, 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. 4.3 VASPRO's paybill, account numbers and the service skeleton, in a new conversation (plan above).
+2. Then 4.4, 4.5, 4.6 and 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
