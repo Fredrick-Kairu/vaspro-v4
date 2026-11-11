@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/recon.exception_opened.schema.json",
+  "title": "recon.exception_opened",
+  "description": "Published by payments when reconciliation finds a mismatch between a rail statement, VASPRO's records and the ledger's provider clearing (data model §7; task 4.6). One event per exception, for staff and monitoring. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["exception_id", "rail_account_id", "kind"],
+  "properties": {
+    "exception_id": {"type": "string", "format": "uuid"},
+    "rail_account_id": {"type": "string", "format": "uuid"},
+    "kind": {"type": "string", "enum": ["missing_in_vaspro", "missing_on_rail", "amount_mismatch", "status_mismatch", "duplicate", "ledger_mismatch"]},
+    "statement_import_id": {"type": "string", "format": "uuid"},
+    "statement_line_id": {"type": "integer"},
+    "reference_type": {"type": "string"},
+    "reference_id": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

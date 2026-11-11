@@ -55,3 +55,13 @@ SELECT * FROM payments.collection_notices
 WHERE match_status = 'suspense' AND (paid_at, id) > (sqlc.arg(after_paid_at)::timestamptz, sqlc.arg(after_id)::uuid)
 ORDER BY paid_at, id
 LIMIT sqlc.arg(max_rows);
+
+-- ListNoticesPaidBetween is the day's payments to a VASPRO paybill
+-- (payments_system), for reconciliation.
+-- name: ListNoticesPaidBetween :many
+SELECT * FROM payments.collection_notices
+WHERE rail_account_id = $1 AND tenant_id IS NULL AND paid_at >= sqlc.arg(paid_from) AND paid_at < sqlc.arg(paid_to)
+ORDER BY paid_at, id;
+
+-- name: ListNoticeIDsIn :many
+SELECT id FROM payments.collection_notices WHERE id = ANY (sqlc.arg(ids)::uuid[]);

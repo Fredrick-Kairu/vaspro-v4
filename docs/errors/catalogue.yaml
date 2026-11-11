@@ -308,6 +308,14 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4017
+    status: 409
+    title: Statement already imported
+    cause: A statement for this paybill and day has already been imported and reconciled.
+    fix: Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

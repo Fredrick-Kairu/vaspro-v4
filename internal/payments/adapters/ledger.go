@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	gogrpc "google.golang.org/grpc"
@@ -64,9 +65,24 @@ func (p TopupPosting) legs() (tenant string, from, to *ledgerv1.AccountRef) {
 	}
 }
 
-// Ledger posts top-ups to the ledger.
+// ClearingLine is one line on a rail's provider clearing account (task
+// 4.6): what reconciliation checks the day's payments against.
+type ClearingLine struct {
+	EntryID       int64
+	TransactionID uuid.UUID
+	Direction     string // D or C
+	AmountMinor   int64
+	ReferenceType string
+	ReferenceID   uuid.UUID // uuid.Nil if none
+	PostedAt      time.Time
+}
+
+// Ledger posts top-ups to the ledger and reads provider clearing back.
 type Ledger interface {
 	PostTopup(ctx context.Context, p TopupPosting) (transactionID uuid.UUID, err error)
+	// ClearingEntries is every line on rail's provider clearing in
+	// currency posted in [from, to).
+	ClearingEntries(ctx context.Context, rail, currency string, from, to time.Time) ([]ClearingLine, error)
 }
 
 // GRPCLedger is Ledger over the ledger's gRPC posting API.
@@ -116,6 +132,42 @@ func (l *GRPCLedger) PostTopup(ctx context.Context, p TopupPosting) (uuid.UUID, 
 		return uuid.Nil, fmt.Errorf("adapters: the ledger returned a malformed transaction ID: %w", err)
 	}
 	return id, nil
+}
+
+// ClearingEntries implements Ledger, reading every page.
+func (l *GRPCLedger) ClearingEntries(ctx context.Context, rail, currency string, from, to time.Time) ([]ClearingLine, error) {
+	var (
+		out   []ClearingLine
+		after int64
+	)
+	for {
+		resp, err := l.client.ListClearingEntries(ctx, &ledgerv1.ListClearingEntriesRequest{
+			Rail: rail, Currency: currency, PostedFromUnix: from.Unix(), PostedToUnix: to.Unix(), AfterEntryId: after,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("adapters: listing clearing entries: %w", err)
+		}
+		for _, e := range resp.GetEntries() {
+			txn, err := uuid.Parse(e.GetTransactionId())
+			if err != nil {
+				return nil, fmt.Errorf("adapters: the ledger returned a malformed transaction ID: %w", err)
+			}
+			line := ClearingLine{
+				EntryID: e.GetEntryId(), TransactionID: txn, Direction: e.GetDirection(), AmountMinor: e.GetAmountMinor(),
+				ReferenceType: e.GetReferenceType(), PostedAt: time.Unix(e.GetPostedAtUnix(), 0).UTC(),
+			}
+			if ref := e.GetReferenceId(); ref != "" {
+				if line.ReferenceID, err = uuid.Parse(ref); err != nil {
+					return nil, fmt.Errorf("adapters: the ledger returned a malformed reference: %w", err)
+				}
+			}
+			out = append(out, line)
+		}
+		if resp.GetNextAfterEntryId() == 0 {
+			return out, nil
+		}
+		after = resp.GetNextAfterEntryId()
+	}
 }
 
 // Close closes the connection.

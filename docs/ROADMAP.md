@@ -862,7 +862,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [x] 4.3 VASPRO's own paybill as a rail account; a unique account number per client. *Done 2026-11-11 (OQ-22): the payments service, rails from the packs, the `vaspro payments` ops CLI (credentials sealed, active only after a test call), account numbers with two check characters, `getTopupDetails`; `TestValidAccountNumber_CatchesTyposAndSwaps`, `TestTopupDetails`, `TestRailAccountOps`.*
 - [x] 4.4 Top-up by STK: intent → callback → ledger top-up posting (debit provider clearing, credit main wallet). *Done 2026-11-11 (OQ-22): `createTopup`/`getTopup`, the Daraja callback through the gateway (source and path token), postings keyed by the collection notice, the sweep; `TestSTKTopup_Outcomes`, `TestSTKTopup_RepeatedAndEarlyCallbacks`, `TestSTKTopup_AmountMismatch`, `TestSTKTopup_LostCallbacks`, `TestService_TopsUpByStkEndToEnd`.*
 - [x] 4.5 Top-up by paybill (C2B): match on account number; unmatched money goes to suspense; staff match it later, once. *Done 2026-11-11 (OQ-22): C2B validation and confirmation through the gateway, suspense in the ledger, staff matching by account number with step-up, `vaspro payments register-c2b`; `TestC2B_Confirmations`, `TestC2B_StaffMatch`, `TestPost_PaymentsTopupShapes`.*
-- [ ] 4.6 Daily reconciliation of VASPRO's paybill against provider clearing in the ledger.
+- [x] 4.6 Daily reconciliation of VASPRO's paybill against provider clearing in the ledger. *Done 2026-11-11 (OQ-22): staff import the org-portal statement for a local day; receipts matched to notices, notices checked against provider clearing by reference (`LedgerService.ListClearingEntries`), every gap an exception; `recon.statement_missing`; `TestReconcile_DayOfFakeTraffic`, `TestReconcile_Exceptions`, `TestLedgerService_ListClearingEntries`.*
 - [>] 4.7 Airtel Money KE adapter, if the account is ready; otherwise left for later. **Deferred** (2026-11-11, OQ-22): the account isn't ready. The rail interface stays free of Daraja types so Airtel fits later.
 - [ ] 4.8 A minimal hosted checkout page, reused by Pay now in Phase 9.
 
@@ -872,13 +872,13 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - A duplicate callback is ignored. A callback that arrives before the STK request is stored is still handled. *(`TestSTKTopup_RepeatedAndEarlyCallbacks`, 4.4)*
 - An unmatched C2B payment lands in suspense; matching it credits the wallet exactly once. *(`TestC2B_Confirmations`, `TestC2B_StaffMatch`, 4.5)*
 - The amount on the callback differs from the intent: the callback amount wins and the mismatch is flagged. *(`TestSTKTopup_AmountMismatch`, 4.4)*
-- Reconciliation: a rail line missing from VASPRO, and a VASPRO record missing from the rail, each open an exception.
+- Reconciliation: a rail line missing from VASPRO, and a VASPRO record missing from the rail, each open an exception. *(`TestReconcile_Exceptions`, 4.6)*
 - Nightly job against the real Daraja sandbox (not on every PR).
 
 **Exit gate**
 
 - [ ] A real Daraja sandbox top-up credits a wallet end to end on staging. *Staging doesn't exist until Phase 8 (OD-02); the nightly `.github/workflows/daraja-nightly.yml` covers the adapter against the real sandbox meanwhile, once its secrets are set.*
-- [ ] A day of fake traffic reconciles with zero unexplained differences.
+- [x] A day of fake traffic reconciles with zero unexplained differences. *`TestReconcile_DayOfFakeTraffic` (4.6): STK successes (duplicate and early callbacks, a short payment), failures, C2B payments matched, matched by staff out of suspense, and left in suspense; the Daraja fake's own statement for the day imports with zero exceptions and every line matched. It runs against the fake ledger; `ListClearingEntries` is tested against the real ledger in `TestLedgerService_ListClearingEntries`.*
 
 **Kickoff prompt**
 

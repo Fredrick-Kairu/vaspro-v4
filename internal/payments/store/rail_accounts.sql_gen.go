@@ -159,6 +159,50 @@ func (q *Queries) GetRailAccountForUpdate(ctx context.Context, id uuid.UUID) (Pa
 	return i, err
 }
 
+const listActiveTopupRailAccounts = `-- name: ListActiveTopupRailAccounts :many
+SELECT id, tenant_id, rail_code, account_type, number, store_number, display_name, uses, status, c2b_registered_at, verified_at, last_balance_minor, balance_checked_at, low_balance_minor, created_by, created_at, version FROM payments.rail_accounts
+WHERE tenant_id IS NULL AND status = 'active' AND 'vaspro_topups' = ANY (uses)
+ORDER BY id
+`
+
+func (q *Queries) ListActiveTopupRailAccounts(ctx context.Context) ([]PaymentsRailAccount, error) {
+	rows, err := q.db.Query(ctx, listActiveTopupRailAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsRailAccount
+	for rows.Next() {
+		var i PaymentsRailAccount
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.RailCode,
+			&i.AccountType,
+			&i.Number,
+			&i.StoreNumber,
+			&i.DisplayName,
+			&i.Uses,
+			&i.Status,
+			&i.C2bRegisteredAt,
+			&i.VerifiedAt,
+			&i.LastBalanceMinor,
+			&i.BalanceCheckedAt,
+			&i.LowBalanceMinor,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setRailAccountC2BRegistered = `-- name: SetRailAccountC2BRegistered :execrows
 UPDATE payments.rail_accounts SET c2b_registered_at = $2, version = version + 1 WHERE id = $1
 `

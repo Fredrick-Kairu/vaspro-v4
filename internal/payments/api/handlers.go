@@ -117,6 +117,67 @@ func (h *Handlers) MatchCollectionNotice(ctx context.Context, request MatchColle
 	return MatchCollectionNotice200JSONResponse(noticeResponse(n)), nil
 }
 
+func (h *Handlers) CreateStatementImport(ctx context.Context, request CreateStatementImportRequestObject) (CreateStatementImportResponseObject, error) {
+	b := request.Body
+	sum, err := h.app.ImportStatement(ctx, callerFromContext(ctx), parseOrNil(b.RailAccountId), b.Date, []byte(b.Csv))
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return CreateStatementImport201JSONResponse{Id: sum.ID.String(), Lines: sum.Lines, Matched: sum.Matched, ExceptionsOpened: sum.Exceptions}, nil
+}
+
+func (h *Handlers) ListReconExceptions(ctx context.Context, request ListReconExceptionsRequestObject) (ListReconExceptionsResponseObject, error) {
+	status, cursor, limit := "", "", 0
+	if request.Params.Status != nil {
+		status = string(*request.Params.Status)
+	}
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
+	if request.Params.Limit != nil {
+		limit = *request.Params.Limit
+	}
+	list, next, err := h.app.ListReconExceptions(ctx, callerFromContext(ctx), status, cursor, limit)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	out := ListReconExceptions200JSONResponse{Exceptions: make([]ReconException, len(list))}
+	for i, e := range list {
+		out.Exceptions[i] = reconExceptionResponse(e)
+	}
+	if next != "" {
+		out.NextCursor = &next
+	}
+	return out, nil
+}
+
+func (h *Handlers) ResolveReconException(ctx context.Context, request ResolveReconExceptionRequestObject) (ResolveReconExceptionResponseObject, error) {
+	e, err := h.app.ResolveReconException(ctx, callerFromContext(ctx), sessionFromContext(ctx), parseOrNil(request.ExceptionId),
+		string(request.Body.Status), request.Body.Resolution)
+	if err != nil {
+		return nil, toProblem(err)
+	}
+	return ResolveReconException200JSONResponse(reconExceptionResponse(e)), nil
+}
+
+func reconExceptionResponse(e app.ReconException) ReconException {
+	out := ReconException{
+		Id: e.ID.String(), RailAccountId: e.RailAccountID.String(), Kind: ReconExceptionKind(e.Kind),
+		Status: ReconExceptionStatus(e.Status), OpenedAt: e.OpenedAt, ResolvedAt: e.ResolvedAt,
+		StatementLineId: e.StatementLineID, ReferenceType: nonEmpty(e.ReferenceType), Resolution: nonEmpty(e.Resolution),
+	}
+	if e.TenantID != nil {
+		out.TenantId = nonEmpty(e.TenantID.String())
+	}
+	if e.ReferenceID != nil {
+		out.ReferenceId = nonEmpty(e.ReferenceID.String())
+	}
+	if e.ResolvedBy != nil {
+		out.ResolvedBy = nonEmpty(e.ResolvedBy.String())
+	}
+	return out
+}
+
 func noticeResponse(n app.Notice) SuspenseNotice {
 	out := SuspenseNotice{
 		Id: n.ID.String(), Receipt: n.Receipt, AmountMinor: n.AmountMinor, Currency: n.Currency,
@@ -174,6 +235,10 @@ func toProblem(err error) error {
 		return problem.New(problem.VAL4014, "the payment was already matched")
 	case errors.Is(err, app.ErrSuspenseNotPosted):
 		return problem.New(problem.PAY6507, "the payment isn't in suspense in the ledger yet; try again shortly")
+	case errors.Is(err, app.ErrStatementImported):
+		return problem.New(problem.VAL4017, err.Error())
+	case errors.Is(err, app.ErrExceptionClosed):
+		return problem.New(problem.VAL4014, "the exception is already closed")
 	case errors.Is(err, app.ErrValidation):
 		return problem.New(problem.VAL4000, err.Error())
 	}

@@ -95,6 +95,20 @@ func (q *Queries) CreateStatementLine(ctx context.Context, arg CreateStatementLi
 	return i, err
 }
 
+const finishStatementImport = `-- name: FinishStatementImport :exec
+UPDATE payments.statement_imports SET status = 'matched', line_count = $2 WHERE id = $1
+`
+
+type FinishStatementImportParams struct {
+	ID        uuid.UUID `json:"id"`
+	LineCount int32     `json:"line_count"`
+}
+
+func (q *Queries) FinishStatementImport(ctx context.Context, arg FinishStatementImportParams) error {
+	_, err := q.db.Exec(ctx, finishStatementImport, arg.ID, arg.LineCount)
+	return err
+}
+
 const getStatementImport = `-- name: GetStatementImport :one
 SELECT id, rail_account_id, tenant_id, period_start, period_end, source, object_key, line_count, status, imported_at FROM payments.statement_imports WHERE id = $1
 `
@@ -115,6 +129,39 @@ func (q *Queries) GetStatementImport(ctx context.Context, id uuid.UUID) (Payment
 		&i.ImportedAt,
 	)
 	return i, err
+}
+
+const insertStatementLine = `-- name: InsertStatementLine :one
+INSERT INTO payments.statement_lines (import_id, rail_receipt, direction, amount_minor, occurred_at, matched_type, matched_id, match_status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id
+`
+
+type InsertStatementLineParams struct {
+	ImportID    uuid.UUID   `json:"import_id"`
+	RailReceipt string      `json:"rail_receipt"`
+	Direction   string      `json:"direction"`
+	AmountMinor int64       `json:"amount_minor"`
+	OccurredAt  time.Time   `json:"occurred_at"`
+	MatchedType pgtype.Text `json:"matched_type"`
+	MatchedID   pgtype.UUID `json:"matched_id"`
+	MatchStatus string      `json:"match_status"`
+}
+
+func (q *Queries) InsertStatementLine(ctx context.Context, arg InsertStatementLineParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertStatementLine,
+		arg.ImportID,
+		arg.RailReceipt,
+		arg.Direction,
+		arg.AmountMinor,
+		arg.OccurredAt,
+		arg.MatchedType,
+		arg.MatchedID,
+		arg.MatchStatus,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listStatementLines = `-- name: ListStatementLines :many
@@ -150,4 +197,20 @@ func (q *Queries) ListStatementLines(ctx context.Context, importID uuid.UUID) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const statementImportExists = `-- name: StatementImportExists :one
+SELECT EXISTS (SELECT 1 FROM payments.statement_imports WHERE rail_account_id = $1 AND period_start = $2)
+`
+
+type StatementImportExistsParams struct {
+	RailAccountID uuid.UUID `json:"rail_account_id"`
+	PeriodStart   time.Time `json:"period_start"`
+}
+
+func (q *Queries) StatementImportExists(ctx context.Context, arg StatementImportExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, statementImportExists, arg.RailAccountID, arg.PeriodStart)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

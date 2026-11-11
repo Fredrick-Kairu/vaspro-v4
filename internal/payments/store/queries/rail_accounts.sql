@@ -30,3 +30,8 @@ WHERE id = $1 AND status = 'active';
 
 -- name: SetRailAccountC2BRegistered :execrows
 UPDATE payments.rail_accounts SET c2b_registered_at = $2, version = version + 1 WHERE id = $1;
+
+-- name: ListActiveTopupRailAccounts :many
+SELECT * FROM payments.rail_accounts
+WHERE tenant_id IS NULL AND status = 'active' AND 'vaspro_topups' = ANY (uses)
+ORDER BY id;

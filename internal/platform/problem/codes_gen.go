@@ -73,6 +73,7 @@ const (
 	VAL4014  Code = "VAL-4014"
 	VAL4015  Code = "VAL-4015"
 	VAL4016  Code = "VAL-4016"
+	VAL4017  Code = "VAL-4017"
 )
 
 var registry = map[Code]entry{
@@ -521,6 +522,14 @@ var registry = map[Code]entry{
 		Title:     "Reversal isn't awaiting pay-back",
 		Cause:     "Only a pay-back reversal that's posted and not yet paid back can record a pay-back.",
 		Fix:       "Read the reversal's status; chargebacks and operator reversals have no pay-back.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4017: {
+		Status:    409,
+		Title:     "Statement already imported",
+		Cause:     "A statement for this paybill and day has already been imported and reconciled.",
+		Fix:       "Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import.",
 		Retryable: false,
 		Billable:  false,
 	},

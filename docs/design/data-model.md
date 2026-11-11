@@ -1401,6 +1401,13 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 > **Built in task 4.5 (11 Nov 2026, OQ-22).** Migration `20261111100000_suspense.sql` adds **`collection_notices.suspense_transaction_id`**, the ledger posting that put an unmatched payment into suspense. `ledger_transaction_id` stays the posting that credited a client's wallet.
 > - **Paybill payments:** a valid, issued account number credits that client's main wallet (Dr provider clearing, Cr main wallet, key `topup:<notice>`). Anything else (blank, mistyped, unissued) is a `suspense` notice and a system posting into suspense (Dr provider clearing, Cr `suspense`, key `suspense:<notice>`), with `topup.unmatched`.
 > - **Staff matching:** staff name the client's account number; with staff role and a fresh step-up, the notice is locked and moved out of suspense once, and only after its suspense posting exists (Dr `suspense`, Cr main wallet, key `match:<notice>`), with `collection_notice.matched`. Every posting is type `topup` and references the notice.
+>
+> **Built in task 4.6 (11 Nov 2026, OQ-22).** No schema change.
+> - **A statement import** covers one local day of one VASPRO paybill (`period_start`/`period_end`, the rail's country's day), imported once.
+> - **Matching:** every completed payment in on the statement is matched by receipt to a notice (`matched_type` `collection_notice`); every notice of the day must be on it.
+> - **The ledger check is by reference:** each notice must have exactly its amount debited to provider clearing; every clearing debit posted in the day must be a notice's. The ledger's `ListClearingEntries` serves it, read as `ledger_audit`.
+> - **Exceptions:** each gap is an exception with no tenant (`missing_in_vaspro`, `missing_on_rail`, `amount_mismatch`, `duplicate`, `ledger_mismatch`), each with `recon.exception_opened`. Money out (withdrawals, pay-backs) is recorded and left to Phase 13.
+> - **`recon.statement_missing`** (an addition) reports a day with no import by the due time the next day, once.
 
 **Where the money goes**
 

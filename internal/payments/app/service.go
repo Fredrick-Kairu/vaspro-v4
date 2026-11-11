@@ -95,6 +95,9 @@ type Deps struct {
 	// asking before it expires the top-up.
 	STKExpiry time.Duration
 	STKGiveUp time.Duration
+	// StatementDue is how long after local midnight yesterday's statement
+	// is due before recon.statement_missing (task 4.6).
+	StatementDue time.Duration
 	// Rand feeds account numbers; crypto/rand when nil.
 	Rand io.Reader
 }
@@ -116,6 +119,7 @@ type Service struct {
 	cbCIDRs  []netip.Prefix
 	expiry   time.Duration
 	giveUp   time.Duration
+	stmtDue  time.Duration
 	rand     io.Reader
 }
 
@@ -142,10 +146,13 @@ func New(d Deps) *Service {
 	if d.STKGiveUp <= 0 {
 		d.STKGiveUp = DefaultSTKGiveUp
 	}
+	if d.StatementDue <= 0 {
+		d.StatementDue = DefaultStatementDue
+	}
 	return &Service{
 		pool: d.Pool, clk: d.Clock, log: d.Logger, accounts: d.Accounts, identity: d.Identity,
 		packs: d.Packs, kms: d.KMS, fpKey: d.FingerprintKey, rails: d.Rails, ledger: d.Ledger,
 		cbBase: strings.TrimRight(d.CallbackBaseURL, "/"), cbSecret: d.CallbackSecret, cbCIDRs: d.CallbackCIDRs,
-		expiry: d.STKExpiry, giveUp: d.STKGiveUp, rand: d.Rand,
+		expiry: d.STKExpiry, giveUp: d.STKGiveUp, stmtDue: d.StatementDue, rand: d.Rand,
 	}
 }

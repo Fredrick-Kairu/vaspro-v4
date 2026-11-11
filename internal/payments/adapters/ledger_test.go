@@ -5,6 +5,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	gogrpc "google.golang.org/grpc"
@@ -89,5 +90,55 @@ func TestGRPCLedger_PostTopup(t *testing.T) {
 				t.Fatalf("sent %v, want %v", srv.got, want)
 			}
 		})
+	}
+}
+
+// pagedLedger serves ListClearingEntries in pages of one.
+type pagedLedger struct {
+	ledgerv1.UnimplementedLedgerServiceServer
+	entries []*ledgerv1.ClearingEntry
+	calls   int
+}
+
+func (p *pagedLedger) ListClearingEntries(_ context.Context, req *ledgerv1.ListClearingEntriesRequest) (*ledgerv1.ListClearingEntriesResponse, error) {
+	p.calls++
+	for i, e := range p.entries {
+		if e.GetEntryId() > req.GetAfterEntryId() {
+			resp := &ledgerv1.ListClearingEntriesResponse{Entries: []*ledgerv1.ClearingEntry{e}}
+			if i < len(p.entries)-1 {
+				resp.NextAfterEntryId = e.GetEntryId()
+			}
+			return resp, nil
+		}
+	}
+	return &ledgerv1.ListClearingEntriesResponse{}, nil
+}
+
+// TestGRPCLedger_ClearingEntries reads every page (task 4.6).
+func TestGRPCLedger_ClearingEntries(t *testing.T) {
+	notice := uuid.New()
+	srv := &pagedLedger{entries: []*ledgerv1.ClearingEntry{
+		{EntryId: 7, TransactionId: uuid.NewString(), Direction: "D", AmountMinor: 100, ReferenceType: "collection_notice", ReferenceId: notice.String(), PostedAtUnix: 1800000000},
+		{EntryId: 9, TransactionId: uuid.NewString(), Direction: "C", AmountMinor: 40, PostedAtUnix: 1800000001},
+	}}
+	lis := bufconn.Listen(1 << 20)
+	g := gogrpc.NewServer()
+	ledgerv1.RegisterLedgerServiceServer(g, srv)
+	go func() { _ = g.Serve(lis) }()
+	t.Cleanup(g.Stop)
+	conn, err := gogrpc.NewClient("passthrough:///bufnet",
+		gogrpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
+		gogrpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := adapters.NewGRPCLedger(conn)
+	t.Cleanup(func() { _ = l.Close() })
+	got, err := l.ClearingEntries(context.Background(), "mpesa_ke", "KES", time.Unix(0, 0), time.Unix(1900000000, 0))
+	if err != nil || len(got) != 2 || srv.calls != 2 {
+		t.Fatalf("got %+v %v after %d calls", got, err, srv.calls)
+	}
+	if got[0].ReferenceID != notice || got[0].AmountMinor != 100 || got[1].ReferenceID != uuid.Nil || got[1].Direction != "C" || got[0].PostedAt.Unix() != 1800000000 {
+		t.Fatalf("lines %+v", got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -21,19 +22,69 @@ var ErrDown = errors.New("ledgerposter: ledger unavailable")
 type posted struct {
 	txn uuid.UUID
 	p   adapters.TopupPosting
+	at  time.Time
+	id  int64
 }
 
 // Fake records postings by key.
 type Fake struct {
-	mu    sync.Mutex
-	byKey map[string]posted
-	order []string
-	calls int
-	down  bool
+	mu     sync.Mutex
+	byKey  map[string]posted
+	order  []string
+	calls  int
+	down   bool
+	now    func() time.Time
+	extra  []adapters.ClearingLine
+	nextID int64
 }
 
-// New returns an empty Fake.
-func New() *Fake { return &Fake{byKey: map[string]posted{}} }
+// New returns an empty Fake, on the real clock.
+func New() *Fake { return &Fake{byKey: map[string]posted{}, now: time.Now} }
+
+// SetNow replaces the clock postings are dated by.
+func (f *Fake) SetNow(now func() time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.now = now
+}
+
+// Inject adds a clearing line no posting made, as if something else
+// had posted to provider clearing (reconciliation tests).
+func (f *Fake) Inject(l adapters.ClearingLine) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	l.EntryID = f.nextID
+	f.extra = append(f.extra, l)
+}
+
+// ClearingEntries implements adapters.Ledger: the provider clearing
+// line of every posting on rail and currency in [from, to), and any
+// injected lines, in posting order.
+func (f *Fake) ClearingEntries(_ context.Context, rail, currency string, from, to time.Time) ([]adapters.ClearingLine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.down {
+		return nil, ErrDown
+	}
+	var out []adapters.ClearingLine
+	for _, k := range f.order {
+		p := f.byKey[k]
+		if p.p.Kind == adapters.TopupFromSuspense || p.p.Rail != rail || p.p.Currency != currency || p.at.Before(from) || !p.at.Before(to) {
+			continue
+		}
+		out = append(out, adapters.ClearingLine{
+			EntryID: p.id, TransactionID: p.txn, Direction: "D", AmountMinor: p.p.AmountMinor,
+			ReferenceType: "collection_notice", ReferenceID: p.p.NoticeID, PostedAt: p.at,
+		})
+	}
+	for _, l := range f.extra {
+		if !l.PostedAt.Before(from) && l.PostedAt.Before(to) {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
 
 // Fail makes every posting error; Recover undoes it.
 func (f *Fake) Fail() { f.set(true) }
@@ -60,7 +111,8 @@ func (f *Fake) PostTopup(_ context.Context, p adapters.TopupPosting) (uuid.UUID,
 		return prev.txn, nil
 	}
 	txn := uuid.New()
-	f.byKey[key] = posted{txn: txn, p: p}
+	f.nextID++
+	f.byKey[key] = posted{txn: txn, p: p, at: f.now(), id: f.nextID}
 	f.order = append(f.order, key)
 	return txn, nil
 }

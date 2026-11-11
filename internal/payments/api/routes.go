@@ -82,7 +82,7 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 	r.Use(httpx.RequestID)
 	r.Use(httpx.Recover(logger))
 	r.Use(httpx.Timeout(30 * time.Second))
-	r.Use(httpx.BodyLimitFunc(func(*http.Request) int64 { return 1 << 20 }))
+	r.Use(httpx.BodyLimitFunc(bodyLimit))
 
 	r.Get("/healthz", httpx.Healthz)
 	r.Get("/readyz", httpx.Readyz(ready...))
@@ -101,6 +101,16 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		},
 	})
 	return r
+}
+
+// bodyLimit is 1 MB for every request but a statement import, which
+// may carry a busy day's statement (task 4.6): 10 MB plus the JSON
+// around it, as the gateway allows.
+func bodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/staff/statement-imports" {
+		return 11 << 20
+	}
+	return 1 << 20
 }
 
 // railCallbackPrefix is where payment rails call back (task 4.4). A rail

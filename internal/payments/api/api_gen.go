@@ -16,6 +16,75 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ReconExceptionKind.
+const (
+	AmountMismatch  ReconExceptionKind = "amount_mismatch"
+	Duplicate       ReconExceptionKind = "duplicate"
+	LedgerMismatch  ReconExceptionKind = "ledger_mismatch"
+	MissingInVaspro ReconExceptionKind = "missing_in_vaspro"
+	MissingOnRail   ReconExceptionKind = "missing_on_rail"
+	StatusMismatch  ReconExceptionKind = "status_mismatch"
+)
+
+// Valid indicates whether the value is a known member of the ReconExceptionKind enum.
+func (e ReconExceptionKind) Valid() bool {
+	switch e {
+	case AmountMismatch:
+		return true
+	case Duplicate:
+		return true
+	case LedgerMismatch:
+		return true
+	case MissingInVaspro:
+		return true
+	case MissingOnRail:
+		return true
+	case StatusMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReconExceptionStatus.
+const (
+	ReconExceptionStatusOpen       ReconExceptionStatus = "open"
+	ReconExceptionStatusResolved   ReconExceptionStatus = "resolved"
+	ReconExceptionStatusWrittenOff ReconExceptionStatus = "written_off"
+)
+
+// Valid indicates whether the value is a known member of the ReconExceptionStatus enum.
+func (e ReconExceptionStatus) Valid() bool {
+	switch e {
+	case ReconExceptionStatusOpen:
+		return true
+	case ReconExceptionStatusResolved:
+		return true
+	case ReconExceptionStatusWrittenOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResolutionRequestStatus.
+const (
+	ResolutionRequestStatusResolved   ResolutionRequestStatus = "resolved"
+	ResolutionRequestStatusWrittenOff ResolutionRequestStatus = "written_off"
+)
+
+// Valid indicates whether the value is a known member of the ResolutionRequestStatus enum.
+func (e ResolutionRequestStatus) Valid() bool {
+	switch e {
+	case ResolutionRequestStatusResolved:
+		return true
+	case ResolutionRequestStatusWrittenOff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SuspenseNoticeStatus.
 const (
 	Matched  SuspenseNoticeStatus = "matched"
@@ -64,6 +133,27 @@ func (e TopupStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListReconExceptionsParamsStatus.
+const (
+	ListReconExceptionsParamsStatusOpen       ListReconExceptionsParamsStatus = "open"
+	ListReconExceptionsParamsStatusResolved   ListReconExceptionsParamsStatus = "resolved"
+	ListReconExceptionsParamsStatusWrittenOff ListReconExceptionsParamsStatus = "written_off"
+)
+
+// Valid indicates whether the value is a known member of the ListReconExceptionsParamsStatus enum.
+func (e ListReconExceptionsParamsStatus) Valid() bool {
+	switch e {
+	case ListReconExceptionsParamsStatusOpen:
+		return true
+	case ListReconExceptionsParamsStatusResolved:
+		return true
+	case ListReconExceptionsParamsStatusWrittenOff:
+		return true
+	default:
+		return false
+	}
+}
+
 // MatchRequest defines model for MatchRequest.
 type MatchRequest struct {
 	// AccountNumber The client's account number on VASPRO's paybill.
@@ -82,6 +172,63 @@ type Problem struct {
 	Status    int     `json:"status"`
 	Title     string  `json:"title"`
 	Type      string  `json:"type"`
+}
+
+// ReconException defines model for ReconException.
+type ReconException struct {
+	Id              string               `json:"id"`
+	Kind            ReconExceptionKind   `json:"kind"`
+	OpenedAt        time.Time            `json:"opened_at"`
+	RailAccountId   string               `json:"rail_account_id"`
+	ReferenceId     *string              `json:"reference_id,omitempty"`
+	ReferenceType   *string              `json:"reference_type,omitempty"`
+	Resolution      *string              `json:"resolution,omitempty"`
+	ResolvedAt      *time.Time           `json:"resolved_at,omitempty"`
+	ResolvedBy      *string              `json:"resolved_by,omitempty"`
+	StatementLineId *int64               `json:"statement_line_id,omitempty"`
+	Status          ReconExceptionStatus `json:"status"`
+	TenantId        *string              `json:"tenant_id,omitempty"`
+}
+
+// ReconExceptionKind defines model for ReconException.Kind.
+type ReconExceptionKind string
+
+// ReconExceptionStatus defines model for ReconException.Status.
+type ReconExceptionStatus string
+
+// ReconExceptionList defines model for ReconExceptionList.
+type ReconExceptionList struct {
+	Exceptions []ReconException `json:"exceptions"`
+	NextCursor *string          `json:"next_cursor,omitempty"`
+}
+
+// ResolutionRequest defines model for ResolutionRequest.
+type ResolutionRequest struct {
+	Resolution string                  `json:"resolution"`
+	Status     ResolutionRequestStatus `json:"status"`
+}
+
+// ResolutionRequestStatus defines model for ResolutionRequest.Status.
+type ResolutionRequestStatus string
+
+// StatementImport defines model for StatementImport.
+type StatementImport struct {
+	ExceptionsOpened int    `json:"exceptions_opened"`
+	Id               string `json:"id"`
+	Lines            int    `json:"lines"`
+	Matched          int    `json:"matched"`
+}
+
+// StatementImportRequest defines model for StatementImportRequest.
+type StatementImportRequest struct {
+	// Csv The org portal's statement export, as downloaded.
+	Csv string `json:"csv"`
+
+	// Date The local day the statement covers, YYYY-MM-DD.
+	Date string `json:"date"`
+
+	// RailAccountId VASPRO's paybill the statement is for.
+	RailAccountId string `json:"rail_account_id"`
 }
 
 // SuspenseList defines model for SuspenseList.
@@ -190,6 +337,28 @@ type MatchCollectionNoticeParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ListReconExceptionsParams defines parameters for ListReconExceptions.
+type ListReconExceptionsParams struct {
+	Status *ListReconExceptionsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	Cursor *string                          `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int                             `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListReconExceptionsParamsStatus defines parameters for ListReconExceptions.
+type ListReconExceptionsParamsStatus string
+
+// ResolveReconExceptionParams defines parameters for ResolveReconException.
+type ResolveReconExceptionParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateStatementImportParams defines parameters for CreateStatementImport.
+type CreateStatementImportParams struct {
+	// IdempotencyKey Required on every write (.claude/rules/api.md).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListSuspenseParams defines parameters for ListSuspense.
 type ListSuspenseParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -214,6 +383,12 @@ type ReceiveStkCallbackJSONRequestBody = ReceiveStkCallbackJSONBody
 // MatchCollectionNoticeJSONRequestBody defines body for MatchCollectionNotice for application/json ContentType.
 type MatchCollectionNoticeJSONRequestBody = MatchRequest
 
+// ResolveReconExceptionJSONRequestBody defines body for ResolveReconException for application/json ContentType.
+type ResolveReconExceptionJSONRequestBody = ResolutionRequest
+
+// CreateStatementImportJSONRequestBody defines body for CreateStatementImport for application/json ContentType.
+type CreateStatementImportJSONRequestBody = StatementImportRequest
+
 // CreateTopupJSONRequestBody defines body for CreateTopup for application/json ContentType.
 type CreateTopupJSONRequestBody = TopupRequest
 
@@ -231,6 +406,15 @@ type ServerInterface interface {
 	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 	MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams)
+	// ListReconExceptions Reconciliation exceptions (staff only)
+	// (GET /v1/payments/staff/recon-exceptions)
+	ListReconExceptions(w http.ResponseWriter, r *http.Request, params ListReconExceptionsParams)
+	// ResolveReconException Close a reconciliation exception (staff only)
+	// (POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution)
+	ResolveReconException(w http.ResponseWriter, r *http.Request, exceptionId string, params ResolveReconExceptionParams)
+	// CreateStatementImport Import and reconcile a day's paybill statement (staff only)
+	// (POST /v1/payments/staff/statement-imports)
+	CreateStatementImport(w http.ResponseWriter, r *http.Request, params CreateStatementImportParams)
 	// ListSuspense Payments in suspense (staff only)
 	// (GET /v1/payments/staff/suspense)
 	ListSuspense(w http.ResponseWriter, r *http.Request, params ListSuspenseParams)
@@ -270,6 +454,24 @@ func (_ Unimplemented) ReceiveStkCallback(w http.ResponseWriter, r *http.Request
 // MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 // (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 func (_ Unimplemented) MatchCollectionNotice(w http.ResponseWriter, r *http.Request, noticeId string, params MatchCollectionNoticeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListReconExceptions Reconciliation exceptions (staff only)
+// (GET /v1/payments/staff/recon-exceptions)
+func (_ Unimplemented) ListReconExceptions(w http.ResponseWriter, r *http.Request, params ListReconExceptionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ResolveReconException Close a reconciliation exception (staff only)
+// (POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution)
+func (_ Unimplemented) ResolveReconException(w http.ResponseWriter, r *http.Request, exceptionId string, params ResolveReconExceptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateStatementImport Import and reconcile a day's paybill statement (staff only)
+// (POST /v1/payments/staff/statement-imports)
+func (_ Unimplemented) CreateStatementImport(w http.ResponseWriter, r *http.Request, params CreateStatementImportParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -456,6 +658,164 @@ func (siw *ServerInterfaceWrapper) MatchCollectionNotice(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MatchCollectionNotice(w, r, noticeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListReconExceptions operation middleware
+func (siw *ServerInterfaceWrapper) ListReconExceptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReconExceptionsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReconExceptions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveReconException operation middleware
+func (siw *ServerInterfaceWrapper) ResolveReconException(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "exceptionId" -------------
+	var exceptionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "exceptionId", chi.URLParam(r, "exceptionId"), &exceptionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "exceptionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveReconExceptionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveReconException(w, r, exceptionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateStatementImport operation middleware
+func (siw *ServerInterfaceWrapper) CreateStatementImport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateStatementImportParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStatementImport(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -762,6 +1122,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/payments/staff/collection-notices/{noticeId}/match", wrapper.MatchCollectionNotice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/staff/statement-imports", wrapper.CreateStatementImport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/payments/staff/recon-exceptions", wrapper.ListReconExceptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/payments/staff/recon-exceptions/{exceptionId}/resolution", wrapper.ResolveReconException)
 	})
 
 	return r
@@ -1098,6 +1467,314 @@ type MatchCollectionNoticedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response MatchCollectionNoticedefaultApplicationProblemPlusJSONResponse) VisitMatchCollectionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReconExceptionsRequestObject struct {
+	Params ListReconExceptionsParams
+}
+
+type ListReconExceptionsResponseObject interface {
+	VisitListReconExceptionsResponse(w http.ResponseWriter) error
+}
+
+type ListReconExceptions200JSONResponse ReconExceptionList
+
+func (response ListReconExceptions200JSONResponse) VisitListReconExceptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReconExceptions400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListReconExceptions400ApplicationProblemPlusJSONResponse) VisitListReconExceptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReconExceptions401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListReconExceptions401ApplicationProblemPlusJSONResponse) VisitListReconExceptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReconExceptions403ApplicationProblemPlusJSONResponse Problem
+
+func (response ListReconExceptions403ApplicationProblemPlusJSONResponse) VisitListReconExceptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReconExceptionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListReconExceptionsdefaultApplicationProblemPlusJSONResponse) VisitListReconExceptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconExceptionRequestObject struct {
+	ExceptionId string `json:"exceptionId"`
+	Params      ResolveReconExceptionParams
+	Body        *ResolveReconExceptionJSONRequestBody
+}
+
+type ResolveReconExceptionResponseObject interface {
+	VisitResolveReconExceptionResponse(w http.ResponseWriter) error
+}
+
+type ResolveReconException200JSONResponse ReconException
+
+func (response ResolveReconException200JSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconException400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ResolveReconException400ApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconException401ApplicationProblemPlusJSONResponse Problem
+
+func (response ResolveReconException401ApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconException403ApplicationProblemPlusJSONResponse Problem
+
+func (response ResolveReconException403ApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconException404ApplicationProblemPlusJSONResponse Problem
+
+func (response ResolveReconException404ApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconException409ApplicationProblemPlusJSONResponse Problem
+
+func (response ResolveReconException409ApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveReconExceptiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ResolveReconExceptiondefaultApplicationProblemPlusJSONResponse) VisitResolveReconExceptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImportRequestObject struct {
+	Params CreateStatementImportParams
+	Body   *CreateStatementImportJSONRequestBody
+}
+
+type CreateStatementImportResponseObject interface {
+	VisitCreateStatementImportResponse(w http.ResponseWriter) error
+}
+
+type CreateStatementImport201JSONResponse StatementImport
+
+func (response CreateStatementImport201JSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImport400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateStatementImport400ApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImport401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStatementImport401ApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImport403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStatementImport403ApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImport404ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStatementImport404ApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImport409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateStatementImport409ApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStatementImportdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateStatementImportdefaultApplicationProblemPlusJSONResponse) VisitCreateStatementImportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -1500,6 +2177,15 @@ type StrictServerInterface interface {
 	// MatchCollectionNotice Credit a payment in suspense to a client (staff only)
 	// (POST /v1/payments/staff/collection-notices/{noticeId}/match)
 	MatchCollectionNotice(ctx context.Context, request MatchCollectionNoticeRequestObject) (MatchCollectionNoticeResponseObject, error)
+	// ListReconExceptions Reconciliation exceptions (staff only)
+	// (GET /v1/payments/staff/recon-exceptions)
+	ListReconExceptions(ctx context.Context, request ListReconExceptionsRequestObject) (ListReconExceptionsResponseObject, error)
+	// ResolveReconException Close a reconciliation exception (staff only)
+	// (POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution)
+	ResolveReconException(ctx context.Context, request ResolveReconExceptionRequestObject) (ResolveReconExceptionResponseObject, error)
+	// CreateStatementImport Import and reconcile a day's paybill statement (staff only)
+	// (POST /v1/payments/staff/statement-imports)
+	CreateStatementImport(ctx context.Context, request CreateStatementImportRequestObject) (CreateStatementImportResponseObject, error)
 	// ListSuspense Payments in suspense (staff only)
 	// (GET /v1/payments/staff/suspense)
 	ListSuspense(ctx context.Context, request ListSuspenseRequestObject) (ListSuspenseResponseObject, error)
@@ -1682,6 +2368,99 @@ func (sh *strictHandler) MatchCollectionNotice(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MatchCollectionNoticeResponseObject); ok {
 		if err := validResponse.VisitMatchCollectionNoticeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListReconExceptions operation middleware
+func (sh *strictHandler) ListReconExceptions(w http.ResponseWriter, r *http.Request, params ListReconExceptionsParams) {
+	var request ListReconExceptionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReconExceptions(ctx, request.(ListReconExceptionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReconExceptions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReconExceptionsResponseObject); ok {
+		if err := validResponse.VisitListReconExceptionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveReconException operation middleware
+func (sh *strictHandler) ResolveReconException(w http.ResponseWriter, r *http.Request, exceptionId string, params ResolveReconExceptionParams) {
+	var request ResolveReconExceptionRequestObject
+
+	request.ExceptionId = exceptionId
+	request.Params = params
+
+	var body ResolveReconExceptionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveReconException(ctx, request.(ResolveReconExceptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveReconException")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveReconExceptionResponseObject); ok {
+		if err := validResponse.VisitResolveReconExceptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateStatementImport operation middleware
+func (sh *strictHandler) CreateStatementImport(w http.ResponseWriter, r *http.Request, params CreateStatementImportParams) {
+	var request CreateStatementImportRequestObject
+
+	request.Params = params
+
+	var body CreateStatementImportJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStatementImport(ctx, request.(CreateStatementImportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStatementImport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStatementImportResponseObject); ok {
+		if err := validResponse.VisitCreateStatementImportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

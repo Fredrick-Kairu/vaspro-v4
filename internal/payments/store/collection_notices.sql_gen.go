@@ -185,6 +185,84 @@ func (q *Queries) InsertCollectionNotice(ctx context.Context, arg InsertCollecti
 	return i, err
 }
 
+const listNoticeIDsIn = `-- name: ListNoticeIDsIn :many
+SELECT id FROM payments.collection_notices WHERE id = ANY ($1::uuid[])
+`
+
+func (q *Queries) ListNoticeIDsIn(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listNoticeIDsIn, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNoticesPaidBetween = `-- name: ListNoticesPaidBetween :many
+SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices
+WHERE rail_account_id = $1 AND tenant_id IS NULL AND paid_at >= $2 AND paid_at < $3
+ORDER BY paid_at, id
+`
+
+type ListNoticesPaidBetweenParams struct {
+	RailAccountID uuid.UUID `json:"rail_account_id"`
+	PaidFrom      time.Time `json:"paid_from"`
+	PaidTo        time.Time `json:"paid_to"`
+}
+
+// ListNoticesPaidBetween is the day's payments to a VASPRO paybill
+// (payments_system), for reconciliation.
+func (q *Queries) ListNoticesPaidBetween(ctx context.Context, arg ListNoticesPaidBetweenParams) ([]PaymentsCollectionNotice, error) {
+	rows, err := q.db.Query(ctx, listNoticesPaidBetween, arg.RailAccountID, arg.PaidFrom, arg.PaidTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentsCollectionNotice
+	for rows.Next() {
+		var i PaymentsCollectionNotice
+		if err := rows.Scan(
+			&i.ID,
+			&i.RailAccountID,
+			&i.TenantID,
+			&i.RailReceipt,
+			&i.TransactionType,
+			&i.AmountMinor,
+			&i.Currency,
+			&i.BillRef,
+			&i.PayerPhoneE164,
+			&i.PayerName,
+			&i.PaidAt,
+			&i.AccountBalanceMinor,
+			&i.PaymentIntentID,
+			&i.MatchStatus,
+			&i.MatchedTenantID,
+			&i.LedgerTransactionID,
+			&i.Raw,
+			&i.ReceivedAt,
+			&i.SuspenseTransactionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSuspense = `-- name: ListSuspense :many
 SELECT id, rail_account_id, tenant_id, rail_receipt, transaction_type, amount_minor, currency, bill_ref, payer_phone_e164, payer_name, paid_at, account_balance_minor, payment_intent_id, match_status, matched_tenant_id, ledger_transaction_id, raw, received_at, suspense_transaction_id FROM payments.collection_notices
 WHERE match_status = 'suspense' AND (paid_at, id) > ($1::timestamptz, $2::uuid)

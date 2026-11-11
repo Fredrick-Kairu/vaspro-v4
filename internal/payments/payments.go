@@ -92,6 +92,10 @@ type Config struct {
 	STKGiveUp time.Duration `env:"PAYMENTS_STK_GIVE_UP" envDefault:"10m"`
 	// SweepInterval is how often the sweep posts, applies and expires.
 	SweepInterval time.Duration `env:"PAYMENTS_SWEEP_INTERVAL" envDefault:"30s"`
+	// StatementDue is how long after local midnight yesterday's
+	// statement must be imported before recon.statement_missing (task
+	// 4.6), e.g. 12h for noon.
+	StatementDue time.Duration `env:"PAYMENTS_STATEMENT_DUE" envDefault:"12h"`
 }
 
 // Clients are the outside services payments calls.
@@ -153,7 +157,7 @@ func New(cfg Config, pool *db.Pool, b *bus.Bus, c Clients, loaded map[string]*pa
 		Pool: pool, Clock: clock.Real{}, Logger: slog.Default(), Accounts: c.Accounts, Identity: c.Identity, Packs: loaded,
 		KMS: kms, Rails: rails, Ledger: c.Ledger,
 		CallbackBaseURL: cfg.CallbackBaseURL, CallbackSecret: secret, CallbackCIDRs: cidrs,
-		STKExpiry: cfg.STKExpiry, STKGiveUp: cfg.STKGiveUp,
+		STKExpiry: cfg.STKExpiry, STKGiveUp: cfg.STKGiveUp, StatementDue: cfg.StatementDue,
 	})
 	rtr := api.Routes(api.NewHandlers(a), slog.Default(), []httpx.Check{
 		func(ctx context.Context) error { return pool.Ping(ctx) },
@@ -280,6 +284,9 @@ func (s *Service) sweepEvery(ctx context.Context) {
 			slog.ErrorContext(ctx, "payments: sweep failed", "error", err)
 		} else if sum != (app.SweepSummary{}) {
 			slog.InfoContext(ctx, "payments: swept", "posted", sum.Posted, "applied", sum.Applied, "queried", sum.Queried, "expired", sum.Expired)
+		}
+		if _, err := s.app.CheckStatements(ctx); err != nil {
+			slog.ErrorContext(ctx, "payments: checking for missing statements failed", "error", err)
 		}
 	}
 }

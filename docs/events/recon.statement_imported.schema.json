@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/recon.statement_imported.schema.json",
+  "title": "recon.statement_imported",
+  "description": "Published by payments when a day's statement for a VASPRO paybill is imported and reconciled (task 4.6, OQ-22's addition to data model §7), with the counts; exceptions zero is a clean day. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["import_id", "rail_account_id", "date", "lines", "matched", "exceptions_opened", "imported_by"],
+  "properties": {
+    "import_id": {"type": "string", "format": "uuid"},
+    "rail_account_id": {"type": "string", "format": "uuid"},
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "The rail's country's local day."},
+    "lines": {"type": "integer", "minimum": 0},
+    "matched": {"type": "integer", "minimum": 0},
+    "exceptions_opened": {"type": "integer", "minimum": 0},
+    "imported_by": {"type": "string", "format": "uuid"}
+  },
+  "additionalProperties": false
+}

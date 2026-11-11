@@ -342,6 +342,135 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /v1/payments/staff/statement-imports:
+    post:
+      operationId: createStatementImport
+      summary: Import and reconcile a day's paybill statement (staff only)
+      description: >
+        Staff upload the M-Pesa org portal's statement export for one of
+        VASPRO's paybills and one local day (task 4.6). Every completed
+        payment in on it is matched to VASPRO's records by receipt, and
+        every record of the day must be on it; every record must also be
+        in the ledger's provider clearing for its amount, and every
+        clearing debit of the day must be a record's. Each gap opens an
+        exception. A day is imported once (VAL-4017). A file that isn't
+        the export is VAL-4000 and nothing is recorded. Staff only
+        (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatementImportRequest'
+      responses:
+        "201":
+          description: Imported and reconciled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementImport'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/recon-exceptions:
+    get:
+      operationId: listReconExceptions
+      summary: Reconciliation exceptions (staff only)
+      description: Oldest first, optionally by status; paged with next_cursor. Staff only (AUTH-4025).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, resolved, written_off]
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of exceptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconExceptionList'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/payments/staff/recon-exceptions/{exceptionId}/resolution:
+    post:
+      operationId: resolveReconException
+      summary: Close a reconciliation exception (staff only)
+      description: >
+        resolved (explained) or written_off, always with how (task 4.6).
+        Only an open exception can be closed (VAL-4014). Staff only
+        (AUTH-4025), with a fresh step-up (AUTH-4012).
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: exceptionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolutionRequest'
+            example:
+              status: resolved
+              resolution: The payer was refunded by Safaricom; reversal R-12 matches it.
+      responses:
+        "200":
+          description: The exception, closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconException'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     sessionBearer:
@@ -500,6 +629,83 @@ components:
         reason:
           type: string
           description: Why this payment is the client's; kept with the match.
+    StatementImportRequest:
+      type: object
+      required: [rail_account_id, date, csv]
+      properties:
+        rail_account_id:
+          type: string
+          description: VASPRO's paybill the statement is for.
+        date:
+          type: string
+          description: The local day the statement covers, YYYY-MM-DD.
+        csv:
+          type: string
+          description: The org portal's statement export, as downloaded.
+    StatementImport:
+      type: object
+      required: [id, lines, matched, exceptions_opened]
+      properties:
+        id:
+          type: string
+        lines:
+          type: integer
+        matched:
+          type: integer
+        exceptions_opened:
+          type: integer
+    ReconException:
+      type: object
+      required: [id, rail_account_id, kind, status, opened_at]
+      properties:
+        id:
+          type: string
+        rail_account_id:
+          type: string
+        kind:
+          type: string
+          enum: [missing_in_vaspro, missing_on_rail, amount_mismatch, status_mismatch, duplicate, ledger_mismatch]
+        status:
+          type: string
+          enum: [open, resolved, written_off]
+        tenant_id:
+          type: string
+        statement_line_id:
+          type: integer
+          format: int64
+        reference_type:
+          type: string
+        reference_id:
+          type: string
+        resolution:
+          type: string
+        resolved_by:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+    ReconExceptionList:
+      type: object
+      required: [exceptions]
+      properties:
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconException'
+        next_cursor:
+          type: string
+    ResolutionRequest:
+      type: object
+      required: [status, resolution]
+      properties:
+        status:
+          type: string
+          enum: [resolved, written_off]
+        resolution:
+          type: string
     Problem:
       type: object
       required: [type, title, status, code, detail, retryable]

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11
 **Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** 4.2, 4.1, 4.3, 4.4 and 4.5 done (2026-11-11). Next: 4.6, daily reconciliation.
+**Current task:** 4.1–4.6 done (2026-11-11), with the exit gate's "a day of fake traffic reconciles" box ticked. Next: 4.8, the hosted checkout.
 **Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
 
 ## Phase 4 plan (agreed 2026-11-11)
@@ -472,6 +472,100 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
     - run `vaspro payments register-c2b` once the gateway's public URL is live (Daraja's production registration needs HTTPS);
     - Safaricom calls the validation URL only if external validation is enabled on the paybill: without it, confirmations still arrive, and unknown numbers still go to suspense.
   - **Not in 4.5:** reconciliation (4.6); linking a query-reported STK payment to a C2B confirmation of it (the confirmation credits by account number; the STK top-up stays flagged for staff).
+
+- 4.6 Daily reconciliation of VASPRO's paybill (OQ-22). **This ticks the exit-gate box "a day of fake traffic reconciles with zero unexplained differences".**
+  - **Contract:**
+    - **Ledger:** `LedgerService.ListClearingEntries(rail, currency, posted_from_unix, posted_to_unix, after_entry_id, limit ≤ 1000)`:
+      - a rail's provider clearing lines in a window, in entry order, with their transaction, direction, amount, reference and posting time;
+      - read as `ledger_audit` (3.8's read-only role), since client top-ups' lines are on client transactions; `ledger_system` sees only VASPRO's.
+      - New query `internal/ledger/store/queries/clearing.sql`.
+    - **Payments API** (staff, on every call):
+      - `createStatementImport` (`{rail_account_id, date, csv}`; **10 MB in the gateway and payments**, as a document upload);
+      - `listReconExceptions` (by status, cursor);
+      - `resolveReconException` (`resolved`/`written_off` with a resolution; fresh step-up).
+    - **New code VAL-4017** (409): statement already imported.
+    - **Events:**
+      - `recon.exception_opened` (§7);
+      - `recon.statement_imported` (OQ-22's addition);
+      - **`recon.statement_missing`** (an addition), once per paybill and day with no import by `PAYMENTS_STATEMENT_DUE` (default `12h` after local midnight).
+  - **Rules** (`domain/statement.go`):
+    - **`ParseOrgStatement`:**
+      - the header must be the assumed export's (`domain.StatementHeader`; OQ-22 keeps the columns open until an anonymised export);
+      - times are local; amounts are decimal text into minor units (commas allowed), never float;
+      - exactly one of Paid In and Withdrawn;
+      - errors name the row.
+    - **`DayBounds`.**
+    - **`Reconcile`**, pure:
+      - a completed paid-in line without a notice is `missing_in_vaspro`, and a receipt twice is `duplicate`;
+      - a day's notice without a line is `missing_on_rail`, and different amounts are `amount_mismatch`;
+      - **every notice must have exactly its amount debited to provider clearing, by reference** (a late posting up to a day after counts), else `ledger_mismatch`;
+      - every clearing debit posted in the day must reference a known notice, else `ledger_mismatch`;
+      - withdrawals, failed rows and clearing credits (pay-backs) are recorded `ignored`, Phase 13's to check.
+  - **App** (`app/recon.go`):
+    - **`ImportStatement`:**
+      - staff; VASPRO's paybill; its pack's time zone; parsed;
+      - the day's notices (`paid_at`) and the clearing lines (the day plus one, paged) gathered, and other days' notices that in-day lines refer to looked up;
+      - reconciled;
+      - then **one `payments_system` transaction**: the import (unique per day, so VAL-4017), each line with its match, each exception (no tenant) with its event, and the import `matched` with `recon.statement_imported`.
+      - A file that isn't the export, or a bad date, is VAL-4000, and nothing is recorded.
+    - **`ListReconExceptions`/`ResolveReconException`** as `payments_operations`; closing a closed one is VAL-4014.
+    - **`CheckStatements`**, run by the sweep loop:
+      - per active top-up paybill, after yesterday's due time with no import, writes `recon.statement_missing`;
+      - its aggregate is a UUIDv5 of the paybill and day, checked under a transaction advisory lock, so it's written once across replicas.
+  - **Adapters and fakes:**
+    - `adapters.Ledger.ClearingEntries` (`GRPCLedger` reads every page);
+    - the `ledgerposter` fake dates postings by a settable clock and serves their clearing debits, and `Inject` adds a stray line.
+  - **Tests:**
+    - **domain:**
+      - the parser: three rows (paid in, a failed row, withdrawn with cents) and 8 refusals, each naming its row;
+      - `DayBounds` and 4 bad dates;
+      - **`Reconcile`**: a clean day with a late posting, the 8 exception cases, and money out not flagged.
+    - **ledger:** `TestLedgerService_ListClearingEntries` against the real ledger:
+      - a client top-up's and a system suspense posting's lines, with references;
+      - another rail, another currency and an earlier window are excluded;
+      - pages of one;
+      - three bad requests are INVALID_ARGUMENT.
+    - **adapter:** `TestGRPCLedger_ClearingEntries` reads every page.
+    - **app:**
+      - **`TestReconcile_DayOfFakeTraffic` (the exit gate):**
+        - 6 STK pushes: a success, duplicate callbacks, an early callback, a short payment, a cancellation, insufficient funds;
+        - 4 C2B payments: two clients paying their own numbers, one typed messily; one in suspense matched by staff; one left in suspense;
+        - then the Daraja fake's own statement for the day: **8 lines, 8 matched, 0 exceptions**, a valid `recon.statement_imported`;
+        - a second import is VAL-4017 and writes nothing.
+      - **`TestReconcile_Exceptions`**, each on its own day, each with exactly its exception and a valid event:
+        - **a VASPRO record missing from the rail**, and **a rail line missing from VASPRO** (the ROADMAP's two);
+        - amounts that disagree;
+        - a payment the ledger never posted;
+        - a clearing line VASPRO has no record of.
+        - Also: a file that isn't the export, and a bad date, write nothing; non-staff and an unknown paybill are refused.
+        - Listing pages; resolving needs step-up, a valid status and a resolution, closes once, and an unknown one is not found.
+      - **`TestCheckStatements`**: an imported day isn't reported; an unimported day isn't before 12:00 the next day, is once after, and isn't again.
+    - **API:**
+      - the spec-driven staff test now covers 5 operations;
+      - `TestStatementImport_Codes`: VAL-4000, an empty day, VAL-4017, the list, AUTH-4012 then VAL-4003 on resolve.
+    - **gateway:** `TestGatewayBackends_StatementImportLimit` (5 MB through, 12 MB VAL-4008 before payments, 2 MB elsewhere still refused).
+    - **Order of work:**
+      - the domain, ledger gRPC, app and gateway tests were seen failing first (stubs, Unimplemented, the 1 MB limit);
+      - the adapter paging and the API tests came with their code; the mutations below stand in.
+    - **Test fixes while writing them:**
+      - the domain file's byte-order-mark literal was written as the raw character, which Go refuses; it's now escaped;
+      - `TestCheckStatements` first searched the event's bytes for `"date":"`, but jsonb stores `"date": "…"`, so it now parses the event.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - the ledger check skipped;
+      - matching on the receipt alone (no amount check);
+      - a day imported twice;
+      - resolving without step-up;
+      - clearing credits flagged;
+      - no `missing_on_rail`.
+    - The app suite ran with `-race`, green.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 35 packages fresh (the ledger's proto and the gateway changed), 46 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:**
+    - staff import each day's org-portal CSV through `createStatementImport`;
+    - **the CSV's columns are still assumed** (OQ-22): the first real export may need the header and parser adjusted;
+    - `PAYMENTS_STATEMENT_DUE` is new (default `12h`);
+    - the ledger's login role already reaches `ledger_audit`.
+  - **Not in 4.6:** money out (withdrawals and pay-backs, Phase 13); client paybills' reconciliation (Phase 13); paging the import itself for statements over 10 MB.
+  - **The exit gate's other box,** a real Daraja sandbox top-up on staging, waits for staging (OD-02, Phase 8) and the sandbox secrets.
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -1675,8 +1769,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. 4.6 daily reconciliation (plan above).
-2. Then 4.8; the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
+1. 4.8 the hosted checkout (plan above).
+2. Then the PR of `p4/phase-4` at the end, merged only after CI is green and you confirm.
 3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
 4. Still from Phase 3, on `ops/dev-environment`:
    - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;

@@ -25,6 +25,7 @@ import (
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/idempotency"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/packs"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/platform/testkit"
+	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/ledgerposter"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/staffdirectory"
 	"github.com/Fredrick-Kairu/vaspro-v4/tools/fakes/tenantinfo"
 )
@@ -61,7 +62,7 @@ func newHarness(t *testing.T) harness {
 	}
 	access, staff := tenantinfo.New(), staffdirectory.New()
 	svc := app.New(app.Deps{
-		Pool: pool, Accounts: access, Identity: staff, Packs: map[string]*packs.Pack{"KE": ke},
+		Pool: pool, Accounts: access, Identity: staff, Packs: map[string]*packs.Pack{"KE": ke}, Ledger: ledgerposter.New(),
 		CallbackSecret: callbackSecret, CallbackCIDRs: []netip.Prefix{netip.MustParsePrefix("196.201.214.0/24")},
 	})
 	if err := svc.SyncRails(ctx); err != nil {
@@ -263,7 +264,11 @@ func TestStaffOperations_NeedStaff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bodies := map[string]any{"matchCollectionNotice": map[string]any{"account_number": "ABC23456", "reason": "payer called"}}
+	bodies := map[string]any{
+		"matchCollectionNotice": map[string]any{"account_number": "ABC23456", "reason": "payer called"},
+		"createStatementImport": map[string]any{"rail_account_id": uuid.NewString(), "date": "2026-11-11", "csv": "x"},
+		"resolveReconException": map[string]any{"status": "resolved", "resolution": "explained"},
+	}
 	var ops []string
 	for path, item := range spec.Paths.Map() {
 		if !strings.HasPrefix(path, "/v1/payments/staff/") {
@@ -271,7 +276,7 @@ func TestStaffOperations_NeedStaff(t *testing.T) {
 		}
 		for method, op := range item.Operations() {
 			ops = append(ops, op.OperationID)
-			concrete := strings.ReplaceAll(path, "{noticeId}", uuid.NewString())
+			concrete := strings.NewReplacer("{noticeId}", uuid.NewString(), "{exceptionId}", uuid.NewString()).Replace(path)
 			body := bodies[op.OperationID]
 			t.Run(op.OperationID, func(t *testing.T) {
 				status, got := h.do(t, method, concrete, uuid.Nil, body, nil)
@@ -282,7 +287,7 @@ func TestStaffOperations_NeedStaff(t *testing.T) {
 		}
 	}
 	sort.Strings(ops)
-	if want := "listSuspense,matchCollectionNotice"; strings.Join(ops, ",") != want {
+	if want := "createStatementImport,listReconExceptions,listSuspense,matchCollectionNotice,resolveReconException"; strings.Join(ops, ",") != want {
 		t.Fatalf("staff operations in the spec %v, cases written for %s: add the new one's case", ops, want)
 	}
 }
@@ -338,4 +343,42 @@ func TestReceiveC2bCallbacks(t *testing.T) {
 	if err := h.super.QueryRow(context.Background(), `SELECT count(*) FROM collection_notices`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d notices recorded, %v", n, err)
 	}
+}
+
+// TestStatementImport_Codes: an import over HTTP, once per day
+// (VAL-4017); a file that isn't the export is VAL-4000; exceptions are
+// listed and closed with step-up (task 4.6).
+func TestStatementImport_Codes(t *testing.T) {
+	h := newHarness(t)
+	h.seedPaybill(t, "active")
+	var paybill uuid.UUID
+	if err := h.super.QueryRow(context.Background(), `SELECT id FROM rail_accounts LIMIT 1`).Scan(&paybill); err != nil {
+		t.Fatal(err)
+	}
+	staffID := h.staff.Add("ops@example.com")
+	session := uuid.New()
+	h.staff.StepUp(staffID, session)
+	header := strings.Join(domain.StatementHeader, ",") + "\n"
+	importDay := func(csv string) (int, map[string]any) {
+		return h.do(t, http.MethodPost, "/v1/payments/staff/statement-imports", staffID,
+			map[string]any{"rail_account_id": paybill.String(), "date": "2026-11-11", "csv": csv}, nil)
+	}
+	status, got := importDay("Receipt,Amount\n")
+	wantProblem(t, status, got, http.StatusBadRequest, "VAL-4000")
+	status, got = importDay(header)
+	if status != http.StatusCreated || got["lines"] != float64(0) || got["exceptions_opened"] != float64(0) {
+		t.Fatalf("an empty day: %d %v", status, got)
+	}
+	status, got = importDay(header)
+	wantProblem(t, status, got, http.StatusConflict, "VAL-4017")
+
+	status, got = h.get(t, "/v1/payments/staff/recon-exceptions?status=open", staffID)
+	if status != http.StatusOK || got["exceptions"] == nil {
+		t.Fatalf("the list: %d %v", status, got)
+	}
+	resolve := "/v1/payments/staff/recon-exceptions/" + uuid.NewString() + "/resolution"
+	status, got = h.do(t, http.MethodPost, resolve, staffID, map[string]any{"status": "resolved", "resolution": "x"}, nil)
+	wantProblem(t, status, got, http.StatusUnauthorized, "AUTH-4012")
+	status, got = h.do(t, http.MethodPost, resolve, staffID, map[string]any{"status": "resolved", "resolution": "x"}, map[string]string{api.HeaderSessionID: session.String()})
+	wantProblem(t, status, got, http.StatusNotFound, "VAL-4003")
 }

@@ -400,3 +400,29 @@ func TestGatewayBackends_PaymentsCallbacks(t *testing.T) {
 		t.Fatalf("a dashboard call: %d, client IP %q", status, payments.last(t).Header.Get(clientIPHeader))
 	}
 }
+
+// TestGatewayBackends_StatementImportLimit (task 4.6): a statement
+// import may carry up to 10 MB, like a document upload; other payments
+// writes keep the 1 MB limit.
+func TestGatewayBackends_StatementImportLimit(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	headers := map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "si1"}
+	body := func(size int) map[string]any {
+		return map[string]any{"rail_account_id": uuid.NewString(), "date": "2026-11-11", "csv": strings.Repeat("x", size)}
+	}
+	if status, got := send(t, gw, http.MethodPost, "/v1/payments/staff/statement-imports", headers, body(5<<20)); status != http.StatusOK {
+		t.Fatalf("a 5 MB statement: %d %v", status, got)
+	}
+	before := payments.count()
+	headers["Idempotency-Key"] = "si2"
+	if status, got := send(t, gw, http.MethodPost, "/v1/payments/staff/statement-imports", headers, body(12<<20)); status != http.StatusRequestEntityTooLarge || got["code"] != "VAL-4008" || payments.count() != before {
+		t.Fatalf("a 12 MB statement: %d %v", status, got)
+	}
+	headers["Idempotency-Key"] = "si3"
+	big := map[string]any{"account_number": strings.Repeat("x", 2<<20), "reason": "x"}
+	if status, _ := send(t, gw, http.MethodPost, "/v1/payments/staff/collection-notices/"+uuid.NewString()+"/match", headers, big); status == http.StatusOK || payments.count() != before {
+		t.Fatalf("2 MB elsewhere: %d", status)
+	}
+}
