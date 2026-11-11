@@ -1,9 +1,9 @@
 # Build status
 
-**Updated:** 2026-11-10
-**Current phase:** Phase 3: Ledger and wallets (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
-**Current task:** 3.1–3.9 done, 3.10 designed (2026-11-09), and the exit gate gone through (2026-11-10): ready for the PR to `main`, with finance's review and the v3 dry run still open (see Blockers).
-**Branch:** `p3/phase-3`, one branch for the phase like Phase 2: a conventional commit per task, one PR to `main` at the end. It also carries `p2/status-merged`'s STATUS commit, which isn't on `main` yet.
+**Updated:** 2026-11-11
+**Current phase:** Phase 3 merged to `main` 2026-11-11 (PR #5); its finance-review and v3 dry-run exit-gate boxes are still open, see Blockers. Next: Phase 4, Payments I. (Phase 2 merged to `main` 2026-11-04, PR #4; its last exit-gate box, the v3 importer dry run, waits for a v3 export, see Blockers. Phase 1 closed and merged 2026-10-29; Phase 0's clean-machine `make up` check still open, see Notes)
+**Current task:** none; Phase 4 starts with its kickoff.
+**Branch:** `main`. This STATUS commit is on `p3/status-merged` and rides into Phase 4's branch, as `p2/status-merged`'s did into Phase 3's.
 
 ## Done in Phase 3
 - 3.1 `ledger` schema and 3.2 database guards. Your answers of 4 Nov are recorded as OQ-13; the balance-sync deviation is ADR 0010. Like 2.1, there's no service code yet: migrations, starter sqlc queries, one domain rule, and repository tests.
@@ -646,6 +646,15 @@
   - **Finance's review, open:** the worked examples (3.4 and 3.5's golden tests: `TestPurchaseTokens_WorkedExample`, `TestSettlement_WorkedExample`, `TestSettlement_VATExclusive`) and the reversal rules (OQ-18, `internal/ledger/domain/reversals.go`).
   - **v3 dry run, open:** waits for 3.10's build and a v3 export, like Phase 2's.
   - The Phase 3 heading isn't ticked while two boxes are open, as with Phase 2.
+- **Merged to `main`** (2026-11-11): PR #5 `p3/phase-3`, merged with a merge commit at `46760ec` after its CI went green and you confirmed.
+  - **What it carried:** 13 commits: 3.1–3.10, the exit gate, and `p2/status-merged`'s STATUS commit.
+  - **CI:**
+    - Integration took 8m21s, with `identity/app` under the 10-minute default this time;
+    - "End to end" passed but still runs nothing.
+  - **Dev environment:** `main` is merged into `ops/dev-environment`, along with the ledger settings (see "Dev environment").
+  - **Released** to the org repo (`release`'s `main`).
+  - **`p3/phase-3` is deleted.**
+  - **gitleaks across the whole history** (not just the working tree) flags old example tokens in Phase 0–2 commits. They're already marked `gitleaks:allow` in the current files. CI scans only the checked-out commit, so they don't fail it.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1207,12 +1216,9 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. The PR of `p3/phase-3` to `main`; merge only after its CI is green and you confirm it.
-2. After the merge, on `ops/dev-environment`:
-   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
-   - the compose file gains the accounts address;
-   - `docs/api/API.md` is regenerated.
-3. Phase 4 (Payments I, wallet top-ups).
+1. Phase 4 (Payments I, wallet top-ups): its kickoff, on a branch `p4/phase-4` off `main` that also carries `p3/status-merged`.
+2. Redeploy the dev server: `git pull && make dev-up` on `ops/dev-environment`.
+3. Finance's review of Phase 3's worked examples and reversal rules (see Blockers).
 4. 2.11's build and Phase 2's dry-run exit-gate box, once a v3 export or anonymised copy exists (ADR 0009).
 5. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 6. Still open from Phase 0: the clean-machine `make up` M0 check (the real CI run is done, green 2026-10-29).
