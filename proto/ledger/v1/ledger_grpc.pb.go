@@ -19,15 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LedgerService_PostTransaction_FullMethodName  = "/ledger.v1.LedgerService/PostTransaction"
-	LedgerService_PurchaseTokens_FullMethodName   = "/ledger.v1.LedgerService/PurchaseTokens"
-	LedgerService_PlaceHold_FullMethodName        = "/ledger.v1.LedgerService/PlaceHold"
-	LedgerService_CaptureHold_FullMethodName      = "/ledger.v1.LedgerService/CaptureHold"
-	LedgerService_ReleaseHold_FullMethodName      = "/ledger.v1.LedgerService/ReleaseHold"
-	LedgerService_SetAutoBuyRule_FullMethodName   = "/ledger.v1.LedgerService/SetAutoBuyRule"
-	LedgerService_ListAutoBuyRules_FullMethodName = "/ledger.v1.LedgerService/ListAutoBuyRules"
-	LedgerService_RecordPayback_FullMethodName    = "/ledger.v1.LedgerService/RecordPayback"
-	LedgerService_GetBalances_FullMethodName      = "/ledger.v1.LedgerService/GetBalances"
+	LedgerService_PostTransaction_FullMethodName     = "/ledger.v1.LedgerService/PostTransaction"
+	LedgerService_PurchaseTokens_FullMethodName      = "/ledger.v1.LedgerService/PurchaseTokens"
+	LedgerService_PlaceHold_FullMethodName           = "/ledger.v1.LedgerService/PlaceHold"
+	LedgerService_CaptureHold_FullMethodName         = "/ledger.v1.LedgerService/CaptureHold"
+	LedgerService_ReleaseHold_FullMethodName         = "/ledger.v1.LedgerService/ReleaseHold"
+	LedgerService_SetAutoBuyRule_FullMethodName      = "/ledger.v1.LedgerService/SetAutoBuyRule"
+	LedgerService_ListAutoBuyRules_FullMethodName    = "/ledger.v1.LedgerService/ListAutoBuyRules"
+	LedgerService_RecordPayback_FullMethodName       = "/ledger.v1.LedgerService/RecordPayback"
+	LedgerService_GetBalances_FullMethodName         = "/ledger.v1.LedgerService/GetBalances"
+	LedgerService_ListClearingEntries_FullMethodName = "/ledger.v1.LedgerService/ListClearingEntries"
 )
 
 // LedgerServiceClient is the client API for LedgerService service.
@@ -89,6 +90,12 @@ type LedgerServiceClient interface {
 	// no tenant, VASPRO's accounts with balances summed from the journal
 	// (ADR 0010).
 	GetBalances(ctx context.Context, in *GetBalancesRequest, opts ...grpc.CallOption) (*GetBalancesResponse, error)
+	// ListClearingEntries lists the lines on a rail's provider clearing
+	// account posted in [posted_from_unix, posted_to_unix), in entry
+	// order, for payments' daily reconciliation (task 4.6, OQ-22). It reads
+	// client postings' lines too. A page holds at most 1000; pass
+	// next_after_entry_id back as after_entry_id for the next.
+	ListClearingEntries(ctx context.Context, in *ListClearingEntriesRequest, opts ...grpc.CallOption) (*ListClearingEntriesResponse, error)
 }
 
 type ledgerServiceClient struct {
@@ -189,6 +196,16 @@ func (c *ledgerServiceClient) GetBalances(ctx context.Context, in *GetBalancesRe
 	return out, nil
 }
 
+func (c *ledgerServiceClient) ListClearingEntries(ctx context.Context, in *ListClearingEntriesRequest, opts ...grpc.CallOption) (*ListClearingEntriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListClearingEntriesResponse)
+	err := c.cc.Invoke(ctx, LedgerService_ListClearingEntries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LedgerServiceServer is the server API for LedgerService service.
 // All implementations must embed UnimplementedLedgerServiceServer
 // for forward compatibility.
@@ -248,6 +265,12 @@ type LedgerServiceServer interface {
 	// no tenant, VASPRO's accounts with balances summed from the journal
 	// (ADR 0010).
 	GetBalances(context.Context, *GetBalancesRequest) (*GetBalancesResponse, error)
+	// ListClearingEntries lists the lines on a rail's provider clearing
+	// account posted in [posted_from_unix, posted_to_unix), in entry
+	// order, for payments' daily reconciliation (task 4.6, OQ-22). It reads
+	// client postings' lines too. A page holds at most 1000; pass
+	// next_after_entry_id back as after_entry_id for the next.
+	ListClearingEntries(context.Context, *ListClearingEntriesRequest) (*ListClearingEntriesResponse, error)
 	mustEmbedUnimplementedLedgerServiceServer()
 }
 
@@ -284,6 +307,9 @@ func (UnimplementedLedgerServiceServer) RecordPayback(context.Context, *RecordPa
 }
 func (UnimplementedLedgerServiceServer) GetBalances(context.Context, *GetBalancesRequest) (*GetBalancesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBalances not implemented")
+}
+func (UnimplementedLedgerServiceServer) ListClearingEntries(context.Context, *ListClearingEntriesRequest) (*ListClearingEntriesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListClearingEntries not implemented")
 }
 func (UnimplementedLedgerServiceServer) mustEmbedUnimplementedLedgerServiceServer() {}
 func (UnimplementedLedgerServiceServer) testEmbeddedByValue()                       {}
@@ -468,6 +494,24 @@ func _LedgerService_GetBalances_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LedgerService_ListClearingEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListClearingEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).ListClearingEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_ListClearingEntries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).ListClearingEntries(ctx, req.(*ListClearingEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LedgerService_ServiceDesc is the grpc.ServiceDesc for LedgerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -510,6 +554,10 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBalances",
 			Handler:    _LedgerService_GetBalances_Handler,
+		},
+		{
+			MethodName: "ListClearingEntries",
+			Handler:    _LedgerService_ListClearingEntries_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

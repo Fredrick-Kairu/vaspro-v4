@@ -26,4 +26,10 @@ message CheckTenantAccessRequest {
   string permission = 3;
 }
 
-message CheckTenantAccessResponse {}
+message CheckTenantAccessResponse {
+  // The account's country (ISO 3166-1 alpha-2) and default currency
+  // (ISO 4217), so a service can apply the right country pack without
+  // a second call (task 4.3, OQ-22).
+  string country_code = 1;
+  string currency = 2;
+}

@@ -17,10 +17,16 @@ const (
 )
 
 func bodyLimit(r *http.Request) int64 {
-	if isDocumentUpload(r) {
+	if isDocumentUpload(r) || isStatementImport(r) {
 		return uploadBodyLimit
 	}
 	return defaultBodyLimit
+}
+
+// isStatementImport is a paybill statement upload (task 4.6): a busy
+// day's statement is over 1 MB.
+func isStatementImport(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/v1/payments/staff/statement-imports"
 }
 
 func isDocumentUpload(r *http.Request) bool {
@@ -32,7 +38,7 @@ func isDocumentUpload(r *http.Request) bool {
 // generic validation error a cut-off body would get.
 func refuseOversizedUploads(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isDocumentUpload(r) && r.ContentLength > uploadBodyLimit {
+		if (isDocumentUpload(r) || isStatementImport(r)) && r.ContentLength > uploadBodyLimit {
 			problem.Respond(w, r, problem.New(problem.VAL4008, "files are limited to 10 MB"))
 			return
 		}

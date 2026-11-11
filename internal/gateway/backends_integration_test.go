@@ -72,14 +72,16 @@ func (b *recordingBackend) count() int {
 	return len(b.calls)
 }
 
-// newBackendsGateway routes to fake backends. The ledger's is optional:
-// without one, a fresh recording backend stands in for it.
-func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, ledger ...*recordingBackend) http.Handler {
+// newBackendsGateway routes to fake backends. others are the ledger's
+// and payments', in that order, both optional: a fresh recording
+// backend stands in for each one not given.
+func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, others ...*recordingBackend) http.Handler {
 	t.Helper()
 	root := repoRoot(t)
-	if len(ledger) == 0 {
-		ledger = []*recordingBackend{newRecordingBackend(t)}
+	for len(others) < 2 {
+		others = append(others, newRecordingBackend(t))
 	}
+	ledger, payments := others[:1], others[1]
 	cfg := Config{
 		IdentityBaseURL:     identity.URL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
@@ -87,6 +89,8 @@ func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sess
 		AccountsOpenAPIPath: filepath.Join(root, "docs/api/accounts.yaml"),
 		LedgerBaseURL:       ledger[0].URL,
 		LedgerOpenAPIPath:   filepath.Join(root, "docs/api/ledger.yaml"),
+		PaymentsBaseURL:     payments.URL,
+		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, sessions)
 	if err != nil {
@@ -325,4 +329,131 @@ func sendMultipart(t *testing.T, h http.Handler, path, token, docType string, da
 	var decoded map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
 	return rec.Code, decoded
+}
+
+// TestGatewayBackends_Payments: /v1/payments/ (task 4.3) is routed like
+// the ledger: a session is required, the user is forwarded and a
+// spoofed copy replaced, the token isn't forwarded, and payments paths
+// never fall through to identity.
+func TestGatewayBackends_Payments(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	path := "/v1/payments/tenants/" + uuid.NewString() + "/topup-details"
+
+	t.Run("top-up details reach payments with the session's user", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodGet, path,
+			map[string]string{"Authorization": "Bearer sess_good", headerUserID: "33333333-3333-3333-3333-333333333333"}, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := payments.last(t)
+		if req.URL.Path != path || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" || req.Header.Get("Authorization") != "" {
+			t.Fatalf("forwarded %s as %q with auth %q", req.URL.Path, req.Header.Get(headerUserID), req.Header.Get("Authorization"))
+		}
+	})
+	t.Run("no session is 401 and never reaches payments", func(t *testing.T) {
+		before := payments.count()
+		status, body := send(t, gw, http.MethodGet, path, nil, nil)
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || payments.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("payments paths never fall through to identity", func(t *testing.T) {
+		before := identity.count()
+		status, _ := send(t, gw, http.MethodGet, "/v1/payments/not-an-operation", map[string]string{"Authorization": "Bearer sess_good"}, nil)
+		if status == http.StatusOK || identity.count() != before {
+			t.Fatalf("got %d, identity called %d times", status, identity.count()-before)
+		}
+	})
+}
+
+// TestGatewayBackends_PaymentsCallbacks (task 4.4): a rail callback
+// reaches payments with no session and no Idempotency-Key, and every
+// forwarded request carries the address the gateway saw in
+// X-Vaspro-Client-Ip, never one the caller sent.
+func TestGatewayBackends_PaymentsCallbacks(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	const clientIPHeader = "X-Vaspro-Client-Ip"
+
+	callback := "/v1/payments/callbacks/daraja/" + uuid.NewString() + "/" + strings.Repeat("ab", 32) + "/stk"
+	status, body := send(t, gw, http.MethodPost, callback, map[string]string{clientIPHeader: "196.201.214.200"},
+		map[string]any{"Body": map[string]any{"stkCallback": map[string]any{"ResultCode": 0}}})
+	if status != http.StatusOK {
+		t.Fatalf("callback: %d %v", status, body)
+	}
+	req := payments.last(t)
+	if req.URL.Path != callback || req.Header.Get(clientIPHeader) != "192.0.2.1" {
+		t.Fatalf("forwarded %s with client IP %q, want the connection's 192.0.2.1", req.URL.Path, req.Header.Get(clientIPHeader))
+	}
+
+	confirmation := "/v1/payments/callbacks/daraja/" + uuid.NewString() + "/" + strings.Repeat("ab", 32) + "/c2b/confirmation"
+	if status, body := send(t, gw, http.MethodPost, confirmation, nil, map[string]any{"TransID": "RKTQDM7W6S"}); status != http.StatusOK || payments.last(t).URL.Path != confirmation {
+		t.Fatalf("a C2B confirmation (task 4.5): %d %v", status, body)
+	}
+
+	status, _ = send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details",
+		map[string]string{"Authorization": "Bearer sess_good", clientIPHeader: "10.0.0.1"}, nil)
+	if status != http.StatusOK || payments.last(t).Header.Get(clientIPHeader) != "192.0.2.1" {
+		t.Fatalf("a dashboard call: %d, client IP %q", status, payments.last(t).Header.Get(clientIPHeader))
+	}
+}
+
+// TestGatewayBackends_StatementImportLimit (task 4.6): a statement
+// import may carry up to 10 MB, like a document upload; other payments
+// writes keep the 1 MB limit.
+func TestGatewayBackends_StatementImportLimit(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, ledger, payments)
+	headers := map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "si1"}
+	body := func(size int) map[string]any {
+		return map[string]any{"rail_account_id": uuid.NewString(), "date": "2026-11-11", "csv": strings.Repeat("x", size)}
+	}
+	if status, got := send(t, gw, http.MethodPost, "/v1/payments/staff/statement-imports", headers, body(5<<20)); status != http.StatusOK {
+		t.Fatalf("a 5 MB statement: %d %v", status, got)
+	}
+	before := payments.count()
+	headers["Idempotency-Key"] = "si2"
+	if status, got := send(t, gw, http.MethodPost, "/v1/payments/staff/statement-imports", headers, body(12<<20)); status != http.StatusRequestEntityTooLarge || got["code"] != "VAL-4008" || payments.count() != before {
+		t.Fatalf("a 12 MB statement: %d %v", status, got)
+	}
+	headers["Idempotency-Key"] = "si3"
+	big := map[string]any{"account_number": strings.Repeat("x", 2<<20), "reason": "x"}
+	if status, _ := send(t, gw, http.MethodPost, "/v1/payments/staff/collection-notices/"+uuid.NewString()+"/match", headers, big); status == http.StatusOK || payments.count() != before {
+		t.Fatalf("2 MB elsewhere: %d", status)
+	}
+}
+
+// TestGatewayBackends_Checkout (task 4.8): the hosted page and the
+// public checkout API reach payments with no session, the page without
+// spec validation; a client-sent user header is still stripped.
+func TestGatewayBackends_Checkout(t *testing.T) {
+	identity, accounts, ledger, payments := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	gw := newBackendsGateway(t, identity, accounts, fakeSessions{}, ledger, payments)
+	token := "eyJsIjoiMSJ9.c2lnbmF0dXJl" // gitleaks:allow -- a made-up token: base64 of {"l":"1"} and "signature"; the recording backend never checks it
+	spoof := map[string]string{headerUserID: "33333333-3333-3333-3333-333333333333"}
+
+	if status, _ := send(t, gw, http.MethodGet, "/pay/"+token, spoof, nil); status != http.StatusOK {
+		t.Fatalf("the page: %d", status)
+	}
+	if req := payments.last(t); req.URL.Path != "/pay/"+token || req.Header.Get(headerUserID) != "" {
+		t.Fatalf("forwarded %s with user %q", req.URL.Path, req.Header.Get(headerUserID))
+	}
+	if status, _ := send(t, gw, http.MethodGet, "/pay/static/checkout.js", nil, nil); status != http.StatusOK || payments.last(t).URL.Path != "/pay/static/checkout.js" {
+		t.Fatalf("the script: %d", status)
+	}
+	if status, body := send(t, gw, http.MethodGet, "/v1/payments/checkout/"+token, nil, nil); status != http.StatusOK {
+		t.Fatalf("the public API: %d %v", status, body)
+	}
+	if status, body := send(t, gw, http.MethodPost, "/v1/payments/checkout/"+token+"/payments", map[string]string{"Idempotency-Key": "c1"},
+		map[string]any{"payer_phone": "+254708374149"}); status != http.StatusOK {
+		t.Fatalf("a payment: %d %v", status, body)
+	}
+	before := payments.count()
+	if status, _ := send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details", nil, nil); status != http.StatusUnauthorized || payments.count() != before {
+		t.Fatalf("a dashboard route still needs a session: %d", status)
+	}
 }

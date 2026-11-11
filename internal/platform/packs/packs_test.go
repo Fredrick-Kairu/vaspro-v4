@@ -278,3 +278,52 @@ func TestParse_ReversalFinanceLeadThreshold(t *testing.T) {
 		}
 	}
 }
+
+// TestParse_Rails (task 4.3): KE's M-Pesa is its top-up rail; a rail
+// with a capability §7 doesn't list, an unknown kind, or a second top-up
+// rail is refused.
+func TestParse_Rails(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	p, err := packs.Parse(schema, readFile(t, realKEPackPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(p.Rails) != 1 {
+		t.Fatalf("KE rails = %+v, want mpesa_ke only", p.Rails)
+	}
+	r := p.Rails[0]
+	if r.Code != "mpesa_ke" || r.Kind != "mobile_money" || r.Status != "live" || !r.VASPROTopups ||
+		!slices.Contains(r.Capabilities, "stk") || !slices.Contains(r.Capabilities, "c2b") {
+		t.Fatalf("KE rail = %+v", r)
+	}
+	if top, ok := p.TopupRail(); !ok || top.Code != "mpesa_ke" {
+		t.Fatalf("KE top-up rail = %+v, %v", top, ok)
+	}
+
+	base := string(readFile(t, realKEPackPath))
+	if !strings.Contains(base, "    vaspro_topups: true\n") {
+		t.Fatal("KE pack's rail block has changed shape; update this test")
+	}
+	second := strings.Replace(base, "    vaspro_topups: true\n", "    vaspro_topups: true\n  - code: airtel_money_ke\n    kind: mobile_money\n    capabilities: [stk]\n    status: live\n    vaspro_topups: true\n", 1)
+	for name, bad := range map[string]string{
+		"an unknown capability": strings.Replace(base, "capabilities: [stk,", "capabilities: [teleport, stk,", 1),
+		"an unknown kind":       strings.Replace(base, "kind: mobile_money", "kind: pigeon", 1),
+		"an unknown status":     strings.Replace(base, "status: live", "status: someday", 1),
+		"two top-up rails":      second,
+	} {
+		if bad == base {
+			t.Fatalf("%s: the replacement didn't apply", name)
+		}
+		if _, err := packs.Parse(schema, []byte(bad)); err == nil {
+			t.Errorf("%s accepted, want refused", name)
+		}
+	}
+
+	i := strings.Index(base, "\nrails:")
+	without := base[:i]
+	if p, err := packs.Parse(schema, []byte(without)); err != nil || len(p.Rails) != 0 {
+		t.Fatalf("a pack with no rails: %+v, %v", p, err)
+	} else if _, ok := p.TopupRail(); ok {
+		t.Fatal("a pack with no rails has a top-up rail")
+	}
+}

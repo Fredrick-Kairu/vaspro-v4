@@ -115,6 +115,15 @@ func TestCheckTenantAccess(t *testing.T) {
 			}
 		})
 	}
+
+	// Task 4.3: access also tells the caller the account's country and
+	// currency, a sub-account's being its reseller's.
+	for name, id := range map[string]string{"the account": tenant.ID.String(), "its sub-account": sub.ID.String()} {
+		resp, err := client.CheckTenantAccess(ctx, &accountsv1.CheckTenantAccessRequest{UserId: owner.String(), TenantId: id, Permission: "billing:read"})
+		if err != nil || resp.GetCountryCode() != "KE" || resp.GetCurrency() != "KES" {
+			t.Fatalf("%s: %v, %v; want KE and KES", name, resp, err)
+		}
+	}
 }
 
 func ptr[T any](v T) *T { return &v }

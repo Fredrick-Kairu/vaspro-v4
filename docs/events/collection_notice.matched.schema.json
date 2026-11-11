@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/collection_notice.matched.schema.json",
+  "title": "collection_notice.matched",
+  "description": "Published by payments when staff match a payment in suspense to a client (task 4.5, OQ-22's addition to data model §7). The ledger then moves it out of suspense into the client's main wallet and publishes wallet.credited. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["notice_id", "tenant_id", "rail_account_id", "receipt", "amount_minor", "currency", "account_number", "matched_by", "reason"],
+  "properties": {
+    "notice_id": {"type": "string", "format": "uuid"},
+    "tenant_id": {"type": "string", "format": "uuid", "description": "The client credited."},
+    "rail_account_id": {"type": "string", "format": "uuid"},
+    "receipt": {"type": "string", "minLength": 1},
+    "amount_minor": {"type": "integer", "minimum": 1},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "account_number": {"type": "string", "description": "The client's account number the staff member named."},
+    "matched_by": {"type": "string", "format": "uuid", "description": "The staff member."},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

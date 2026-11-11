@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/topup.unmatched.schema.json",
+  "title": "topup.unmatched",
+  "description": "Published by payments when a payment to VASPRO's paybill names no client (data model §7; task 4.5): the account number is blank, mistyped, or no client's. The money goes to suspense in the ledger until staff match it. No payer data is carried. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["notice_id", "rail_account_id", "receipt", "amount_minor", "currency", "paid_at"],
+  "properties": {
+    "notice_id": {"type": "string", "format": "uuid"},
+    "rail_account_id": {"type": "string", "format": "uuid"},
+    "receipt": {"type": "string", "minLength": 1},
+    "amount_minor": {"type": "integer", "minimum": 1},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "paid_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay {{.Payee}}</title>
+<link rel="stylesheet" href="/pay/static/checkout.css">
+</head>
+<body>
+<main id="checkout" data-token="{{.Token}}" data-status="{{.Status}}">
+{{if .Problem}}
+  <h1>{{.Problem}}</h1>
+  <p>Ask whoever sent you this link for a new one.</p>
+{{else}}
+  <h1>Pay {{.AmountText}}</h1>
+  <p>To <strong>{{.Payee}}</strong>, account <strong>{{.AccountReference}}</strong>, by M-Pesa.</p>
+  {{if eq .Status "open"}}
+  <form id="pay">
+    <label for="phone">Your M-Pesa number</label>
+    <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+2547XXXXXXXX" required>
+    <button type="submit">Send the payment prompt</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  {{else if eq .Status "paid"}}
+  <p id="status" role="status">This link has been paid. Thank you.</p>
+  {{else}}
+  <p id="status" role="status">This link has expired.</p>
+  {{end}}
+{{end}}
+</main>
+<script src="/pay/static/checkout.js"></script>
+</body>
+</html>

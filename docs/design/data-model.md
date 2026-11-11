@@ -1373,6 +1373,47 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 -- Plus the shared outbox_events, idempotency_keys and processed_events tables.
 ```
 
+> **Agreed for Phase 4 (11 Nov 2026, OQ-22), built from task 4.1.** Additions to the schema above:
+> - **`payments.topup_accounts`** (`tenant_id`, `rail_account_id`, `account_number`, unique per rail account): each client's account number on VASPRO's paybill, 8 characters with 2 check characters.
+> - **`payments.stk_callbacks`**: every STK result callback, unique by `CheckoutRequestID`, so a repeat is ignored even for a failure (which has no receipt), and one that arrives before the intent's `rail_request_id` is saved waits here until it is.
+> - **`recon_exceptions.kind`** gains `ledger_mismatch`: a notice with no provider-clearing entry, or an entry with no notice.
+> - **Roles:** NOLOGIN `payments_system` (rows with no tenant: VASPRO's paybill, its credentials, unmatched notices) and `payments_operations` (staff: suspense and reconciliation), both `WITH INHERIT FALSE`, used only through `WithRoleTx`.
+> - **Callbacks** are checked by source (Safaricom's published ranges) and a path token, HMAC(secret, rail account ID), since Daraja doesn't sign them.
+> - **Events** besides those below: `collection_notice.matched` (a staff match from suspense) and `recon.statement_imported`.
+>
+> **Built in task 4.1 (11 Nov 2026).** Phase 4's tables only; payment links, payouts, batches, beneficiaries and provider floats come with Phase 13. Further additions:
+> - **CHECKs:** `rails.capabilities` within §7's list; `rail_accounts.uses` non-empty and within its three names, `vaspro_topups` only with no tenant, `active` only once `verified_at` is set; a credential is `retired` exactly when it has `retired_at`; an intent's currency is three capitals, an STK push has a phone, an invoice or link payment names it, `succeeded` has a receipt, `failed` an error code, a final status (`succeeded`, `failed`, `expired`, `cancelled`) exactly when `completed_at` is set, and it expires after it's created; a notice's amount is positive, a client's own collection is owned and unmatched, a match names its client, suspense has no client, and a notice is never both owned and matched; a statement period ends after it starts; statement lines have non-negative amounts and name what they matched exactly when matched; an exception is open exactly when it has no resolution, resolver or time.
+> - **Indexes:** a unique `(rail_account_id, rail_request_id)` on intents, for callbacks; the suspense queue on notices; unapplied STK callbacks.
+> - **Grants:** the service role `payments_service` updates only named columns (an intent's status and rail results, a notice's match and ledger posting, a credential's retirement, an account's verification and balance), so an amount, receipt, tenant or ciphertext is never rewritten, and deletes nothing but idempotency keys. `payments_operations` has no grant on credentials.
+> - **RLS:** standard on intents and account numbers (with reads across tenants for `payments_system` and staff); `rail_accounts` like the ledger's accounts (a tenant reads its own and VASPRO's); credentials own-only, VASPRO's for `payments_system` alone; notices by `tenant_id` or `matched_tenant_id`, a tenant inserting only a top-up matched to itself, VASPRO's paybill rows for `payments_system`; statements and exceptions own-only, VASPRO's for `payments_system`, all readable by staff, who resolve exceptions; statement lines follow their import; STK callbacks `payments_system` only.
+>
+> **Built in task 4.3 (11 Nov 2026, OQ-22).** No schema change.
+> - **Rails** mirror the country packs' new `rails` block at startup; one the packs no longer list is retired, never deleted.
+> - **Credentials** of VASPRO's paybill are entered by staff through the ops CLI (`vaspro payments`), `created_by` the staff member found by email. Storing one retires the one it replaces **and returns an active account to `pending_verification`** until a test call (a fresh OAuth fetch) works again with the new set; only then is it `active` (`rail_account.verified`).
+> - **Account numbers** are issued on first use: 6 random characters and 2 check characters (Σ (i+1)·vᵢ mod 1021), which catch every single-character typo and every swap of neighbours. Only an active paybill is ever offered.
+>
+> **Built in task 4.4 (11 Nov 2026, OQ-22).** No schema change.
+> - **STK top-ups:** the intent is recorded `created` before the push and `pending` with the `CheckoutRequestID` after it. A callback is recorded in `stk_callbacks` first and applied once the intent is found, so one that beats the push's response isn't lost.
+> - **A confirmed payment** becomes a `matched` notice (the rail's amount, not the intent's) and one ledger `topup`, keyed `topup:<notice id>` and referencing the notice.
+> - **Exceptions about a client's top-up** (`amount_mismatch`, `status_mismatch`) carry that client's `tenant_id` and reference the intent; reconciliation's own exceptions on VASPRO's paybill (4.6) have none.
+> - **A success after a reported failure or expiry** is still credited, and flagged. **A payment reported only by STK query** (no receipt, no amount) is never credited: it's flagged once and waits for a confirmation.
+>
+> **Built in task 4.5 (11 Nov 2026, OQ-22).** Migration `20261111100000_suspense.sql` adds **`collection_notices.suspense_transaction_id`**, the ledger posting that put an unmatched payment into suspense. `ledger_transaction_id` stays the posting that credited a client's wallet.
+> - **Paybill payments:** a valid, issued account number credits that client's main wallet (Dr provider clearing, Cr main wallet, key `topup:<notice>`). Anything else (blank, mistyped, unissued) is a `suspense` notice and a system posting into suspense (Dr provider clearing, Cr `suspense`, key `suspense:<notice>`), with `topup.unmatched`.
+> - **Staff matching:** staff name the client's account number; with staff role and a fresh step-up, the notice is locked and moved out of suspense once, and only after its suspense posting exists (Dr `suspense`, Cr main wallet, key `match:<notice>`), with `collection_notice.matched`. Every posting is type `topup` and references the notice.
+>
+> **Built in task 4.6 (11 Nov 2026, OQ-22).** No schema change.
+> - **A statement import** covers one local day of one VASPRO paybill (`period_start`/`period_end`, the rail's country's day), imported once.
+> - **Matching:** every completed payment in on the statement is matched by receipt to a notice (`matched_type` `collection_notice`); every notice of the day must be on it.
+> - **The ledger check is by reference:** each notice must have exactly its amount debited to provider clearing; every clearing debit posted in the day must be a notice's. The ledger's `ListClearingEntries` serves it, read as `ledger_audit`.
+> - **Exceptions:** each gap is an exception with no tenant (`missing_in_vaspro`, `missing_on_rail`, `amount_mismatch`, `duplicate`, `ledger_mismatch`), each with `recon.exception_opened`. Money out (withdrawals, pay-backs) is recorded and left to Phase 13.
+> - **`recon.statement_missing`** (an addition) reports a day with no import by the due time the next day, once.
+>
+> **Built in task 4.8 (11 Nov 2026, OQ-22).** No schema change.
+> - **Checkout links** for top-ups are stateless: a signed token (HMAC-SHA256 under the checkout secret) carries the link ID, tenant, amount, currency and expiry.
+> - **A link's payments are its state:** they're intents of purpose `wallet_topup` with `payment_link_id` set to the link ID. Paid means one succeeded; five attempts is the cap.
+> - `payment_links` (above) stays Phase 13's: clients' own pay pages for their customers.
+
 **Where the money goes**
 
 | Flow | Rail account | Ledger |

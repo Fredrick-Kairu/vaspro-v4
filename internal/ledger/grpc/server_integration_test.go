@@ -358,3 +358,80 @@ func TestLedgerService_RecordPayback(t *testing.T) {
 	_, err = client.RecordPayback(ctx, &ledgerv1.RecordPaybackRequest{TenantId: tenant, ReversalId: "x"})
 	wantStatus(t, err, codes.InvalidArgument, "VAL-4000")
 }
+
+// TestLedgerService_ListClearingEntries (task 4.6): a rail's provider
+// clearing lines in a window, client and system postings alike, with
+// their references, paged; another rail or currency, and lines outside
+// the window, aren't listed.
+func TestLedgerService_ListClearingEntries(t *testing.T) {
+	client := newClient(t)
+	ctx := context.Background()
+	tenant := uuid.NewString()
+	suspenseKES := &ledgerv1.AccountRef{Type: "suspense", Currency: "KES"}
+	sandboxKES := &ledgerv1.AccountRef{Type: "provider_clearing", Rail: "sandbox", Currency: "KES"}
+
+	notice1, notice2 := uuid.NewString(), uuid.NewString()
+	direct := posting("topup", line(mpesaKES, "D", 150000), line(mainKES, "C", 150000))
+	direct.ReferenceType, direct.ReferenceId = "collection_notice", notice1
+	if _, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant, Posting: direct}); err != nil {
+		t.Fatal(err)
+	}
+	toSuspense := posting("topup", line(mpesaKES, "D", 50000), line(suspenseKES, "C", 50000))
+	toSuspense.ReferenceType, toSuspense.ReferenceId = "collection_notice", notice2
+	sys, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{Posting: toSuspense})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.PostTransaction(ctx, &ledgerv1.PostTransactionRequest{TenantId: tenant,
+		Posting: posting("topup", line(sandboxKES, "D", 999), line(mainKES, "C", 999))}); err != nil {
+		t.Fatal(err)
+	}
+
+	from, to := time.Now().Add(-time.Hour).Unix(), time.Now().Add(time.Hour).Unix()
+	req := &ledgerv1.ListClearingEntriesRequest{Rail: "mpesa_ke", Currency: "KES", PostedFromUnix: from, PostedToUnix: to}
+	all, err := client.ListClearingEntries(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := all.GetEntries()
+	if len(got) != 2 || all.GetNextAfterEntryId() != 0 {
+		t.Fatalf("entries %+v next %d, want the two mpesa_ke lines", got, all.GetNextAfterEntryId())
+	}
+	if got[0].GetDirection() != "D" || got[0].GetAmountMinor() != 150000 || got[0].GetReferenceType() != "collection_notice" ||
+		got[0].GetReferenceId() != notice1 || got[0].GetPostedAtUnix() < from || got[0].GetTransactionId() == "" {
+		t.Fatalf("the client posting's line: %+v", got[0])
+	}
+	if got[1].GetReferenceId() != notice2 || got[1].GetTransactionId() != sys.GetTransactionId() || got[1].GetEntryId() <= got[0].GetEntryId() {
+		t.Fatalf("the system posting's line: %+v", got[1])
+	}
+
+	req.Limit = 1
+	page, err := client.ListClearingEntries(ctx, req)
+	if err != nil || len(page.GetEntries()) != 1 || page.GetNextAfterEntryId() != got[0].GetEntryId() {
+		t.Fatalf("first page: %+v %v", page, err)
+	}
+	req.AfterEntryId = page.GetNextAfterEntryId()
+	page, err = client.ListClearingEntries(ctx, req)
+	if err != nil || len(page.GetEntries()) != 1 || page.GetEntries()[0].GetReferenceId() != notice2 {
+		t.Fatalf("second page: %+v %v", page, err)
+	}
+
+	for name, r := range map[string]*ledgerv1.ListClearingEntriesRequest{
+		"another currency":  {Rail: "mpesa_ke", Currency: "UGX", PostedFromUnix: from, PostedToUnix: to},
+		"another rail":      {Rail: "airtel_money_ke", Currency: "KES", PostedFromUnix: from, PostedToUnix: to},
+		"an earlier window": {Rail: "mpesa_ke", Currency: "KES", PostedFromUnix: from - 7200, PostedToUnix: from},
+	} {
+		if res, err := client.ListClearingEntries(ctx, r); err != nil || len(res.GetEntries()) != 0 {
+			t.Errorf("%s: %+v %v", name, res, err)
+		}
+	}
+	for name, r := range map[string]*ledgerv1.ListClearingEntriesRequest{
+		"no rail":          {Currency: "KES", PostedFromUnix: from, PostedToUnix: to},
+		"an empty window":  {Rail: "mpesa_ke", Currency: "KES", PostedFromUnix: to, PostedToUnix: from},
+		"too large a page": {Rail: "mpesa_ke", Currency: "KES", PostedFromUnix: from, PostedToUnix: to, Limit: 1001},
+	} {
+		if _, err := client.ListClearingEntries(ctx, r); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%s: %v, want InvalidArgument", name, err)
+		}
+	}
+}

@@ -19,7 +19,7 @@ import (
 // AccessChecker is the use case this API exposes:
 // app.Service.CheckAccess, the same rule accounts' own routes apply.
 type AccessChecker interface {
-	CheckAccess(ctx context.Context, userID, tenantID uuid.UUID, permission string) error
+	CheckAccess(ctx context.Context, userID, tenantID uuid.UUID, permission string) (app.TenantAccess, error)
 }
 
 // Server implements accountsv1.AccountsServiceServer.
@@ -48,7 +48,8 @@ func (s *Server) CheckTenantAccess(ctx context.Context, req *accountsv1.CheckTen
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id must be a UUID")
 	}
-	switch err := s.access.CheckAccess(ctx, userID, tenantID, req.GetPermission()); {
+	access, err := s.access.CheckAccess(ctx, userID, tenantID, req.GetPermission())
+	switch {
 	case err == nil:
 	case errors.Is(err, app.ErrNotFound):
 		return nil, status.Error(codes.NotFound, "no access to this account")
@@ -59,5 +60,5 @@ func (s *Server) CheckTenantAccess(ctx context.Context, req *accountsv1.CheckTen
 	default:
 		return nil, status.Error(codes.Internal, "checking access failed")
 	}
-	return &accountsv1.CheckTenantAccessResponse{}, nil
+	return &accountsv1.CheckTenantAccessResponse{CountryCode: access.CountryCode, Currency: access.Currency}, nil
 }

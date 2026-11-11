@@ -183,7 +183,7 @@ func TestPermissionsOnAccountsAndSubAccounts(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				err := h.svc.CheckAccess(ctx, tc.user, tc.tenant, tc.perm)
+				_, err := h.svc.CheckAccess(ctx, tc.user, tc.tenant, tc.perm)
 				if !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
 					t.Fatalf("got %v, want %v", err, tc.want)
 				}
