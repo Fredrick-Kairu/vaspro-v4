@@ -1,9 +1,9 @@
 # Build status
 
-**Updated:** 2026-11-11
-**Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** Phase 4's tasks are done (2026-11-11): 4.1–4.6 and 4.8, with 4.7 (Airtel) deferred. Next: the PR of `p4/phase-4` to `main`.
-**Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
+**Updated:** 2026-11-12
+**Current phase:** Phase 5: Webhooks, events and reporting, not started. Phase 4 merged to `main` 2026-11-11 (PR #7, `f4cd4b7`); its "real Daraja sandbox top-up on staging" exit-gate box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
+**Current task:** none yet. Next: plan Phase 5 (its ROADMAP section and the design sections it lists).
+**Branch:** `p5/phase-5`, one branch for the phase like Phases 3 and 4. This STATUS update is its first commit, so it reaches `main` with Phase 5's PR, not a PR of its own.
 
 ## Phase 4 plan (agreed 2026-11-11)
 Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adapter (4.2) come first, as the kickoff asks, because they need no schema.
@@ -27,6 +27,13 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
 - STK amounts in whole shillings.
 
 ## Done in Phase 4
+- **Merged to `main`** (2026-11-11):
+  - **PR #6** `p3/go-1.26.11` (merge `036b0b9`): Go 1.26.11 for GO-2026-6859, below.
+  - **PR #7** `p4/phase-4` (merge `f4cd4b7`): the seven task commits, the merge of `main` and the STATUS note.
+  - Each was merged after its CI was green on its head commit, with your confirmation.
+  - `p3/go-1.26.11` is deleted; `p4/phase-4` is deleted when Phase 5 is first pushed (your call).
+- **On the dev environment** (2026-11-11): `main` merged into `ops/dev-environment` and payments added to the stack (that branch's STATUS has the details). It's live on the dev server.
+  - Payments takes no M-Pesa money there yet: VASPRO's paybill needs Daraja sandbox credentials, and `PAYMENTS_DARAJA_CALLBACK_CIDRS` needs Safaricom's published ranges.
 - **Go 1.26.11** (2026-11-11, before the Phase 4 PR). CI's Security job had failed on `main` since Phase 3 merged: govulncheck reported GO-2026-6859 (an HTTP/1 server crash from a `MaxBytesReader` header race in `net/http`, fixed in go1.26.11), published between #5's passing PR run and its merge. gitleaks and trivy, later steps in the same job, were skipped behind it.
   - `go.mod` `go 1.26.10` → `go 1.26.11` (CI reads its Go version from it); PR #6, merged `036b0b9`, then `main` merged into `p4/phase-4`.
   - Checked: govulncheck v1.9.0 finds nothing the code calls; `make check` green (71 packages fresh); #6's CI green, the Security job's gitleaks included.
@@ -1839,13 +1846,10 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. The PR of `p4/phase-4` to `main`, merged only after CI is green and you confirm.
-2. Add the `DARAJA_SANDBOX_*` secrets; the exit gate's sandbox-on-staging box waits for staging (Phase 8).
-3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
-4. Still from Phase 3, on `ops/dev-environment`:
-   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
-   - the compose file gains the accounts address;
-   - `docs/api/API.md` is regenerated.
+1. Plan Phase 5 (Webhooks, events and reporting) on `p5/phase-5`. When it's first pushed, delete `p4/phase-4` (`git branch -d p4/phase-4 && git push origin --delete p4/phase-4`).
+2. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you); the exit gate's sandbox-on-staging box waits for staging (Phase 8).
+3. On the dev server, for M-Pesa top-ups: set up VASPRO's paybill with sandbox credentials (runbook "Payments") and set `PAYMENTS_DARAJA_CALLBACK_CIDRS` to Safaricom's published ranges.
+4. Keep `ops/dev-environment` current after each merge to `main`: `env.example` and the compose file for new settings, `API.md` regenerated.
 5. 2.11's and 3.10's builds once a v3 export exists; finance's review of Phase 3.
 6. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 7. Still open from Phase 0: the clean-machine `make up` M0 check.
