@@ -1,9 +1,26 @@
 # Build status
 
 **Updated:** 2026-11-12
-**Current phase:** Phase 5: Webhooks, events and reporting, not started. Phase 4 merged to `main` 2026-11-11 (PR #7, `f4cd4b7`); its "real Daraja sandbox top-up on staging" exit-gate box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
-**Current task:** none yet. Next: plan Phase 5 (its ROADMAP section and the design sections it lists).
+**Current phase:** Phase 5: Webhooks, events and reporting, planned 2026-11-12. Phase 4 merged to `main` 2026-11-11 (PR #7, `f4cd4b7`); its "real Daraja sandbox top-up on staging" exit-gate box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
+**Current task:** none. Phase 5's plan is agreed (below, OQ-23); next is 5.0, the webhooks section of the data model.
 **Branch:** `p5/phase-5`, one branch for the phase like Phases 3 and 4. This STATUS update is its first commit, so it reaches `main` with Phase 5's PR, not a PR of its own.
+
+## Phase 5 plan (agreed 2026-11-12)
+Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 drafts its webhooks section first. The order changed from ROADMAP: the signer (5.3) and the snippets (5.7) come before endpoints, because they depend only on each other.
+
+| # | Task | Tests first |
+|---|---|---|
+| 5.0 | Data model: the webhooks section (tables, events, open points); ROADMAP A2 marked done for webhooks only; `x-vaspro-webhook` on the client-facing schemas | a schema test: every `docs/events/` schema says whether it's sent to clients |
+| 5.1 | `webhooks` migration: endpoints, endpoint secrets (sealed), subscriptions, deliveries (exact body bytes, lease, `replay_of`), delivery attempts; outbox, processed events, idempotency keys; roles; sqlc | goose round trip; RLS on every client table; every CHECK and key (one delivery per endpoint and event, replays excepted); column-limited updates; no deletes |
+| 5.3 | Signer (`domain/signature.go`): `v1=` HMAC-SHA256 over `timestamp.body`, both signatures during a rotation | round trip; any changed byte of body, timestamp or secret refused; stale and future timestamps; rotation |
+| 5.7 | Snippets in Go, PHP, Node and Python (`docs/webhooks/verify/`) | golden vectors from our signer, checked by each language in its official Docker image (`make test-contract`) |
+| 5.2 | Endpoints: `credentials:manage` + step-up; `whsec_…` shown once; the verification challenge; rotation with 24h overlap; HTTPS, no private addresses (checked at connect), no redirects; VAL-4018, VAL-4019 | echo verifies, wrong echo/timeout/500 don't; each refused URL kind, including DNS resolving to loopback; both secrets during rotation, only the new after 24h; no secret in rows or logs; Viewer, stranger, stale step-up refused |
+| 5.4 | Consumer (the four services' streams, `processed_events`, deliveries for matching active endpoints in one transaction) and worker (`SKIP LOCKED` lease, bounded pool, per-endpoint cap, 10s timeout, 2xx only); 10 retries then dead; disabled after 72h failing, with `webhook_endpoint.disabled`; replay | 500 then 200 succeeds once at the configured gaps; **a slow endpoint times out while another's 50 deliveries go through**; a redelivered event makes no second delivery; two workers never send one attempt; dead after the last; disabled at 72h, reset by a success; **a replay has the same ID and body**; internal and other tenants' events never sent; redirects not followed |
+| 5.5 | Delivery log API under `/v1/webhooks/tenants/{tenantId}/` (endpoints, verify, rotate, test event, deliveries with filters and cursor, attempts, replay, re-enable); `GATEWAY_WEBHOOKS_BASE_URL` | spec-driven tenant test; every attempt shown with its response; gateway routing |
+| 5.6 | ClickHouse: `clickhouse-go/v2`, `testkit.StartClickHouse`, goose migrations in `migrations/clickhouse/`; events table (ReplacingMergeTree on event ID); batched sink acknowledging after insert; daily activity, top-ups by rail, events per type; `getDailyActivity` | **the same event twice counted once**, before and after a merge; reports on a fixed event set; tenant isolation |
+| Gate | Gateway e2e with real accounts, ledger, payments and webhooks | KYC pass, dev top-up, token purchase and an STK top-up reach a test endpoint, verified by the Go snippet; the log shows every attempt |
+
+**Not in Phase 5:** separate sandbox and live endpoints (Phase 8); retention of attempt bodies (30 days proposed); the portal inspector (8.4); email or SMS for a disabled endpoint (Phase 16); ordering guarantees (clients deduplicate by `id`).
 
 ## Phase 4 plan (agreed 2026-11-11)
 Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adapter (4.2) come first, as the kickoff asks, because they need no schema.
@@ -1846,7 +1863,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Plan Phase 5 (Webhooks, events and reporting) on `p5/phase-5`. When it's first pushed, delete `p4/phase-4` (`git branch -d p4/phase-4 && git push origin --delete p4/phase-4`).
+1. Phase 5 task 5.0 (the webhooks section of the data model) on `p5/phase-5`. When the branch is first pushed, delete `p4/phase-4` (`git branch -d p4/phase-4 && git push origin --delete p4/phase-4`).
 2. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you); the exit gate's sandbox-on-staging box waits for staging (Phase 8).
 3. On the dev server, for M-Pesa top-ups: set up VASPRO's paybill with sandbox credentials (runbook "Payments") and set `PAYMENTS_DARAJA_CALLBACK_CIDRS` to Safaricom's published ranges.
 4. Keep `ops/dev-environment` current after each merge to `main`: `env.example` and the compose file for new settings, `API.md` regenerated.
