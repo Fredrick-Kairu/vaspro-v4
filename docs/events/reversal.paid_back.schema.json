@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.vaspro.io/events/reversal.paid_back.schema.json",
   "title": "reversal.paid_back",
+  "x-vaspro-webhook": true,
   "description": "Published by the ledger when the rail reports a reversal's pay-back succeeded (task 3.7; Payments reports it from Phase 13). The pay-back posting moves the money from reversal clearing to the rail's provider clearing. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
   "type": "object",
   "required": [

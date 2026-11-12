@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.vaspro.io/events/collection_notice.matched.schema.json",
   "title": "collection_notice.matched",
+  "x-vaspro-webhook": true,
   "description": "Published by payments when staff match a payment in suspense to a client (task 4.5, OQ-22's addition to data model §7). The ledger then moves it out of suspense into the client's main wallet and publishes wallet.credited. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
   "type": "object",
   "required": ["notice_id", "tenant_id", "rail_account_id", "receipt", "amount_minor", "currency", "account_number", "matched_by", "reason"],

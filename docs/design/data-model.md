@@ -92,7 +92,7 @@ Each of the 14 services owns one schema; only high-volume event data and short-l
 | Verify and lookup | `verify` | Verifications, lookups | Redis | Part 4 |
 | Journeys and AI agents | `journeys` | Flows, runs, conversations | — | Part 4 |
 | Surveys and rewards | `surveys` | Surveys, questions, responses, incentives | — | Part 4 |
-| Webhooks and reporting | `webhooks` | Endpoints, deliveries | ClickHouse: reports | Part 4 |
+| Webhooks and reporting | `webhooks` | Endpoints, deliveries | ClickHouse: reports | Part 4 (section 8) |
 | Monitoring and alerting | `monitoring` | Rules, incidents, notifications | Prometheus, ClickHouse | Part 4 |
 
 ## 3. Identity and access (`identity`)
@@ -1464,13 +1464,188 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 | utilities\_transactions | payouts with kind airtime, data or bill |  |
 | utility\_provider\_float | provider\_floats |  |
 
-## 8. Next parts and open points
+## 8. Webhooks and reporting (webhooks)
+
+> **Drafted for Phase 5 (12 Nov 2026, OQ-23)** from the plan agreed for that phase, ahead of the rest of Part 4. To be reviewed with Phase 5's pull request.
+
+Webhooks turns the events every service already publishes into signed HTTP calls to the client's own endpoints, and copies every event into ClickHouse for reports. It reads only the event bus, never another service's schema. Each event is sent at least once and may arrive more than once or out of order, so clients deduplicate by the event ID and order by `occurred_at`.
+
+**Which events reach clients.** Each schema in `docs/events/` says whether it is sent to clients (`"x-vaspro-webhook": true` or `false`), and a contract test fails if one doesn't say. An event sent to clients must carry `tenant_id`: it goes only to that client's endpoints. Events with no client, and those for staff and operations (reconciliation, the nightly rebuild, rail accounts, reversal requests and decisions, suspense), stay internal. The payload is the event's `data` as published.
+
+```sql
+CREATE SCHEMA webhooks;
+
+CREATE TABLE webhooks.endpoints (
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL,
+  url              text NOT NULL,            -- https; the address is checked again at every connection
+  description      text,
+  status           text NOT NULL DEFAULT 'pending_verification'
+                   CHECK (status IN ('pending_verification', 'active', 'disabled')),
+  verified_at      timestamptz,              -- the last passed challenge; cleared when the URL changes
+  failing_since    timestamptz,              -- the first failed attempt since the last success; NULL when healthy
+  disabled_at      timestamptz,
+  disabled_reason  text CHECK (disabled_reason IN ('failing', 'client')),
+  created_by       uuid NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  deleted_at       timestamptz,              -- kept so the delivery log still names it
+  version          int NOT NULL DEFAULT 1,
+  CHECK (status <> 'active' OR verified_at IS NOT NULL),
+  CHECK ((status = 'disabled') = (disabled_at IS NOT NULL)),
+  CHECK ((status = 'disabled') = (disabled_reason IS NOT NULL))
+);
+CREATE INDEX endpoints_tenant ON webhooks.endpoints (tenant_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE webhooks.endpoint_secrets (
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL,
+  endpoint_id  uuid NOT NULL REFERENCES webhooks.endpoints,
+  ciphertext   bytea NOT NULL,               -- platform/crypto.Envelope: signing needs the secret back, so not a hash
+  kms_key_id   text NOT NULL,
+  fingerprint  bytea NOT NULL,               -- HMAC of the secret under a separate key, to recognise it without decrypting
+  created_by   uuid NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz                   -- NULL while current; rotation sets it 24 hours ahead
+);
+CREATE UNIQUE INDEX endpoint_secrets_current ON webhooks.endpoint_secrets (endpoint_id) WHERE expires_at IS NULL;
+
+CREATE TABLE webhooks.subscriptions (
+  tenant_id    uuid NOT NULL,
+  endpoint_id  uuid NOT NULL REFERENCES webhooks.endpoints,
+  event_type   text NOT NULL,                -- an event sent to clients, or '*' for all of them
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (endpoint_id, event_type)
+);
+
+CREATE TABLE webhooks.deliveries (
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL,
+  endpoint_id      uuid NOT NULL REFERENCES webhooks.endpoints,
+  event_id         uuid NOT NULL,            -- the bus event's ID, sent as Vaspro-Webhook-Id
+  event_type       text NOT NULL,
+  occurred_at      timestamptz NOT NULL,
+  body             bytea NOT NULL,           -- the exact bytes sent; every attempt and every replay sends them again
+  status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'dead')),
+  dead_reason      text CHECK (dead_reason IN ('attempts_exhausted', 'endpoint_disabled', 'endpoint_deleted')),
+  attempts         int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at  timestamptz,
+  leased_until     timestamptz,              -- a worker's claim; an expired lease is claimed again
+  replay_of        uuid REFERENCES webhooks.deliveries,
+  replayed_by      uuid,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  completed_at     timestamptz,
+  CHECK ((status = 'pending') = (next_attempt_at IS NOT NULL)),
+  CHECK ((status = 'pending') = (completed_at IS NULL)),
+  CHECK ((status = 'dead') = (dead_reason IS NOT NULL)),
+  CHECK ((replay_of IS NULL) = (replayed_by IS NULL))
+);
+CREATE UNIQUE INDEX deliveries_once ON webhooks.deliveries (endpoint_id, event_id) WHERE replay_of IS NULL;
+CREATE INDEX deliveries_due ON webhooks.deliveries (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX deliveries_log ON webhooks.deliveries (tenant_id, created_at DESC, id DESC);
+CREATE INDEX deliveries_event ON webhooks.deliveries (tenant_id, event_id);
+
+CREATE TABLE webhooks.delivery_attempts (
+  id                  uuid PRIMARY KEY,
+  tenant_id           uuid NOT NULL,
+  delivery_id         uuid NOT NULL REFERENCES webhooks.deliveries,
+  attempt             int NOT NULL CHECK (attempt >= 1),
+  started_at          timestamptz NOT NULL,
+  duration_ms         int NOT NULL CHECK (duration_ms >= 0),
+  request_headers     jsonb NOT NULL,        -- as sent, signature included; never the secret
+  outcome             text NOT NULL CHECK (outcome IN ('succeeded', 'http_status', 'timeout', 'connect', 'tls', 'refused_url')),
+  response_status     int,
+  response_headers    jsonb,
+  response_body       bytea CHECK (octet_length(response_body) <= 4096),  -- the first 4 KB
+  response_truncated  boolean NOT NULL DEFAULT false,
+  error               text,                  -- what went wrong when there was no response
+  UNIQUE (delivery_id, attempt),
+  CHECK ((outcome IN ('succeeded', 'http_status')) = (response_status IS NOT NULL)),
+  CHECK (outcome <> 'succeeded' OR response_status BETWEEN 200 AND 299),
+  CHECK (outcome <> 'http_status' OR response_status NOT BETWEEN 200 AND 299)
+);
+```
+
+Plus `outbox_events`, `idempotency_keys` and `processed_events` (webhooks consumes every service's events). The standard tenant policy goes on all five tables. A `webhooks_system` role (NOLOGIN, granted `WITH INHERIT FALSE`, used only through `WithRoleTx`) lets the delivery worker claim due deliveries, read their endpoints and secrets, and record attempts across clients. Updates are limited to status, scheduling and lease columns. Nothing is deleted except subscriptions and idempotency keys: a deleted endpoint keeps its row and log.
+
+**Endpoints**
+
+- **Who:** creating an endpoint, changing its URL and rotating its secret need `credentials:manage` and a fresh step-up (system design §3 lists changing callback URLs). Reading needs `credentials:read`.
+- **Secret:** `whsec_` plus 32 random bytes, shown once when the endpoint is created or rotated. On rotation the old secret stays valid for 24 hours and both signatures are sent. Rotating again inside those 24 hours expires the older one at once, so no more than two are ever valid.
+- **Verification:** VASPRO POSTs a signed `webhook.verification` body with a random `challenge`. The endpoint must answer 2xx within 10 seconds with `{"challenge": "<the same value>"}`. Until it does, the endpoint is `pending_verification` and receives nothing. A new URL, or re-enabling a disabled endpoint, needs the challenge again. A failure is VAL-4018.
+- **Allowed URLs:** `https` only, with no user information in the URL. Every connection (the challenge included) refuses private, loopback, link-local, multicast and cloud-metadata addresses after DNS resolution, so a name that later resolves inward is still refused. Redirects are never followed. A refused URL is VAL-4019. Plain `http` and private addresses are allowed only behind a development and test setting.
+
+**Signature**
+
+Every request carries:
+
+| Header | Value |
+| --- | --- |
+| `Vaspro-Webhook-Id` | The event ID; the same on every attempt and every replay |
+| `Vaspro-Webhook-Timestamp` | Unix seconds when this attempt was signed |
+| `Vaspro-Webhook-Signature` | `v1=` and the hex HMAC-SHA256, under the endpoint's secret, of the timestamp, a full stop and the body. During a rotation, two such values separated by a space |
+
+The body is the event envelope without its trace ID: `{"id", "type", "version", "tenant_id", "occurred_at", "data"}`. Clients compare the signature in constant time, accept any listed `v1=` value, and refuse a timestamp more than 5 minutes from their clock. Snippets for Go, PHP, Node and Python are tested against VASPRO's signer.
+
+**Delivery**
+
+- **Fan-out:** for each event sent to clients, one delivery per active, undeleted endpoint of that client subscribed to its type, written in the same transaction as `processed_events`. A redelivered event makes no second delivery.
+- **Attempts:** only a 2xx answer is success. Each request has a 10-second timeout. Workers claim due deliveries with `FOR UPDATE SKIP LOCKED` and a lease, run a bounded pool with a limit per endpoint, so one slow endpoint can't hold up others, and can run on every replica.
+- **Retries:** 10 attempts, waiting 30s, 2m, 10m, 30m, 1h, 3h, 6h, 12h and 24h between them (about 3 days in all), with jitter. After the last one the delivery is `dead`. The schedule is configuration.
+- **Disabling:** an endpoint whose attempts have all failed for 72 hours is disabled (`failing`). Its pending deliveries become `dead`, and `webhook_endpoint.disabled` is published. Any success clears `failing_since`. Clients can also disable an endpoint themselves (`client`).
+- **Replay:** a client can replay any delivery to an active endpoint. A replay is a new delivery with `replay_of` set, the same event ID and the same body, signed with a new timestamp.
+- **Test events:** a client can send a `webhook.test` event to an endpoint. It goes through the ordinary delivery path and log.
+
+**ClickHouse**
+
+Every event on the bus, sent to clients or not, is copied into one table. Inserts are batched and acknowledged only after they land, so an event can be inserted twice, and the table collapses copies by event ID. Report queries read it with `FINAL`.
+
+```sql
+CREATE TABLE events (
+  id           UUID,
+  type         LowCardinality(String),
+  version      UInt16,
+  tenant_id    UUID,                          -- the nil UUID for events with no client
+  source       LowCardinality(String),        -- the publishing service
+  occurred_at  DateTime64(3, 'UTC'),
+  data         String,                        -- the event's data as JSON
+  ingested_at  DateTime64(3, 'UTC') DEFAULT now64(3)
+) ENGINE = ReplacingMergeTree(ingested_at)
+PARTITION BY toYYYYMM(occurred_at)
+ORDER BY (tenant_id, type, occurred_at, id);
+```
+
+The first reports: a client's daily wallet activity (money credited, tokens bought, usage), top-ups per rail per day, and events per type per day.
+
+**Events**
+
+| Event | When |
+| --- | --- |
+| webhook\_endpoint.disabled | An endpoint failed for 72 hours and was disabled. Sent to the client's other endpoints; monitoring's client alerts (Phase 16) turn it into email or SMS |
+
+`webhook.verification` and `webhook.test` appear only in webhook bodies, never on the bus.
+
+**From v3**
+
+| v3 | v4 | Notes |
+| --- | --- | --- |
+| client\_mpesa\_paybill.pushUrl | `endpoints`, subscribed to `payment.received` | As section 7 says. Imported in Phase 18, and verified with the challenge before anything is sent |
+| Other callback URLs (DLR, MO, USSD) | `endpoints` | To be listed from the v3 export (OQ-02) |
+
+**Open points**
+
+- **Fields meant for staff:** some events sent to clients carry staff user IDs and reasons (`matched_by` and `reason` on `collection_notice.matched`, `changed_by` on tier changes, `reviewed_by` on KYC decisions). They are sent as published for now. A client-facing projection per event is the alternative.
+- **Retention:** attempts and their responses kept 30 days, deliveries 90 days (proposed, not yet enforced). ClickHouse events are kept for reports, with no limit set.
+- **Sandbox and live:** one set of endpoints per client until Phase 8 adds environments to events.
+- **Endpoints per client:** 16 (proposed).
+
+## 9. Next parts and open points
 
 | Part | Services | Why in this order |
 | --- | --- | --- |
 | 2 | Billing and invoicing, Payments | Done: sections 6 and 7 |
 | 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow |
-| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3 |
+| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3. Webhooks done first, for Phase 5: section 8 |
 
 **Open points raised by Part 1**
 

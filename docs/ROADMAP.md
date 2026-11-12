@@ -643,7 +643,7 @@ Sizes are relative: **S** under a week, **M** 2–3 weeks, **L** 4–6 weeks, **
 Stage A runs alongside Phases 0–2. Each item must be done before the first phase that needs it.
 
 - [ ] **A1. Data model Part 3:** messaging, USSD, contacts and consent, applications, including the ClickHouse tables and the hand-off log for the SMS engine. *Needed by Phase 6.*
-- [ ] **A2. Data model Part 4:** verify, journeys, surveys and rewards, webhooks, monitoring, sales and referrals. *Webhooks needed by Phase 5.*
+- [ ] **A2. Data model Part 4:** verify, journeys, surveys and rewards, webhooks, monitoring, sales and referrals. *Webhooks needed by Phase 5.* *Webhooks done 2026-11-12, ahead of the rest (data model §8, OQ-23); every schema in `docs/events/` now says whether clients receive it. The other services are still open.*
 - [ ] **A3. Event catalogue:** every event type with a JSON Schema, its producer and consumers, in `docs/events/`. *Needed by Phase 0 for the envelope; per service before its phase.*
 - [ ] **A4. Error-code catalogue:** every code with HTTP status, title, cause, fix, and `retryable` and `billable` flags, in `docs/errors/catalogue.yaml`. *Needed by Phase 0.*
 - [ ] **A5. OpenAPI 3.1 per service** in `docs/api/`, written just in time: each service's spec is reviewed before its phase starts.
