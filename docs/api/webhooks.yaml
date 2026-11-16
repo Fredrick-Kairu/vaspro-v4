@@ -1,0 +1,820 @@
+openapi: 3.1.0
+info:
+  title: VASPRO webhooks API
+  version: "1"
+  description: >
+    The webhooks service's HTTP API (data model §8, OQ-23): a client's
+    webhook endpoints, the delivery log with every attempt, replays and
+    test events. Every operation is reached through the gateway, which
+    checks the dashboard session (sessionBearer) before webhooks sees
+    the request. Reads need credentials:read in the account and writes
+    credentials:manage (AUTH-4024 otherwise); an account the caller isn't
+    a member of is VAL-4003, as if it didn't exist. Creating an endpoint,
+    changing its URL and rotating its secret also need a fresh step-up
+    (AUTH-4012). How to verify a delivery's signature is in
+    docs/webhooks/verify/.
+servers:
+  - url: /
+paths:
+  /v1/webhooks/tenants/{tenantId}/endpoints:
+    get:
+      operationId: listWebhookEndpoints
+      summary: The account's webhook endpoints
+      description: Every endpoint not deleted, oldest first; an account has at most 16, so there's no paging. Never the secret.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        "200":
+          description: The endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointList'
+              example:
+                endpoints:
+                  - id: "0192c3a1-7f00-7000-8000-0000000000e1"
+                    url: https://hooks.example.com/vaspro
+                    description: Order updates
+                    status: active
+                    events: [payment_intent.succeeded, wallet.credited]
+                    verified_at: "2026-11-16T09:01:00Z"
+                    created_at: "2026-11-16T09:00:00Z"
+                    updated_at: "2026-11-16T09:01:00Z"
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createWebhookEndpoint
+      summary: Register a webhook endpoint
+      description: >
+        Registers an https endpoint for the event types listed (or "*"
+        for every event sent to clients). The response carries the
+        endpoint's signing secret, shown this once: store it, then call
+        verifyWebhookEndpoint. The endpoint receives nothing until it
+        answers that challenge. A retry with the same Idempotency-Key
+        returns the same endpoint with secret null; a lost secret is
+        replaced with rotateWebhookEndpointSecret. Private, loopback and
+        metadata addresses, plain http and user names in the URL are
+        VAL-4019; more than 16 endpoints, no events or an internal event
+        type is VAL-4000. Needs credentials:manage and a fresh step-up.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointCreateRequest'
+            example:
+              url: https://hooks.example.com/vaspro
+              description: Order updates
+              events: [payment_intent.succeeded, wallet.credited]
+      responses:
+        "201":
+          description: The endpoint, pending verification, with its secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointWithSecret'
+              example:
+                id: "0192c3a1-7f00-7000-8000-0000000000e1"
+                url: https://hooks.example.com/vaspro
+                description: Order updates
+                status: pending_verification
+                events: [payment_intent.succeeded, wallet.credited]
+                created_at: "2026-11-16T09:00:00Z"
+                updated_at: "2026-11-16T09:00:00Z"
+                secret: whsec_EXAMPLEexampleEXAMPLEexampleEXAMPLEexample123 # gitleaks:allow (a made-up example)
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}:
+    get:
+      operationId: getWebhookEndpoint
+      summary: One webhook endpoint
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+      responses:
+        "200":
+          description: The endpoint, never its secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateWebhookEndpoint
+      summary: Change an endpoint's URL, description or events
+      description: >
+        Only the fields given change; events given replace the old set.
+        A new URL needs a fresh step-up and sends the endpoint back to
+        pending_verification: it receives nothing, and what's queued for
+        it waits, until the new URL answers the challenge. Needs
+        credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointUpdateRequest'
+            example:
+              events: ["*"]
+      responses:
+        "200":
+          description: The endpoint as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteWebhookEndpoint
+      summary: Delete an endpoint
+      description: >
+        It receives nothing more; its queued deliveries end as dead
+        (endpoint_deleted). Its delivery log stays readable. Needs
+        credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/verification:
+    post:
+      operationId: verifyWebhookEndpoint
+      summary: Send the verification challenge
+      description: >
+        POSTs a signed webhook.verification event whose data.challenge
+        the endpoint must echo, as {"challenge": "<the value>"}, with a
+        2xx within 10 seconds. Then the endpoint is active: from
+        pending_verification, from disabled (this is how it's
+        re-enabled), or again when it's already active. Anything else is
+        VAL-4018 and changes nothing; an address that resolves to a
+        private one is VAL-4019. Needs credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The endpoint, now active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/secret-rotations:
+    post:
+      operationId: rotateWebhookEndpointSecret
+      summary: Give the endpoint a new signing secret
+      description: >
+        The new secret is shown this once. For 24 hours every request is
+        signed with both the new and the previous secret (two v1= values,
+        the new one first), so the receiver can switch over; rotating
+        again within those 24 hours ends the oldest at once. A retry
+        with the same Idempotency-Key returns secret null and rotates
+        nothing. Needs credentials:manage and a fresh step-up.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "201":
+          description: The new secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretRotation'
+              example:
+                endpoint_id: "0192c3a1-7f00-7000-8000-0000000000e1"
+                secret: whsec_EXAMPLEexampleEXAMPLEexampleEXAMPLEexample456 # gitleaks:allow (a made-up example)
+                previous_valid_until: "2026-11-17T09:00:00Z"
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/disable:
+    post:
+      operationId: disableWebhookEndpoint
+      summary: Stop sending to an endpoint
+      description: >
+        The endpoint is disabled (disabled_reason client) and its queued
+        deliveries end as dead (endpoint_disabled); they can be replayed
+        once it's re-enabled with verifyWebhookEndpoint. Disabling a
+        disabled endpoint changes nothing. Needs credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "200":
+          description: The endpoint, disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/test-events:
+    post:
+      operationId: sendWebhookTestEvent
+      summary: Send the endpoint a test event
+      description: >
+        Queues a webhook.test event (data.endpoint_id names the
+        endpoint) through the ordinary delivery path: signed, retried and
+        shown in the delivery log. Only to an active endpoint (VAL-4000
+        otherwise). Needs credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/EndpointID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "202":
+          description: The delivery, due now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Delivery'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: The delivery log
+      description: >
+        Every delivery to the account's endpoints, newest first, paged
+        with next_cursor. Filter by endpoint, status, event type or event
+        ID (a replay shares its original's event ID). Needs
+        credentials:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: endpoint_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, succeeded, dead]
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: event_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: A page of the log.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryList'
+              example:
+                deliveries:
+                  - id: "0192c3a1-7f00-7000-8000-0000000000d1"
+                    endpoint_id: "0192c3a1-7f00-7000-8000-0000000000e1"
+                    event_id: "0192c3a1-7f00-7000-8000-0000000000a1"
+                    event_type: wallet.credited
+                    occurred_at: "2026-11-16T09:05:00Z"
+                    status: succeeded
+                    attempts: 2
+                    created_at: "2026-11-16T09:05:00Z"
+                    completed_at: "2026-11-16T09:05:31Z"
+                next_cursor: MTc2MzI4MzkwMDAwMDAwMDAwMHwwMTkyYzNhMS03ZjAwLTcwMDAtODAwMC0wMDAwMDAwMDAwZDE
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}:
+    get:
+      operationId: getWebhookDelivery
+      summary: One delivery, its body and every attempt
+      description: >
+        The exact body every attempt sends, and each attempt with the
+        headers sent (the signature included, never the secret) and what
+        came back: the status, headers and the first 4 KB of the body, or
+        the error when nothing came back. Needs credentials:read.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/DeliveryID'
+      responses:
+        "200":
+          description: The delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryDetail'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}/replays:
+    post:
+      operationId: replayWebhookDelivery
+      summary: Send a delivery again
+      description: >
+        A new delivery with the same event ID (Vaspro-Webhook-Id) and the
+        same body, signed afresh, due now; replay_of names the original.
+        Only to an active endpoint (VAL-4000 otherwise). Needs
+        credentials:manage.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/DeliveryID'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        "202":
+          description: The replay, due now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Delivery'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /v1/webhooks/tenants/{tenantId}/reports/daily-activity:
+    get:
+      operationId: getDailyActivity
+      summary: The account's wallet activity per day
+      description: >
+        Per day and currency, from through to (inclusive, at most 92
+        days): money credited to the main wallet (top-ups and refunds),
+        how many top-ups, what token purchases cost, and the value and
+        count of usage. Days are in the time zone of the account's
+        country (Africa/Nairobi for Kenya); days with no activity are
+        left out. Built from the events in the reporting store, each
+        counted once however often it was delivered (task 5.6). Needs
+        billing:read (AUTH-4024 otherwise); bad dates are VAL-4000.
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The days with activity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyActivityReport'
+              example:
+                time_zone: Africa/Nairobi
+                days:
+                  - date: "2026-11-10"
+                    currency: KES
+                    credited_minor: 152000
+                    topups: 2
+                    token_purchases_minor: 80000
+                    usage_minor: 3000
+                    usage_events: 5
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >
+        A dashboard session token (Authorization: Bearer
+        <session_token>) from identity's sign-in. The gateway resolves
+        it and forwards the user and session to webhooks.
+  parameters:
+    TenantID:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    EndpointID:
+      name: endpointId
+      in: path
+      required: true
+      schema:
+        type: string
+    DeliveryID:
+      name: deliveryId
+      in: path
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    EndpointCreateRequest:
+      type: object
+      required: [url, events]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+          description: https, a public address, no user name or password.
+        description:
+          type: string
+          maxLength: 255
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Event types sent to clients (those marked x-vaspro-webhook in docs/events/), or ["*"] for all of them.
+    EndpointUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+        description:
+          type: string
+          maxLength: 255
+          description: An empty string clears it.
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    Endpoint:
+      type: object
+      required: [id, url, status, events, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [pending_verification, active, disabled]
+        events:
+          type: array
+          items:
+            type: string
+        verified_at:
+          type: string
+          format: date-time
+          description: The last passed challenge.
+        failing_since:
+          type: string
+          format: date-time
+          description: The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint.
+        disabled_at:
+          type: string
+          format: date-time
+        disabled_reason:
+          type: string
+          enum: [failing, client]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EndpointWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/Endpoint'
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: [string, "null"]
+              description: The signing secret (whsec_…), used whole as the HMAC key. Shown once; null on a retry with the same Idempotency-Key.
+    EndpointList:
+      type: object
+      required: [endpoints]
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/Endpoint'
+    SecretRotation:
+      type: object
+      required: [endpoint_id, secret, previous_valid_until]
+      properties:
+        endpoint_id:
+          type: string
+        secret:
+          type: [string, "null"]
+          description: The new secret, shown once; null on a retry with the same Idempotency-Key.
+        previous_valid_until:
+          type: string
+          format: date-time
+          description: Until when the previous secret still signs, alongside the new one.
+    Delivery:
+      type: object
+      required: [id, endpoint_id, event_id, event_type, occurred_at, status, attempts, created_at]
+      properties:
+        id:
+          type: string
+        endpoint_id:
+          type: string
+        event_id:
+          type: string
+          description: Sent as Vaspro-Webhook-Id; the same on every attempt and every replay.
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, succeeded, dead]
+        dead_reason:
+          type: string
+          enum: [attempts_exhausted, endpoint_disabled, endpoint_deleted]
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: string
+          format: date-time
+        replay_of:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    DeliveryList:
+      type: object
+      required: [deliveries]
+      properties:
+        deliveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/Delivery'
+        next_cursor:
+          type: string
+    DeliveryDetail:
+      allOf:
+        - $ref: '#/components/schemas/Delivery'
+        - type: object
+          required: [body, attempt_log]
+          properties:
+            body:
+              type: string
+              description: The exact JSON body every attempt sends.
+            attempt_log:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeliveryAttempt'
+    DeliveryAttempt:
+      type: object
+      required: [attempt, started_at, duration_ms, outcome, request_headers, response_truncated]
+      properties:
+        attempt:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        outcome:
+          type: string
+          enum: [succeeded, http_status, timeout, connect, tls, refused_url]
+        request_headers:
+          type: object
+          additionalProperties:
+            type: string
+        response_status:
+          type: integer
+        response_headers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        response_body:
+          type: string
+          description: The first 4 KB of the answer; base64 when response_body_encoding says so.
+        response_body_encoding:
+          type: string
+          enum: [utf8, base64]
+        response_truncated:
+          type: boolean
+        error:
+          type: string
+          description: What went wrong when nothing came back.
+    DailyActivityReport:
+      type: object
+      required: [time_zone, days]
+      properties:
+        time_zone:
+          type: string
+          description: The IANA zone the days are in.
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyActivity'
+    DailyActivity:
+      type: object
+      required: [date, currency, credited_minor, topups, token_purchases_minor, usage_minor, usage_events]
+      properties:
+        date:
+          type: string
+          format: date
+        currency:
+          type: string
+        credited_minor:
+          type: integer
+          format: int64
+          description: Money credited to the main wallet (top-ups and refunds), in minor units.
+        topups:
+          type: integer
+          format: int64
+        token_purchases_minor:
+          type: integer
+          format: int64
+          description: What the tokens bought cost, from the main wallet.
+        usage_minor:
+          type: integer
+          format: int64
+          description: The value of the tokens used.
+        usage_events:
+          type: integer
+          format: int64
+          description: Messages and other billed events used.
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, retryable]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: string

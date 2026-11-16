@@ -69,6 +69,12 @@ type Config struct {
 	PaymentsBaseURL     string `env:"GATEWAY_PAYMENTS_BASE_URL,required"`
 	PaymentsOpenAPIPath string `env:"GATEWAY_PAYMENTS_OPENAPI_PATH" envDefault:"docs/api/payments.yaml"`
 
+	// WebhooksBaseURL receives everything under /v1/webhooks/ (clients'
+	// endpoints and the delivery log, task 5.5), after the gateway has
+	// checked the session.
+	WebhooksBaseURL     string `env:"GATEWAY_WEBHOOKS_BASE_URL,required"`
+	WebhooksOpenAPIPath string `env:"GATEWAY_WEBHOOKS_OPENAPI_PATH" envDefault:"docs/api/webhooks.yaml"`
+
 	// RedisURL backs rate-limit counters (RedisRateLimiter) — the
 	// gateway's own connection, not identity's; it owns no schema to
 	// share a service's Redis namespace with.
@@ -103,6 +109,10 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_PAYMENTS_BASE_URL: %w", err)
 	}
+	webhooksTarget, err := url.Parse(cfg.WebhooksBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_WEBHOOKS_BASE_URL: %w", err)
+	}
 	identitySpec, identityRoutes, err := loadSpecAndRoutes(cfg.IdentityOpenAPIPath)
 	if err != nil {
 		return nil, err
@@ -119,6 +129,10 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, err
 	}
+	webhooksSpec, webhooksRoutes, err := loadSpecAndRoutes(cfg.WebhooksOpenAPIPath)
+	if err != nil {
+		return nil, err
+	}
 
 	jwks := newJWKSCache(cfg.IdentityBaseURL+"/.well-known/jwks.json", clk)
 	limiter := NewRedisRateLimiter(c)
@@ -126,6 +140,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	accountsProxy := newReverseProxy(accountsTarget)
 	ledgerProxy := newReverseProxy(ledgerTarget)
 	paymentsProxy := newReverseProxy(paymentsTarget)
+	webhooksProxy := newReverseProxy(webhooksTarget)
 
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
@@ -139,7 +154,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 
 	proxied := chi.NewRouter()
 	proxied.Use(stripForwardedIdentity)
-	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes, ledgerRoutes, paymentsRoutes}))
+	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes, ledgerRoutes, paymentsRoutes, webhooksRoutes}))
 	proxied.Use(rateLimit(limiter, rateLimitByIP, globalRateLimit, globalRateWindow))
 	proxied.Use(requireIdempotencyKeyHeader)
 
@@ -170,6 +185,13 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 		r.Use(requireSessionUnlessPublic(sessions, paymentsRoutes))
 		r.Use(requireValidRequestShape(paymentsSpec))
 		r.Handle("/*", paymentsProxy)
+	})
+
+	// webhooks: the same, against webhooks' spec (task 5.5).
+	proxied.Route("/v1/webhooks", func(r chi.Router) {
+		r.Use(requireSessionUnlessPublic(sessions, webhooksRoutes))
+		r.Use(requireValidRequestShape(webhooksSpec))
+		r.Handle("/*", webhooksProxy)
 	})
 
 	// identity: everything else. Identity checks its own sessions.

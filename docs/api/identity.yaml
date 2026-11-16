@@ -1595,13 +1595,13 @@ components:
       type: object
       properties:
         url:
-          type: string
-          description: otpauth:// URL for an authenticator app to scan.
+          type: [string, "null"]
+          description: otpauth:// URL for an authenticator app to scan. Shown once; null on a retry with the same Idempotency-Key (task 5.5).
         recovery_codes:
-          type: array
+          type: [array, "null"]
           items:
             type: string
-          description: Shown exactly once — store them somewhere safe.
+          description: Shown exactly once — store them somewhere safe. Null on a retry with the same Idempotency-Key.
     PasskeyCeremonyOptions:
       type: object
       required: [session, options]
@@ -1822,8 +1822,8 @@ components:
         id:
           type: string
         secret:
-          type: string
-          description: Shown exactly once — store it somewhere safe.
+          type: [string, "null"]
+          description: Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key (task 5.5); rotate to get a new one.
         last4:
           type: string
         expires_at:
@@ -1923,8 +1923,8 @@ components:
         - type: object
           properties:
             password:
-              type: string
-              description: Shown exactly once — store it somewhere safe.
+              type: [string, "null"]
+              description: Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key (task 5.5); reset it to get a new one.
     OAuthTokenRequest:
       type: object
       required: [grant_type, client_id, client_secret]

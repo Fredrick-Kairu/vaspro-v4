@@ -174,7 +174,7 @@ type ApiClientSecretResult struct {
 	Id        *string    `json:"id,omitempty"`
 	Last4     *string    `json:"last4,omitempty"`
 
-	// Secret Shown exactly once — store it somewhere safe.
+	// Secret Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key (task 5.5); rotate to get a new one.
 	Secret *string `json:"secret,omitempty"`
 }
 
@@ -569,7 +569,7 @@ type SmppAccountWithPassword struct {
 	MaxBinds    *int      `json:"max_binds,omitempty"`
 	MaxTps      *int      `json:"max_tps,omitempty"`
 
-	// Password Shown exactly once — store it somewhere safe.
+	// Password Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key (task 5.5); reset it to get a new one.
 	Password *string `json:"password,omitempty"`
 	Status   *string `json:"status,omitempty"`
 	SystemId *string `json:"system_id,omitempty"`
@@ -594,10 +594,10 @@ type TotpChallengeVerificationRequest struct {
 
 // TotpEnrollmentResult defines model for TotpEnrollmentResult.
 type TotpEnrollmentResult struct {
-	// RecoveryCodes Shown exactly once — store them somewhere safe.
+	// RecoveryCodes Shown exactly once — store them somewhere safe. Null on a retry with the same Idempotency-Key.
 	RecoveryCodes *[]string `json:"recovery_codes,omitempty"`
 
-	// Url otpauth:// URL for an authenticator app to scan.
+	// Url otpauth:// URL for an authenticator app to scan. Shown once; null on a retry with the same Idempotency-Key (task 5.5).
 	Url *string `json:"url,omitempty"`
 }
 

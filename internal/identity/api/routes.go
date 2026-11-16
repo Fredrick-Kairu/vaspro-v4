@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -59,12 +60,29 @@ func Routes(h *Handlers, logger *slog.Logger, ready []httpx.Check, idemStore ide
 		// reverse order produced "no tenant in request context" on
 		// every request).
 		Middlewares: []MiddlewareFunc{
-			skipIdempotencyFor(idempotencyExemptPaths, idempotency.Middleware(idemStore, idempotencyKeyTTL)),
+			skipIdempotencyFor(idempotencyExemptPaths, idempotency.Middleware(idemStore, idempotencyKeyTTL, oneTimeCredentials...)),
 			withAnonymousTenant,
 		},
 	})
 
 	return r
+}
+
+// oneTimeCredentials keep what's shown once out of stored idempotency
+// records (task 5.5): a retry with the same Idempotency-Key returns the
+// same client, account or enrolment with the credential null, and
+// idempotency_keys never holds it.
+var oneTimeCredentials = []idempotency.Option{
+	idempotency.WithRedactedFields(postTo(`^/v1/auth/api-clients$`), "secret.secret"),
+	idempotency.WithRedactedFields(postTo(`^/v1/auth/api-clients/[^/]+/secrets$`), "secret"),
+	idempotency.WithRedactedFields(postTo(`^/v1/auth/smpp-accounts(/[^/]+/password)?$`), "password"),
+	idempotency.WithRedactedFields(postTo(`^/v1/auth/totp-enrollments$`), "url", "recovery_codes"),
+}
+
+// postTo matches a POST to a path matching pattern.
+func postTo(pattern string) func(*http.Request) bool {
+	re := regexp.MustCompile(pattern)
+	return func(r *http.Request) bool { return r.Method == http.MethodPost && re.MatchString(r.URL.Path) }
 }
 
 // idempotencyExemptPaths holds the one deliberate exception to

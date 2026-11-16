@@ -53,7 +53,9 @@ func TestPost_PaymentsTopupShapes(t *testing.T) {
 
 	direct := uuid.New()
 	d := post(&tenant, "topup:"+direct.String(), direct, clearing, main, 150000)
-	assertEventValid(t, h, "wallet.credited", d.Lines[1].AccountID)
+	if data := assertEventValid(t, h, "wallet.credited", d.Lines[1].AccountID); data["rail"] != "mpesa_ke" {
+		t.Fatalf("a direct top-up's rail = %v, want mpesa_ke (task 5.6)", data["rail"])
+	}
 
 	unmatched := uuid.New()
 	post(nil, "suspense:"+unmatched.String(), unmatched, clearing, suspense, 50000)
@@ -65,6 +67,12 @@ func TestPost_PaymentsTopupShapes(t *testing.T) {
 	}
 
 	post(&tenant, "match:"+unmatched.String(), unmatched, suspense, main, 50000)
+	// The match's event (by its amount; the fake clock gives both events
+	// one time): it draws on no clearing account, so it has no rail.
+	if n := count(t, h, `SELECT count(*) FROM outbox_events WHERE event_type = 'wallet.credited'
+		AND payload->'data'->>'amount_minor' = '50000' AND NOT (payload->'data' ? 'rail')`); n != 1 {
+		t.Fatalf("%d railless wallet.credited events for the match, want 1", n)
+	}
 	if got := balance(nil, suspense); got != 0 {
 		t.Fatalf("suspense %d after the match, want 0", got)
 	}

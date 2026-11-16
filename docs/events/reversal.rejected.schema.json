@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.vaspro.io/events/reversal.rejected.schema.json",
   "title": "reversal.rejected",
+  "x-vaspro-webhook": false,
   "description": "Published by the ledger when a staff member other than the maker rejects a reversal (task 3.7; an addition to data model §5's Events, so the audit trail has every decision). Nothing was posted. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
   "type": "object",
   "required": [

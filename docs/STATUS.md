@@ -1,9 +1,571 @@
 # Build status
 
-**Updated:** 2026-11-11
-**Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** Phase 4's tasks are done (2026-11-11): 4.1–4.6 and 4.8, with 4.7 (Airtel) deferred. Next: the PR of `p4/phase-4` to `main`.
-**Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
+**Updated:** 2026-11-17
+**Current phase:** Phase 5: Webhooks, events and reporting, planned 2026-11-12. Phase 4 merged to `main` 2026-11-11 (PR #7, `f4cd4b7`); its "real Daraja sandbox top-up on staging" exit-gate box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
+**Current task:** Phase 5 done, its exit gate green (17 Nov). Next: the phase commit and PR, which wait for your go-ahead. From 5.1 on, Phase 5's work stays uncommitted on the branch and is committed together at the phase's end (your call, 12 Nov); 5.0 and the plan were committed before that.
+**Branch:** `p5/phase-5`, one branch for the phase like Phases 3 and 4. This STATUS update is its first commit, so it reaches `main` with Phase 5's PR, not a PR of its own.
+
+## Phase 5 plan (agreed 2026-11-12)
+Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 drafts its webhooks section first. The order changed from ROADMAP: the signer (5.3) and the snippets (5.7) come before endpoints, because they depend only on each other.
+
+| # | Task | Tests first |
+|---|---|---|
+| 5.0 | Data model: the webhooks section (tables, events, open points); ROADMAP A2 marked done for webhooks only; `x-vaspro-webhook` on the client-facing schemas | a schema test: every `docs/events/` schema says whether it's sent to clients |
+| 5.1 | `webhooks` migration: endpoints, endpoint secrets (sealed), subscriptions, deliveries (exact body bytes, lease, `replay_of`), delivery attempts; outbox, processed events, idempotency keys; roles; sqlc | goose round trip; RLS on every client table; every CHECK and key (one delivery per endpoint and event, replays excepted); column-limited updates; no deletes |
+| 5.3 | Signer (`domain/signature.go`): `v1=` HMAC-SHA256 over `timestamp.body`, both signatures during a rotation | round trip; any changed byte of body, timestamp or secret refused; stale and future timestamps; rotation |
+| 5.7 | Snippets in Go, PHP, Node and Python (`docs/webhooks/verify/`) | golden vectors from our signer, checked by each language in its official Docker image (`make test-contract`) |
+| 5.2 | Endpoints: `credentials:manage` + step-up; `whsec_…` shown once; the verification challenge; rotation with 24h overlap; HTTPS, no private addresses (checked at connect), no redirects; VAL-4018, VAL-4019 | echo verifies, wrong echo/timeout/500 don't; each refused URL kind, including DNS resolving to loopback; both secrets during rotation, only the new after 24h; no secret in rows or logs; Viewer, stranger, stale step-up refused |
+| 5.4 | Consumer (the four services' streams, `processed_events`, deliveries for matching active endpoints in one transaction) and worker (`SKIP LOCKED` lease, bounded pool, per-endpoint cap, 10s timeout, 2xx only); 10 retries then dead; disabled after 72h failing, with `webhook_endpoint.disabled`; replay | 500 then 200 succeeds once at the configured gaps; **a slow endpoint times out while another's 50 deliveries go through**; a redelivered event makes no second delivery; two workers never send one attempt; dead after the last; disabled at 72h, reset by a success; **a replay has the same ID and body**; internal and other tenants' events never sent; redirects not followed |
+| 5.5 | Delivery log API under `/v1/webhooks/tenants/{tenantId}/` (endpoints, verify, rotate, test event, deliveries with filters and cursor, attempts, replay, re-enable); `GATEWAY_WEBHOOKS_BASE_URL` | spec-driven tenant test; every attempt shown with its response; gateway routing |
+| 5.6 | ClickHouse: `clickhouse-go/v2`, `testkit.StartClickHouse`, goose migrations in `migrations/clickhouse/`; events table (ReplacingMergeTree on event ID); batched sink acknowledging after insert; daily activity, top-ups by rail, events per type; `getDailyActivity` | **the same event twice counted once**, before and after a merge; reports on a fixed event set; tenant isolation |
+| Gate | Gateway e2e with real accounts, ledger, payments and webhooks | KYC pass, dev top-up, token purchase and an STK top-up reach a test endpoint, verified by the Go snippet; the log shows every attempt |
+
+**Not in Phase 5:** separate sandbox and live endpoints (Phase 8); retention of attempt bodies (30 days proposed); the portal inspector (8.4); email or SMS for a disabled endpoint (Phase 16); ordering guarantees (clients deduplicate by `id`).
+
+## Done in Phase 5
+- 5.0 The webhooks design (OQ-23). Data model Part 4 (Stage A A2) wasn't written, so its webhooks part was drafted from the agreed plan, ahead of the other Part 4 services. Docs and one contract test; no service code.
+  - **Data model §8** (new; "Next parts and open points" is now §9, and nothing referred to the old §8):
+    - **Tables:** `endpoints`, `endpoint_secrets` (sealed with `Envelope`), `subscriptions`, `deliveries` (the exact body bytes, a lease, `replay_of`), `delivery_attempts` (the response capped at 4 KB), with their CHECKs and indexes;
+    - one delivery per endpoint and event, except replays (`deliveries_once`); at most one current secret per endpoint;
+    - `webhooks_system` for the worker across clients; no deletes except subscriptions and idempotency keys;
+    - endpoints (who, the secret, the challenge, allowed URLs), the signature headers and body, delivery (fan-out, attempts, the retry schedule, disabling, replay, test events);
+    - the ClickHouse `events` table (a ReplacingMergeTree, read with `FINAL`) and the first reports;
+    - the event `webhook_endpoint.disabled`; v3's `pushUrl` and other callback URLs;
+    - **open points:** fields meant for staff in events sent to clients (sent as published for now), retention (30 and 90 days proposed), sandbox and live endpoints (Phase 8), 16 endpoints per client (proposed).
+  - **Event catalogue:** every schema in `docs/events/` now has `"x-vaspro-webhook"`. 21 are sent to clients (`tenant.*`, `service.*`, `kyc.check_decided`, `membership.*`, `wallet.credited`, `tokens.purchased`, `autobuy.triggered`, `usage.posted`, `payment_intent.*`, `collection_notice.matched`, `reversal.posted`, `reversal.paid_back`) and 13 stay internal. None of the 21 carries a phone number or a name.
+  - **Test:** `test/contract/events_catalogue_test.go` (`make test-contract`; `test/contract/doc.go` lets `go list` find the package):
+    - every schema's title is its file name;
+    - it says true or false;
+    - one sent to clients requires `tenant_id`;
+    - it compiles.
+    - **Mutation-checked:** a missing marker, and `user.registered` (no tenant) marked for clients, each failed it, then were restored.
+  - **ROADMAP:** A2 notes webhooks done.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 13 packages fresh (the integration packages that validate events against the changed schemas, and `test/contract`), 69 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+- 5.1 `webhooks` schema, RLS, roles and sqlc (OQ-23). Like 4.1, no service code: a migration, starter queries and repository tests.
+  - **Migration** `migrations/webhooks/20261112090000_init.sql`: data model §8's five tables, copied exactly, plus `outbox_events`, `processed_events` (webhooks consumes every service's events) and `idempotency_keys`.
+  - **Changed in §8 while building it** (§8 is 5.0's draft, not yet on `main`, so it was corrected rather than deviated from):
+    - **children reference their parent by `(id, tenant_id)`**, `replay_of` included. A foreign key check ignores RLS, so with a plain reference a client that learned another client's endpoint ID could attach a secret, subscription or delivery to it;
+    - **added CHECKs:**
+      - a URL starts `http://` or `https://` (the app allows `http` only in development) and is at most 2,048 characters;
+      - event types are `family.name`, with `*` only as a whole subscription;
+      - a lease only while pending;
+      - a success needs an attempt;
+      - `error` exactly for the outcomes with no response;
+      - truncated only with a body.
+  - **Roles:**
+    - **`webhooks_service`:** updates are column-limited, so a delivery's body, event and endpoint, a secret's ciphertext and every attempt are never rewritten. Only subscriptions and idempotency keys are ever deleted; an endpoint is deleted by `deleted_at`.
+    - **`webhooks_system`** (NOLOGIN, `WITH INHERIT FALSE`, `WithRoleTx` only) is the delivery worker. Across clients, it reads endpoints, secrets, deliveries and attempts; moves deliveries; records attempts; disables endpoints; and writes the outbox. It can't create endpoints or change secrets.
+  - **RLS:** the standard policy on all five tables; `webhooks_system`'s reads and writes across clients as above.
+  - **sqlc** (a fifth `sqlc.yaml` entry):
+    - **endpoints:** create, get, list, `MarkEndpointVerified`, and `ListEndpointsForEvent` (the fan-out: active, undeleted, subscribed to the type or `*`);
+    - **secrets:** create, `ExpireCurrentEndpointSecret` (rotation), `ListValidEndpointSecrets` (current first);
+    - **subscriptions:** `AddSubscription` (repeat-safe), list;
+    - **deliveries:**
+      - `InsertDelivery` (`ON CONFLICT DO NOTHING`: a redelivered event is `pgx.ErrNoRows`);
+      - `CreateReplay` (copies the event and body);
+      - get;
+      - **`ClaimDueDeliveries`**, a lease taken with `FOR UPDATE SKIP LOCKED`;
+    - **attempts:** create, list.
+  - **Tests** (`internal/webhooks/store/*_integration_test.go`, run as `webhooks_app`, whose only privileges come from `webhooks_service`; constraint cases as the owner in rolled-back transactions):
+    - **schema:** a goose Down-to-0-then-Up round trip (schema and both roles gone).
+    - **RLS:** `AssertRowLevelSecurity` on all five tables, each case counting only the rows it inserted (the tenant also sees the parents the owner seeded).
+    - **keys:** a client can't attach a secret, subscription, delivery, attempt or replay to another client's rows, even inside its own transaction (23503).
+    - **`webhooks_system`:**
+      - sees both clients' endpoints, secrets and deliveries;
+      - leases deliveries, records attempts, and disables an endpoint;
+      - can't create endpoints or change secrets;
+      - is hidden outside `WithRoleTx`, checked by behaviour and in `pg_auth_members`.
+    - **grants:** 18 cases, plus the worker can't rewrite a body either.
+    - **constraints:** 79 cases across the five tables, both ways.
+    - **sqlc:**
+      - rotation (two valid secrets, then one);
+      - subscribing twice;
+      - fan-out only once verified, and only for the subscribed type;
+      - a redelivered event is `ErrNoRows`;
+      - a replay keeps the event ID and body;
+      - **two workers at once: one holding 4 uncommitted, the other claims exactly the other 6**;
+      - a lease isn't claimed again until it runs out;
+      - attempts read back by the client.
+    - 120 subtests in all.
+    - **Order of work:**
+      - the schema, RLS, key, grant and constraint tests were seen failing with no migration (goose found none), then passed on the first run with it;
+      - the sqlc test came after `make gen`.
+    - **A test fix while writing it:** the sqlc test first expired the old secret through the owner's connection, which can't see the tenant transaction's uncommitted row, so a second current secret broke the unique index. It now rotates in the same transaction, through the new `ExpireCurrentEndpointSecret`.
+    - **Mutation-checked**, each failing its intended test, then restored from a backup:
+      - a plain foreign key on subscriptions;
+      - `webhooks_system` granted with inheritance;
+      - a full UPDATE grant on deliveries;
+      - no worker read policy on secrets;
+      - no lease-only-while-pending CHECK;
+      - the redelivery index widened so it never matches.
+    - **Not mutation-checked:** dropping `SKIP LOCKED`. The second claimer would then block on the first's rows, and the test would hang until its timeout rather than fail.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 4 packages fresh (`webhooks/store` 25s), 79 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:** the service's login role is granted `webhooks_service` (with inheritance) and must not own the tables; it reaches `webhooks_system` through it.
+  - **Not in 5.1:** the service skeleton (5.2, where `Run` first has work); ClickHouse's events table (5.6).
+
+- 5.3 The signer (OQ-23). Pure domain code, no service yet: `internal/webhooks/domain/signature.go`.
+  - **Your answer of 13 Nov:** the secret is `whsec_` and the base64url of 32 random bytes without padding (49 characters), and **the HMAC key is that whole string, prefix included**, so a client uses it exactly as shown. Added to OQ-23 and data model §8 (which also now says lower-case hex, the current secret's signature first, and other schemes ignored).
+  - **Rules:**
+    - `GenerateSecret` (crypto/rand by default) and `ValidSecret` (the prefix, 49 characters, strict base64url decoding to 32 bytes, so only the canonical spelling);
+    - **`Sign(secrets, at, body)`:** `Timestamp` is Unix seconds; `Value` is `v1=<hex HMAC-SHA256(secret, timestamp "." body)>` per secret, current first, space-separated. One or two secrets, never the same twice, each valid; otherwise `ErrInvalidSecret`;
+    - **`Verify(secret, timestamp, signature, body, now)`**, the receiver's check the 5.7 snippets mirror: the timestamp is plain decimal digits within 5 minutes either way (`ErrBadTimestamp`); any `v1=` value matching through `crypto.HMACVerify` (constant time) passes; other schemes and malformed hex are skipped; no match is `ErrBadSignature`;
+    - the three header names as constants.
+  - **Tests** (`signature_test.go`, no containers):
+    - **a golden vector computed outside Go** with `openssl dgst -sha256 -hmac`, pinning the whole-string key;
+    - the round trip;
+    - **every single-byte change refused:** each byte of the body, a byte added at either end or removed, each digit of the timestamp (checked at that timestamp, so the signature refuses it, not the clock), each character of the secret, each hex digit of the signature;
+    - timestamps exactly 5 minutes late or early accepted, a second more refused either way; 9 malformed timestamps (empty, letters, signs, spaces, a decimal, hex, overflow);
+    - **rotation:** two values, the current first; a client with either secret accepts; a third secret doesn't; after the overlap the old secret no longer matches;
+    - 10 refused secret sets, including a non-canonical spelling of a valid secret;
+    - 9 malformed signature headers; unknown schemes beside a good `v1` and upper-case hex still pass;
+    - secrets: 100 generated, all valid and distinct; a fixed source gives the expected string; a failing or short source errors.
+    - **Order of work:** all 8 tests were seen failing against a stub, then passed with the implementation.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no check on future timestamps;
+      - only the first secret signing during a rotation;
+      - the timestamp left out of what's signed;
+      - **non-strict base64 for secrets.** This one first survived; the non-canonical-secret case was added and now fails it.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues (after marking the three made-up test secrets for gosec G101 and gitleaks); 5 runs fresh (`webhooks/domain` unit and integration, `testkit` both, `tools/scaffold`), 80 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 5.3:** sending (5.4), sealing secrets with `Envelope` (5.2).
+
+- 5.7 Verification snippets for clients (OQ-23). Docs and contract tests; no service code.
+  - **Snippets** (`docs/webhooks/verify/`): one standard-library file per language, each with a handler example in its header comment, plus a README with the scheme and the rules for receivers.
+    - The rules: the raw body; the secret used whole as the key; dedupe by `Vaspro-Webhook-Id`; 2xx within 10 seconds.
+    - **Go 1.22+:** `go/vasprowebhook/verify.go`. Its own `go.mod`, so the main module's build and lint don't see it, and clients can copy it.
+    - **PHP 8.1+:** `php/VasproWebhook.php`.
+    - **Node 18+:** `node/vaspro-webhook.js`.
+    - **Python 3.8+:** `python/vaspro_webhook.py`.
+  - **One algorithm in all four:**
+    - the timestamp is ASCII digits only and within 300 seconds either way;
+    - the expected value is the lower-case hex HMAC-SHA256 of `ts "." body`;
+    - the header is split on spaces, and each `v1=` value is lower-cased and compared in constant time;
+    - any match passes.
+    - The traps each language needed:
+      - **PHP's** regex needs `/D`, or `$` matches before a trailing newline;
+      - **Python** needs a regex rather than `isdigit()`/`int()`, which accept other scripts' digits;
+      - **Node's** `timingSafeEqual` throws on different lengths, so it checks the length first.
+    - `now` is an optional argument, so the vectors can pin it.
+  - **Golden vectors** (`docs/webhooks/verify/testdata/vectors.json`): 42, written by `TestWebhookVectors_MatchOurSigner` from `domain.Sign` (some signed by hand where our signer never would, for a key or timestamp it doesn't use).
+    - Our own `domain.Verify` must give each case's declared outcome, and the file must equal what the test generates (`-update` rewrites it).
+    - **The cases:**
+      - one signature;
+      - a rotation, verified with each secret, a third secret, and two spaces between the values;
+      - another secret, one changed character of the secret, **signed with the decoded secret bytes**, and signed without the prefix;
+      - a changed body byte, a trailing newline, the JSON re-serialised;
+      - a changed timestamp digit, a changed hex digit, a truncated value;
+      - upper-case hex;
+      - other schemes beside `v1` and alone;
+      - malformed and non-ASCII values;
+      - an empty header and a bare `v1=`;
+      - **exactly 300 seconds either way accepted, 301 refused**;
+      - a leading zero accepted;
+      - **12 malformed timestamps** (empty, letters, signs, a space, **a trailing newline**, a decimal, hex, milliseconds, overflow, **Arabic-Indic and full-width digits**);
+      - non-ASCII UTF-8, CRLF and empty bodies.
+  - **Test** `TestWebhookSnippets_VerifyOurVectors` (`make test-contract`):
+    - each language's `check_vectors` runs in its official image through `testcontainers-go`, with the directory copied in (`WithFiles`; bind mounts are deprecated there);
+    - it must exit 0 and report 42/42;
+    - the Go one also runs `gofmt -l` and `go vet`;
+    - the images are `golang:1.26.11-alpine`, `php:8.4.27-cli-alpine`, `node:22.23.5-alpine` and `python:3.13.18-alpine`;
+    - about 4 seconds once pulled.
+    - `github.com/moby/moby/api` is now a direct dependency, for `container.Config` (same version, already indirect).
+  - **Order of work:** the vectors and runners first, with stub snippets refusing everything. All four were seen failing (15/42, only the bad-signature cases), then passed on the first run with the implementations.
+  - **Mutation-checked**, each failing its intended vectors, then restored:
+    - Node without the length check (3 vectors throw);
+    - Node checking only the first value (4 vectors);
+    - Python with `isdigit()` (both non-ASCII digit cases);
+    - PHP without `/D` (the trailing newline);
+    - Go without the future-timestamp check (2 vectors);
+    - a hand-edited vector (the golden test).
+  - **gitleaks:** the vectors carry 5.3's made-up test secrets, which JSON can't mark `gitleaks:allow`. A new `.gitleaks.toml` (the default rules, extended) allowlists that one path. Without it there were 42 findings; with it, the tree scans clean (gitleaks 8.30.1 through Docker).
+  - **`make check`** (after staging; the dev stack down): green first time. Lint 0 issues; 5 runs fresh (`test/contract`, `gateway`, `testkit` both, `tools/scaffold`), 80 from the cache; no container retries.
+  - **Docs:** data model §8 points to `docs/webhooks/verify/`; ROADMAP 5.7 is ticked. ROADMAP's phase test "the snippets in every language verify signatures produced by our signer" is this test.
+  - **Not in 5.7:** published packages (npm, Packagist, PyPI, a Go module path for clients); the portal page that shows the snippets (Phase 8).
+
+- 5.2 Endpoints: registration, the verification challenge and secret rotation (OQ-23). The webhooks service's first code. Your answers of 16 Nov: **the HTTP API and gateway route stay in 5.5**, and **the cap of 16 endpoints per client is enforced**.
+  - **Contracts:**
+    - **codes:** **VAL-4018** (422, verification failed) and **VAL-4019** (422, URL not allowed);
+    - **no migration;**
+    - **sqlc** (5.1's uncommitted queries, adjusted):
+      - `GetEndpointForUpdate`, `CountEndpoints`, `LockTenantEndpoints` (a transaction advisory lock per client);
+      - `UpdateEndpointURL` (back to pending, verification and disabling cleared), `UpdateEndpointDescription`, `DeleteEndpoint` (sets `deleted_at`);
+      - `ExpireOverlappingSecrets`, `DeleteSubscriptions`;
+      - **`MarkEndpointVerified` now takes the version the challenge was sent at** and accepts any status;
+    - **`domain.ClientEventTypes`:** the 21 types sent to clients. A new contract test (`TestEventCatalogue_WebhooksListMatchesTheMarkers`) keeps it equal to the `x-vaspro-webhook: true` schemas.
+    - **No events:** §8 names none for endpoint changes.
+  - **Rules** (`domain/endpoint.go`):
+    - **`CheckURL`:** https (http only with the development setting), a host, no user information or fragment, at most 2,048 characters, and a literal address that `AddressAllowed` accepts.
+    - **`AddressAllowed`** refuses:
+      - unspecified, loopback, private (RFC 1918 and unique-local, so `fd00:ec2::254`), link-local (so 169.254.169.254), multicast;
+      - 0/8, CGNAT 100.64/10, 192.0.0/24, 198.18/15, 240/4 (and broadcast), local NAT64, IPv6 documentation;
+      - an IPv4-mapped address is judged as its IPv4 address.
+    - `CheckSubscriptions` (client types or `*`; sorted, deduplicated, `*` alone); `NewChallenge`; `VerificationBody` (§8's body shape, type `webhook.verification`); `ChallengeEchoed` (a JSON object whose exact key `challenge` has the value, nothing after).
+  - **Adapters:**
+    - **`Sender`** (`adapters/sender.go`, which 5.4's worker will use too):
+      - no proxy; **redirects never followed** (a 3xx is an answer, not success); a 10s timeout; TLS 1.2+; at most 4 KB of the answer kept, with truncation reported;
+      - **every dialled address goes through `AddressAllowed` in the dialer's `Control`**, after DNS, so a name resolving inward (`localhost`, rebinding) is refused;
+      - its outcomes are `delivery_attempts.outcome`'s;
+      - its errors never name the URL (url.Error's text does, so it's unwrapped).
+    - `Accounts` (`CheckTenantAccess`, error only) and `Identity` (`IsStepUpFresh`) over gRPC.
+    - **New fake** `tools/fakes/tenantperms` (each service's adapter has its own errors); step-up reuses `staffcheck`.
+  - **App** (`app/endpoints.go`):
+    - **`CreateEndpoint`:**
+      - `credentials:manage` and a fresh step-up; the URL, events and description (at most 255 characters) checked;
+      - then, in one tenant transaction under the client's advisory lock: the cap, the endpoint (`pending_verification`), its subscriptions, and its secret;
+      - the secret is `domain.GenerateSecret`, sealed with `Envelope` under `webhooks-endpoint-secrets`, with an HMAC fingerprint, and **returned this once**;
+      - it sends no challenge: the client must first configure the secret.
+    - **`VerifyEndpoint`:**
+      - `credentials:manage`, no step-up;
+      - the endpoint and its valid secrets are read, then **the signed challenge goes out with no transaction open**;
+      - a 2xx echo marks it verified **only at the version it was sent for**;
+      - a refused address is VAL-4019; anything else is a `*VerificationFailure` (VAL-4018) with the outcome and status, and no URL, secret or challenge.
+      - **Changed from the plan:** it also re-checks an **active** endpoint, which stays active either way. A client can test the connection, and a failed check doesn't disable (deliveries do). From disabled, passing it re-enables.
+    - **`UpdateEndpoint`:** a new URL needs step-up and goes back to pending; the description and events need `credentials:manage` only; events are replaced as a set.
+    - **`RotateEndpointSecret`:** step-up; the row locked; a secret still in an earlier overlap ends now; the current one gets 24h; a new current one, returned once.
+    - **`GetEndpoint`, `ListEndpoints`** (`credentials:read`, never a secret) and **`DeleteEndpoint`** (`deleted_at`; 5.4 ends its pending deliveries).
+    - **`signingSecrets`** opens the valid secrets, current first, for 5.4's worker.
+    - Accounts or identity down fails closed. The logs name endpoint and tenant IDs only.
+  - **Service:**
+    - `internal/webhooks/webhooks.go`, `cmd/webhooks`, registered in `vaspro-all`;
+    - `Run` ensures `WEBHOOKS_EVENTS`, relays the outbox on `webhooks.<event>`, and serves `/healthz` and `/readyz` (the API is 5.5's);
+    - **config:**
+      - `WEBHOOKS_DATABASE_URL`, `_NATS_URL`, `_HTTP_ADDR` (`:8085`);
+      - `_ACCOUNTS_GRPC_ADDR`, `_IDENTITY_GRPC_ADDR` (dialled lazily);
+      - `_SECRETS_KMS_KEY`, `_SECRET_FINGERPRINT_KEY` (base64 of 32 bytes);
+      - `_ALLOW_INSECURE_URLS` (default false, warned about when on);
+      - `_MAX_ENDPOINTS` (16).
+  - **Tests:**
+    - **domain:** 28 `CheckURL` cases, 22 addresses, 10 subscription sets, the body, challenges, and 11 echo cases.
+    - **`Sender`** (httptest TLS servers):
+      - **loopback refused without the development setting, including `localhost` resolving to it, and the server never reached**; plain http refused;
+      - 2xx with the body and headers as given; 500 with its body; 4 KB kept (5,000 truncated, exactly 4,096 not);
+      - a slow endpoint timing out at the configured limit; nothing listening is `connect`; an untrusted certificate is `tls`;
+      - **a 302 not followed** (the target never hit);
+      - the error doesn't name the path or query.
+    - **app** (real Postgres as `webhooks_app`, a TLS receiver, a fake clock):
+      - created pending with a valid secret and the events; nothing sent; read and listed; **the ciphertext doesn't contain the secret, the fingerprint matches, and the logs don't contain it**;
+      - **an echo activates it, and the challenge verifies with `domain.Verify` and the secret**; its body and ID header; the challenge not in the logs; checked again, it stays active, and a failed re-check leaves it active;
+      - **a wrong echo, a bare challenge, a 500, a 302 and a timeout each leave it pending**, with the outcome reported and no attempt written;
+      - **a URL changed while the challenge is out isn't marked verified**;
+      - refused URLs (8 kinds) write nothing; **`localhost` passes creation's check but is refused when connecting**, never reaching the server; a URL change is checked too;
+      - **rotation:** both secrets sign, the new one first; a second rotation inside the overlap leaves the newest two; after 24h only the current one signs; no rotated secret in the logs;
+      - updates: events replaced and the description cleared without step-up; an internal type refused, changing nothing; a new URL back to pending; **a disabled endpoint re-enabled by the challenge**;
+      - delete: gone from reads, the row kept, a second delete not found;
+      - **who:** a Viewer reads but is refused all six changes; a stranger finds nothing; a stale step-up can't create, change the URL or rotate; another account's endpoint isn't found from one's own; **all of that writes nothing and reaches nothing**; identity or accounts down fails closed;
+      - refusals (no events, an internal event, a long description) write nothing;
+      - **the cap:** the 4th of 3 refused, another client unaffected, a deletion frees a place; **20 concurrent creates at 16 give exactly 16** (the pool warmed first).
+    - **contract:** the list equals the markers.
+    - **service:** `Run` as production wires it, `/readyz`, an endpoint created and verified through the service's own KMS, keys and `Sender`, and a clean shutdown; bad keys and a zero cap refused.
+    - **Order of work:**
+      - the domain, contract, `Sender` and app tests were seen failing against stubs (the app's first run hit Docker Desktop not running; it was started, and they then failed on the stubs);
+      - the app tests then passed on their first run against the implementation, and twice more with `-race`;
+      - the service test came with `webhooks.go`.
+    - **A test fix while writing it:** a fail-closed assertion first had a condition that could never fail; it's now "an error, and not a plain step-up refusal".
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no address check in the dialer (`localhost`);
+      - redirects followed;
+      - no version guard on verify;
+      - rotation not ending the earlier overlap;
+      - no step-up on rotation;
+      - no advisory lock on the cap (20 of 20 created).
+      - Two of these first went in wrong (one didn't compile, one left the check in place) and were redone; the results above are the redone runs.
+  - **`make check`** (after staging; Docker Desktop started for it, with five other projects' containers it restarted running alongside): green first time. Lint 0 issues; 37 runs fresh (`gateway` 93s, `webhooks/app` 25s, `webhooks/store` 23s), 52 from the cache; no container retries. gitleaks 8.30.1 through Docker, run from the repository root, found no leaks. Run as `dir /repo` it reports 42: the vectors' allowlist is a relative path (`^docs/…`), so it must be scanned from the root.
+  - **Docs:** data model §8 (verification, re-enabling, re-checking, the limits; the cap is no longer an open point); ROADMAP 5.2 ticked.
+  - **Deployment notes:**
+    - the login role is granted `webhooks_service` and doesn't own the tables;
+    - the HTTP port is gateway-only once 5.5 adds the API;
+    - **`WEBHOOKS_ALLOW_INSECURE_URLS` must stay false outside development**;
+    - `vaspro-all` needs the `WEBHOOKS_*` variables, and `ops/dev-environment`'s `env.example` and compose file gain them after the merge.
+  - **Not in 5.2:** the HTTP API, test events and the gateway route (5.5); deliveries and disabling (5.4); a client disabling an endpoint itself (5.5).
+
+- 5.4 The fan-out consumer and the delivery worker (OQ-23). Your answers of 16 Nov:
+  - **11 attempts**: one at once, then after 30s, 2m, 10m, 30m, 1h, 3h, 6h, 12h, 24h and 24h (about 71h). Data model §8 said 10 attempts and nine waits; it's corrected to OQ-23.
+  - **Deliveries for an endpoint waiting for verification again are held**, not ended.
+  - **Contracts:**
+    - **event** `webhook_endpoint.disabled` (sent to clients): `tenant_id`, `endpoint_id`, `reason` (`failing`), `failing_since`, `disabled_at`, `dead_deliveries`. `domain.ClientEventTypes` is now 22 (the contract test checks it).
+    - **no migration:** 5.1's grants already cover the worker.
+    - **sqlc, the worker's** (run as `webhooks_system`):
+      - `RecordDeliveryResult` (only from the attempt count claimed), `EndDelivery`, `PostponeDelivery`, `KillPendingDeliveries`;
+      - `GetEndpointForDelivery` (deleted included), `MarkEndpointFailing` (`coalesce`, so it keeps the first failure), `ClearEndpointFailing`, `DisableFailingEndpoint` (only while active and past the cutoff).
+  - **Rules** (`domain/delivery.go`):
+    - `DefaultSchedule`, `MaxAttempts` (waits + 1), `ParseSchedule`;
+    - `NextAttempt` (the wait after the attempts made, varied by ±jitter; none once every wait is spent);
+    - `ShouldDisable` (at exactly the limit);
+    - `DeliveryBody` (the envelope without `trace_id`);
+    - **`Recipient`:** a client event type whose envelope `tenant_id` is set and equals the data's `tenant_id`; otherwise nobody, so a mislabelled event never reaches the wrong client.
+  - **App:**
+    - **`HandleEvent`:**
+      - malformed, internal or inconsistent events are acknowledged with nothing written (a client type whose tenants disagree is logged);
+      - otherwise, in the client's transaction: `inbox.MarkProcessed`, then one delivery per active endpoint subscribed to the type or `*`, due now, carrying the exact body bytes;
+      - a database error is returned, so the bus redelivers.
+    - **`DeliverDue`:**
+      1. claims up to `BatchSize` due deliveries as `webhooks_system` with a lease;
+      2. sends each on its own goroutine, which takes **its endpoint's slot first, then a worker slot**, so one waiting for a busy endpoint never holds a worker;
+      3. per delivery:
+         - a deleted or disabled endpoint makes it dead (`endpoint_deleted`, `endpoint_disabled`) with no attempt;
+         - one pending verification holds it a minute;
+         - otherwise it's signed now with the valid secrets (both during a rotation) and sent;
+      4. one transaction records the attempt (the headers sent, signature included, never the secret; status, headers and up to 4 KB of the answer; outcome; duration) and moves the delivery: succeeded, retried after the next wait, or dead `attempts_exhausted`;
+         - **a unique violation on the attempt, or a delivery no longer at the claimed count, rolls the record back** (another worker took it after the lease ran out);
+         - a success clears `failing_since`; a failure sets it if unset;
+         - **past `DisableAfter`, the endpoint is disabled (`failing`), every pending delivery to it is dead `endpoint_disabled`, and `webhook_endpoint.disabled` goes to the outbox**, in that same transaction.
+    - **`ReplayDelivery`:** `credentials:manage`; the delivery must be the tenant's and its endpoint active (VAL-4000 otherwise); a new delivery with `replay_of`, the same event ID and body, due now, signed afresh when sent.
+  - **Service:**
+    - `Run` starts one durable `webhooks-fanout` consumer on each of `ACCOUNTS_EVENTS`, `LEDGER_EVENTS`, `PAYMENTS_EVENTS` and `WEBHOOKS_EVENTS` (filtered to `webhooks.webhook_endpoint.>`, so dead letters aren't consumed);
+    - **a stream that doesn't exist yet is retried, never created by webhooks**;
+    - 10 deliveries per event, then `webhooks.dead_letter.fanout`;
+    - a loop runs `DeliverDue` every poll, back to back while there's work;
+    - `Run` now cancels and waits for its background loops however it ends.
+    - **New config:** `WEBHOOKS_RETRY_SCHEDULE`, `_RETRY_JITTER` (0.1), `_DISABLE_AFTER` (72h), `_WORKERS` (16), `_PER_ENDPOINT` (4), `_BATCH_SIZE` (100), `_LEASE` (5m), `_POLL_INTERVAL` (1s), `_REQUEST_TIMEOUT` (10s), `_STREAM_RETRY` (5s). `New` refuses settings that can't work, **including a lease shorter than a batch for one endpoint takes**.
+  - **Tests:**
+    - **domain:**
+      - the default schedule is OQ-23's, with 11 attempts;
+      - the parse (7 bad inputs);
+      - exact waits, and nothing after the last;
+      - ±10% over 1,000 draws, spreading both ways;
+      - disabling at 72h minus a second, exactly, and plus a second;
+      - the body's keys and time format;
+      - 7 `Recipient` cases.
+    - **fan-out** (real Postgres):
+      - only the active endpoints subscribed by type or `*` get one, due now: not pending, deleted, disabled or unsubscribed endpoints, nor another client's;
+      - the body is exactly `DeliveryBody`, with no trace;
+      - **the same event four times is still one delivery per endpoint, processed once**;
+      - 5 events that aren't for a client are acknowledged with nothing written;
+      - an event with no endpoints is still recorded as processed.
+    - **worker** (TLS receivers, the fake clock, no jitter):
+      - **500 then 200:** retried exactly at 30s (not a second early), succeeded once, never claimed again; both attempts recorded with their status and the signature header; both requests have the event ID and body, and verify with the secret; the secret isn't in the logs;
+      - **the whole schedule:** due exactly at each wait, never a second early, then dead `attempts_exhausted` after 11 requests, and 71h of failure doesn't disable;
+      - **a slow endpoint doesn't hold up others:** 12 deliveries to an endpoint that never answers (more than the 8 workers) and 50 to another. All 50 arrive before the slow endpoint's first timeout ends, and 12 timeouts are recorded;
+      - **two `DeliverDue`s at once** (the pool warmed): 30 claimed between them, 30 requests, 30 attempts, each delivery succeeded once;
+      - **disabled at 72h:**
+        - a second short leaves it active;
+        - at 72h it's disabled (`failing`), both its deliveries are dead `endpoint_disabled`, and `webhook_endpoint.disabled` matches its schema with the right IDs, `failing_since` and 2 dead;
+        - **that event, fed back through `HandleEvent`, reaches only the client's other endpoint**;
+        - passing the challenge re-enables it with `failing_since` cleared;
+      - **a success resets `failing_since`**, and a second failure keeps the first one's time;
+      - **deleted:** dead with no request; **waiting for verification:** held a minute with no attempt and no request, then sent once verified;
+      - **a redirect isn't followed:** one request, a 302 `http_status` attempt;
+      - **during a rotation:** the new secret's signature first, then the old one's;
+      - **replay:** the same `Vaspro-Webhook-Id` and body bytes, a new timestamp, verifying; a Viewer refused, another client's and an unknown delivery not found, a disabled endpoint VAL-4000, and none of the refusals write anything.
+    - **service:**
+      - **`Run` as production wires it:** an endpoint verified through its own wiring, then a `wallet.credited` published on `ledger.wallet.credited` (**the ledger's stream created only after startup**) reaches it through the consumer and the worker loop, signed and verifying, with the data and no trace;
+      - **8 new bad settings refused** (a malformed schedule, jitter of 1 or below 0, no workers, more per endpoint than workers, a short lease, no timeout, no disabling time).
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - **one domain test passed against the stub only because the stub's schedule was empty**; it now uses its own schedule;
+      - the app tests then passed on their first run, and twice more with `-race`;
+      - the service test came with its code.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no `MarkProcessed` (the duplicate);
+      - no lease check and no `SKIP LOCKED` (two workers);
+      - no per-endpoint cap (the slow endpoint);
+      - the waits off by one (domain and the schedule tests);
+      - `failing_since` reset on every failure;
+      - a disable leaving pending deliveries;
+      - a replay with a new event ID.
+      - **The slow-endpoint test was strengthened first:** with 6 slow deliveries and 8 workers, removing the cap couldn't fill the pool, so it now uses 12.
+      - Three mutations first went in so they didn't compile, and were redone; the results above are the redone runs.
+  - **`make check`** (after staging):
+    - the first run stopped at lint on one gosec G404: the jitter test's seeded `math/rand`, which is there so the draws repeat. It's now marked `nolint` with the reason.
+    - The second run was green: lint 0 issues; 11 runs fresh (`webhooks/app` 104s, mostly the slow-endpoint and schedule tests), 78 from the cache; no container retries.
+    - gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Docs:** data model §8 (fan-out, attempts, retries, endpoints not active); ROADMAP 5.4 ticked.
+  - **Deployment notes:**
+    - the service reads the accounts, ledger and payments streams; until each exists it logs and retries every `WEBHOOKS_STREAM_RETRY`;
+    - each replica sends; the lease must cover a batch for one endpoint, which `New` enforces;
+    - **attempts and their answers are kept with no limit yet** (30 days is proposed in §8's open points).
+  - **Not in 5.4:** the delivery log and replay over HTTP, test events, client disabling, the gateway route (5.5); ClickHouse (5.6); the email or SMS alert for a disabled endpoint (Phase 16).
+
+- 5.5 The webhooks API, the gateway route, and one-time credentials kept out of idempotency records (OQ-23, OQ-24). Your answers of 16 Nov:
+  - **a stored idempotency response never holds a secret:** a retry with the same key gets it as `null`;
+  - **identity fixed in the same task.** I extended it, as the plan said, to every one-time credential identity shows, not just API clients.
+  - **Contracts:**
+    - **`docs/api/webhooks.yaml`**, 12 operations under `/v1/webhooks/tenants/{tenantId}/`:
+      - endpoints: list, create (201, `secret` once), get, update (PATCH `url`/`description`/`events`), delete (204);
+      - `verification` (also re-enables), `secret-rotations` (201, `secret` and `previous_valid_until`), `disable`, `test-events` (202);
+      - `deliveries` (filters `endpoint_id`, `status`, `event_type`, `event_id`; `cursor`, `limit` 1–100, default 50), `deliveries/{id}` (the body and `attempt_log`), `deliveries/{id}/replays` (202);
+      - `additionalProperties: false` on the request bodies.
+    - **`platform/idempotency`:** `Middleware(store, ttl, opts ...Option)` (every existing caller unchanged) and **`WithRedactedFields(match, fields...)`**. For a matching request's 2xx JSON-object response, the stored copy has those fields (top-level names or dotted paths) as `null`; the live response is untouched.
+    - **sqlc:** `ListDeliveries` (filters, a `(created_at, id)` cursor, newest first) and `DisableEndpointByClient`.
+    - **domain:** `TestEventBody` (`webhook.test`, data `endpoint_id` and a message).
+    - **`RotateEndpointSecret`** now returns a `Rotation` (the secret and `PreviousValidUntil`).
+    - **identity's spec:** `secret`, `password`, `url` and `recovery_codes` are `[string, "null"]` (or array), documented as null on a replay; the generated code changed only in comments.
+    - **open-questions OQ-24** records the exposure and the answer.
+  - **App:**
+    - **`ListDeliveries`** (credentials:read; a bad cursor, an unknown status or a limit over 100 is VAL-4000);
+    - **`GetDelivery`** (the body and every attempt with request headers, response status, headers and body, outcome, error);
+    - **`SendTestEvent`** (credentials:manage; active endpoints only; a delivery due now, through the worker and the log, never the bus);
+    - **`DisableEndpoint`** (credentials:manage, no step-up; `client`; pending deliveries dead `endpoint_disabled` in the same transaction; a repeat changes nothing).
+  - **API** (`internal/webhooks/api`, payments' pattern):
+    - `requireCaller` (the gateway's user and session), the strict server, and a 1 MB limit;
+    - the idempotency middleware redacting `secret` on POST `…/endpoints` and `…/secret-rotations`;
+    - `toProblem` maps not found, permission, step-up, VAL-4019, VAL-4018 and VAL-4000;
+    - a response body that isn't UTF-8 is base64 with `response_body_encoding`.
+    - `webhooks.go` now serves `api.Routes` (health included).
+  - **Identity:** `routes.go` redacts:
+    - `secret.secret` on POST `/v1/auth/api-clients`;
+    - `secret` on `…/api-clients/{id}/secrets`;
+    - `password` on `/v1/auth/smpp-accounts` and `…/{id}/password`;
+    - `url` and `recovery_codes` on `/v1/auth/totp-enrollments`.
+  - **Gateway:** `GATEWAY_WEBHOOKS_BASE_URL` (**new, required**) and `GATEWAY_WEBHOOKS_OPENAPI_PATH`; `/v1/webhooks` with the session and spec validation; its routes join the audit templates.
+  - **Tests:**
+    - **platform/idempotency:**
+      - the stored copy has the fields null while the live response keeps them, and the replay gets the stored copy with the same status;
+      - a nested field is nulled alone, its siblings kept;
+      - another route, an error answer, a non-object body and a body without the field are stored as-is.
+    - **domain:** the test event's shape; `webhook.test` isn't a client event type.
+    - **app:**
+      - **the log:** an account's six deliveries newest first, another account's excluded; by endpoint, status, type and event; **pages of one, every row once**; a bad cursor, a limit of 101 and an unknown status VAL-4000; a stranger not found; a Viewer reads;
+      - **detail:** the body and both attempts (500 then 200) with status, response body and headers, and the request's signature header; another account's and an unknown delivery not found;
+      - **test events:** delivered signed and verifying, with the endpoint's ID, in the log; a pending endpoint VAL-4000, a Viewer refused, an unknown endpoint not found;
+      - **client disable:** a Viewer refused; no step-up needed; queued delivery dead; a repeat keeps the first time; no delivery while disabled; verifying re-enables it.
+    - **API** (real Postgres, a TLS receiver):
+      - **spec-driven `TestTenantOperations_NeedCredentialPermissions`:** all 12 operations are 401 with no user, VAL-4003 for a stranger, AUTH-4024 with no permission, and a reader reads but every write is AUTH-4024. It fails if an operation has no case.
+      - **step-up:** create, a URL change and rotation are AUTH-4012 with a stale step-up; a description change isn't.
+      - **the flow:** create → verify → test event → worker → detail with the attempt and response → replay → the log paged by type → rotate → disable → delete (404), with the delivery log still readable.
+      - **codes:** VAL-4019 (user information), VAL-4000 (an internal event), VAL-4018 (a wrong echo, the URL not in the detail), a test event to a pending endpoint, and 5 bad log queries.
+      - **retries with the same key:** create and rotate return the same endpoint or rotation time with `secret: null`; 1 endpoint and 2 secrets exist; **no stored idempotency record contains `whsec_`**.
+    - **identity API:** `TestOneTimeCredentials_NotKeptForReplays`. API client create and rotate, SMPP create and reset, and TOTP enrolment, each retried: the same object back with the credential `null`, one client only, and **no stored response holds any of the 13 credentials shown**.
+    - **gateway:** `TestGatewayBackends_Webhooks`:
+      - the user and session forwarded, the spoof replaced, no token;
+      - a log query forwarded as is;
+      - **four invalid requests refused before webhooks** (no events, an unknown field, an unknown status, a limit of 500);
+      - a write with no key refused at the edge;
+      - no session 401;
+      - no fall-through to identity.
+    - **service:** the end-to-end test now registers and verifies the endpoint **over the HTTP API**, then the bus event arrives signed.
+    - **Order of work:**
+      - the platform, domain, app and identity tests were seen failing first. Identity's failure showed the exposure: each replay returned the API client secret, the SMPP password and the TOTP secret again.
+      - the webhooks API and gateway tests came with their code and passed on their first run; the mutations below stand in.
+      - **Code changes made while writing them:**
+        - `DeliveryDetail`'s attempt list is `AttemptLog`, since `Attempts` (the count) is embedded from `Delivery`;
+        - the redaction hook gained dotted paths, because identity's create-client response nests the secret (`secret.secret`), and nulling the whole object would also have hidden its ID and last4.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - the redaction ignored (the webhooks and identity tests);
+      - the log read without `credentials:read` (the spec-driven test);
+      - no step-up on create (the step-up test);
+      - the cursor's order reversed (the app paging test and the API flow);
+      - a client disable leaving pending deliveries;
+      - `/v1/webhooks` proxied to identity (the gateway test).
+      - The gateway mutation first didn't compile and was redone.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 24 runs fresh (`identity/api` 146s, `gateway` 113s, `webhooks/app` 61s), 66 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks (the spec's example secrets are marked `gitleaks:allow`).
+  - **Docs:** data model §8's API paragraph; OQ-24; ROADMAP 5.5 ticked.
+  - **Deployment notes:**
+    - **the gateway needs `GATEWAY_WEBHOOKS_BASE_URL`**;
+    - webhooks' HTTP port must be reachable only from the gateway;
+    - `vaspro-all` and `ops/dev-environment`'s `env.example` gain it after the merge, and `docs/api/API.md` is regenerated there;
+    - **identity's `idempotency_keys` rows written before this keep their credentials until they expire (24h)**; nothing is rewritten.
+  - **Not in 5.5:** the portal's inspector screen (8.4); retention of attempts (an open point); separate sandbox and live endpoints (Phase 8).
+
+- 5.6 ClickHouse: the events table, the batched sink, the first reports, and `getDailyActivity` (OQ-23). Your answers of 16 Nov:
+  - **the rail goes on `wallet.credited`**;
+  - **report days are in the account's country's time zone**;
+  - **`getDailyActivity` is in webhooks' API with `billing:read`**.
+  - **Dependencies:**
+    - **`clickhouse-go/v2` v2.50.0** (26 Oct; v2.51.0 is only 7 days old). It was already indirect at v2.49.0 through goose.
+    - **`testcontainers-go/modules/clickhouse` v0.44.0**, matching the other modules.
+    - That module's `go.mod` moved two indirect dependencies up by Go's minimum version selection: `moby/go-archive` v0.2.0 → v0.3.0 and `moby/sys/user` v0.4.0 → v0.4.1.
+    - Checked with a diff; `go mod tidy` moved nothing else.
+  - **Contracts:**
+    - **`migrations/clickhouse/20261116090000_events.sql`:** data model §8's `events` table exactly (ReplacingMergeTree(ingested_at), by month, ordered by `(tenant_id, type, occurred_at, id)`).
+    - **`make migrate`:** skips that folder in the Postgres loop and runs it with `goose … clickhouse "$CLICKHOUSE_URL"`, skipped if unset.
+    - **`wallet.credited` gains an optional `rail`:** the provider-clearing account the posting draws on (`mpesa_ke`; `sandbox` for dev top-ups); none for a match out of suspense. Additive; the catalogue test passes.
+    - **`getDailyActivity`:** `GET /v1/webhooks/tenants/{tenantId}/reports/daily-activity?from&to` (dates, inclusive, at most 92 days). It returns the time zone and, per day and currency, `credited_minor`, `topups`, `token_purchases_minor`, `usage_minor` and `usage_events`.
+    - **`platform/bus.ConsumeBatch`** (and `BatchConfig`, `Message`): a durable pull consumer that fetches up to `Max` or what arrived in `Wait`. It **acks the batch only after the handler returns nil**; otherwise it naks each message, or dead-letters one on its last allowed delivery. `Consume` now shares that dead-letter helper.
+    - **data model:** §5's events table notes `rail`; §8 describes the sink and the three reports.
+  - **Code:**
+    - **`testkit.StartClickHouse(t, WithClickHouseMigrations(dir))`:** the compose image (`24.3-alpine`), a 60s start, a ping for readiness, the retry wrapper, and goose's clickhouse dialect.
+    - **`adapters.ClickHouse`:**
+      - `InsertEvents`: one batch insert through `database/sql`;
+      - `DailyActivity`, `TopupsByRail` and `EventsPerType`, read with `FINAL`. Days use `toDate(occurred_at, zone)` with the zone as a bound argument, and amounts come from `JSONExtract*`.
+    - **`app/reports.go`:**
+      - **`SinkEvents`:** a malformed message is logged and skipped, `source` is the subject's first part, and the batch is one insert. An insert error is returned, so the whole batch comes back.
+      - **`DailyActivity`:** billing:read, the country from accounts, the zone from the pack, the range checked.
+      - **`TopupsByRail`, `EventsPerType`:** for staff; tested, no API.
+    - **`adapters.Accounts.TenantAccess`** now returns `TenantInfo{CountryCode}`. The `tenantperms` fake defaults to KE, with `SetCountry`.
+    - **Service:**
+      - `WEBHOOKS_CLICKHOUSE_URL` (**new, required**), `WEBHOOKS_PACKS_DIR` (`packs`), `WEBHOOKS_SINK_BATCH` (1000), `WEBHOOKS_SINK_WAIT` (1s);
+      - **`New` refuses a packs directory with no packs**, found by the new bad-config case: an empty folder loaded nothing and every report would have failed later;
+      - `Run` runs a `webhooks-clickhouse` batch consumer on each of `IDENTITY_EVENTS`, `ACCOUNTS_EVENTS`, `LEDGER_EVENTS`, `PAYMENTS_EVENTS` and `WEBHOOKS_EVENTS` (its events only, not dead letters);
+      - each waits for its stream; dead letters go to `webhooks.dead_letter.clickhouse`.
+    - **Ledger:** `writeWalletCredited` sets `rail` through `clearingRail`, the one provider-clearing rail in the wallet's currency, if exactly one.
+  - **Tests:**
+    - **bus:**
+      - five messages arrive as one batch, in order, with their subject, and aren't redelivered past the ack wait;
+      - two messages arrive as a partial batch after the wait;
+      - **a failed batch comes back whole**;
+      - after `MaxDeliver` each message is dead-lettered (each tried exactly twice).
+      - The existing `Consume` tests pass with the shared helper.
+    - **testkit:** `SELECT 1`; the migration creates a ReplacingMergeTree `events`.
+    - **ledger:** an STK-shaped top-up's and the direct payments top-up's `wallet.credited` have `rail: mpesa_ke`; a dev top-up's is `sandbox`; **the match out of suspense has none**.
+    - **webhooks app** (real ClickHouse and Postgres, a fixed set of 9 events for two clients):
+      - **the same event, in another batch and twice in one, is counted once, before and after `OPTIMIZE TABLE events FINAL`**;
+      - **daily activity:**
+        - 10 Nov: 152,000 credited in 2 top-ups plus a refund, 80,000 of tokens, 3,000 of usage over 5 events;
+        - **a top-up at 22:30 UTC is 11 Nov in Nairobi**;
+        - another client's 999,999 never appears;
+        - a narrower range;
+        - refusals: credentials:read only (AUTH-4024), a stranger, not a date, to before from, 93 days, empty; exactly 92 days passes.
+      - **staff reports:** top-ups by rail (mpesa_ke 2 for 1,099,999 across both clients, sandbox 1, `unattributed` 1); events per type (5 credits, and one each of the others, internal and tenantless included); an unknown zone refused.
+      - **a malformed message and an empty envelope are skipped while the good event lands**, with `source` `ledger`.
+    - **webhooks API:**
+      - the spec-driven test covers 13 operations; `getDailyActivity` refuses a credentials reader and answers a billing reader;
+      - **`TestGetDailyActivity`:** the 22:30 UTC top-up as 11 Nov in Africa/Nairobi; 4 bad queries VAL-4000.
+    - **service:** the end-to-end test now also checks that **the bus event published twice is two rows in ClickHouse but one with `FINAL`**, with source `ledger` and the right tenant. The ledger's stream is created after startup, so the sink's retry is exercised too. Two new bad-config cases.
+    - **Order of work:**
+      - the bus, testkit, ledger, webhooks app and contract tests were seen failing first (stubs, or no rail);
+      - the API and service tests came with their code; the mutations below stand in.
+      - **Test fixes while writing them:**
+        - the suspense-match assertion first took the newest event for the wallet, but the fake clock gives both events one time, so it now picks the match's event by its amount;
+        - it had also first taken `Lines[1]`, which isn't the main wallet for that posting.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - daily activity read without `FINAL` (counted twice before the merge);
+      - acking before the insert (the failed batch never came back);
+      - no tenant filter (isolation);
+      - UTC days (the 22:30 top-up);
+      - no rail on `wallet.credited` (both ledger tests).
+  - **Also:** gofmt formatted this phase's webhooks, bus, testkit, idempotency and ledger-test files (import order, alignment); lint didn't check them, so nothing else changed.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 39 runs fresh (testkit changed, so every integration package reran: `identity/app` 270s, `identity/api` 133s, `accounts/app` 126s, `ledger/app` 119s, `gateway` 92s, `webhooks/app` 73s), 51 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Deployment notes:**
+    - **webhooks needs `WEBHOOKS_CLICKHOUSE_URL`** and a packs directory;
+    - run `make migrate` with `CLICKHOUSE_URL` set;
+    - the URL's user owns the table for now (ClickHouse roles: Phase 17);
+    - `vaspro-all` and `ops/dev-environment`'s `env.example` gain the new variables after the merge.
+  - **Not in 5.6:**
+    - staff APIs for the two cross-client reports (the console, Phase 10);
+    - retention of ClickHouse events (no limit set, §8);
+    - `/readyz` doesn't check ClickHouse (the sink retries; reports answer SYS-9000 while it's down).
+
+- **Phase 5 exit gate** (2026-11-17), both boxes ticked in ROADMAP: `TestGateway_Phase5ExitGate_EndToEnd` (`internal/gateway/phase5_gate_integration_test.go`).
+  - **Setup:**
+    - **real services behind the in-process gateway:** identity, accounts (the KYC vendor fake), the ledger (`LEDGER_DEV_TOPUPS=true`), payments (the Daraja fake, callbacks back through the gateway, `127.0.0.1/32` as the callback range) and webhooks (ClickHouse, plain-http test URLs, retries after 1s and 1s);
+    - **accounts, the ledger, payments and webhooks share one NATS**, so webhooks consumes their real streams;
+    - a generic `startService` helper builds and runs `./cmd/<name>`.
+  - **What it does:**
+    - **staff:** two members granted with the real `vaspro identity grant-staff`;
+    - **VASPRO's paybill set up with the real ops CLI:** `vaspro payments add-rail-account`, `set-rail-credential` ×3 (secrets on stdin) and `verify-rail-account` against the fake;
+    - **the client's endpoint:** created through the gateway with step-up, its secret shown once;
+    - **`docs/webhooks/verify/go/testreceiver`** (new; standard library only, in the snippet's module) is started with that secret. It **verifies every request with `vasprowebhook.Verify`**, echoes the challenge, deduplicates by ID, and fails the first `wallet.credited` with 500. The endpoint then passes the challenge.
+    - **Phase 2:** individual KYC passes through the vendor's webhook → `kyc.check_decided` and `tenant.tier_changed`;
+    - **Phase 3:**
+      - a dev top-up by staff (`wallet.credited`, rail `sandbox`);
+      - a list price entered by one staff member and approved by the other with step-up;
+      - the client buys 10,000 SMS tokens for 8,000.00 (`tokens.purchased`);
+    - **Phase 4:** an STK top-up of 1,500.00 to the Daraja fake, its callback through the gateway, credited by the ledger (`payment_intent.succeeded`, `wallet.credited` rail `mpesa_ke`).
+  - **What it checks:**
+    - **the endpoint verified all six events and refused none**;
+    - **the delivery log through the gateway:** every delivery succeeded; every attempt has its response; the failed first `wallet.credited` shows 500 then success; exactly one delivery was retried; both rails appear in the bodies;
+    - **`getDailyActivity` for today in Nairobi:** 14,500.00 credited in 2 top-ups and 8,000.00 of tokens;
+    - **no endpoint secret or session token in the gateway's log**.
+  - **Passed on its first run (about 33s)**, so it was checked by breaking things, each failing it and then restored:
+    - the receiver not failing its first delivery (no retry in the log);
+    - `tokens.purchased` dropped from the client event list (the event never reaches the endpoint).
+  - **Also:** ROADMAP 5.1's box, never ticked, is now ticked (it's recorded done above).
+  - **PR #8's Security job failed on govulncheck** (17 Nov): two dependencies the ClickHouse client made reachable.
+    - **GO-2026-6888:** `andybalholm/brotli` v1.2.6, fixed in v1.2.7 (23 Oct);
+    - **GO-2026-6865:** `klauspost/compress` v1.20.1, fixed in v1.20.2 (12 Oct; `main` has v1.20.1 too, but nothing there reaches the bug).
+    - Both bumped; `go mod tidy` moved nothing else. govulncheck v1.9.0 now finds 0 vulnerabilities the code reaches. `make check` green first time (lint 0 issues; 39 runs fresh, since the bump touched modules most packages use; 51 from the cache; no container retries). Committed on `p5/phase-5` as a second commit, as the Go 1.26.11 fix was in Phase 4.
+  - **Not covered by the gate:** Phase 1's events. Identity publishes no client events (OQ-23's allowlist), so Phase 1 reaches the endpoint only through the account and KYC events built on it.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 5 runs fresh (`gateway` 94s with the gate; `test/contract`, whose Go snippet check now also runs gofmt and vet over `testreceiver`), 85 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
 
 ## Phase 4 plan (agreed 2026-11-11)
 Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adapter (4.2) come first, as the kickoff asks, because they need no schema.
@@ -27,6 +589,13 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
 - STK amounts in whole shillings.
 
 ## Done in Phase 4
+- **Merged to `main`** (2026-11-11):
+  - **PR #6** `p3/go-1.26.11` (merge `036b0b9`): Go 1.26.11 for GO-2026-6859, below.
+  - **PR #7** `p4/phase-4` (merge `f4cd4b7`): the seven task commits, the merge of `main` and the STATUS note.
+  - Each was merged after its CI was green on its head commit, with your confirmation.
+  - `p3/go-1.26.11` is deleted; `p4/phase-4` is deleted when Phase 5 is first pushed (your call).
+- **On the dev environment** (2026-11-11): `main` merged into `ops/dev-environment` and payments added to the stack (that branch's STATUS has the details). It's live on the dev server.
+  - Payments takes no M-Pesa money there yet: VASPRO's paybill needs Daraja sandbox credentials, and `PAYMENTS_DARAJA_CALLBACK_CIDRS` needs Safaricom's published ranges.
 - **Go 1.26.11** (2026-11-11, before the Phase 4 PR). CI's Security job had failed on `main` since Phase 3 merged: govulncheck reported GO-2026-6859 (an HTTP/1 server crash from a `MaxBytesReader` header race in `net/http`, fixed in go1.26.11), published between #5's passing PR run and its merge. gitleaks and trivy, later steps in the same job, were skipped behind it.
   - `go.mod` `go 1.26.10` → `go 1.26.11` (CI reads its Go version from it); PR #6, merged `036b0b9`, then `main` merged into `p4/phase-4`.
   - Checked: govulncheck v1.9.0 finds nothing the code calls; `make check` green (71 packages fresh); #6's CI green, the Security job's gitleaks included.
@@ -1839,13 +2408,10 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. The PR of `p4/phase-4` to `main`, merged only after CI is green and you confirm.
-2. Add the `DARAJA_SANDBOX_*` secrets; the exit gate's sandbox-on-staging box waits for staging (Phase 8).
-3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
-4. Still from Phase 3, on `ops/dev-environment`:
-   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
-   - the compose file gains the accounts address;
-   - `docs/api/API.md` is regenerated.
+1. Phase 5's commit and PR (`p5/phase-5` → `main`), on your go-ahead: one commit for 5.1–5.6 and the gate (5.0 and the plan are already committed). When the branch is first pushed, delete `p4/phase-4` (`git branch -d p4/phase-4 && git push origin --delete p4/phase-4`).
+2. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you); the exit gate's sandbox-on-staging box waits for staging (Phase 8).
+3. On the dev server, for M-Pesa top-ups: set up VASPRO's paybill with sandbox credentials (runbook "Payments") and set `PAYMENTS_DARAJA_CALLBACK_CIDRS` to Safaricom's published ranges.
+4. Keep `ops/dev-environment` current after each merge to `main`: `env.example` and the compose file for new settings, `API.md` regenerated.
 5. 2.11's and 3.10's builds once a v3 export exists; finance's review of Phase 3.
 6. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 7. Still open from Phase 0: the clean-machine `make up` M0 check.
