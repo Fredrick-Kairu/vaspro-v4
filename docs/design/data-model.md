@@ -15,6 +15,7 @@ This is the v4 data model. Part 1 sets the rules every service schema follows, a
 | Payouts leave from the client's own shortcode, like collections | No payout float in the ledger. Payments stores each client's rail accounts and encrypted credentials, and VASPRO's fee on each payout is held and settled in the client's payments token wallet like any other usage. |
 | Allocating money to a service is final for the client (21 Oct) | No transaction type moves tokens back to the main wallet. Only an approved reversal can claw back unused tokens, for fraud, a chargeback or closing an account. |
 | Code, shortcode and sender ID rentals are billed by invoice (21 Oct) | Rentals stay in Billing's billable assets register and monthly invoices, paid by auto-pay from the main wallet or by Pay now. They are not token purchases. USSD sessions and SMS still draw on their token wallets. |
+| Uploaded files are temporary (16 Nov) | Contact and campaign files are deleted 2 days after processing ends, payout files 30 days after. The rows taken from them are the record. See §8. |
 
 ## 1. Shared rules
 
@@ -1464,7 +1465,101 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 | utilities\_transactions | payouts with kind airtime, data or bill |  |
 | utility\_provider\_float | provider\_floats |  |
 
-## 8. Webhooks and reporting (webhooks)
+## 8. Uploaded files and retention
+
+An uploaded file is a temporary input: the rows taken from it are the record, and the file itself is deleted soon after processing ends. Contact files go 2 days after processing; payout files go after 30 days (decided 16 Nov 2026).
+
+**Rules**
+
+- **Each service owns its uploads** in its own schema (`contacts.imports` now, campaign and payout uploads later), so the one-schema-per-service rule holds. The shared mechanics live in `platform/uploads`: signed upload and download links, the quarantine-to-final move, scanning, encryption and the sweeper.
+- **Files never pass through the gateway.** The client gets a signed link and uploads straight to a quarantine area in object storage. The service then reads the file, checks it, encrypts it under its final key and deletes the quarantine copy.
+- **Same protection as KYB documents:** type checked from the content (not the name), ClamAV scan, SHA-256, envelope encryption. An infected file fails and is deleted at once, not after 2 days.
+- **Object keys are built from the tenant and the upload's ID**, never from anything the client sends: `uploads/<class>/<tenant>/<id>`.
+- **Processing streams the file** in batches and never loads it whole, with progress counts the dashboard can show.
+- **The clock starts at a final status**, and files that are abandoned or never uploaded expire too, so nothing stays forever.
+- **Two separate states:** how far processing has got (`status`), and whether the file still exists (`delete_after`, `deleted_at`). After deletion the row, its counts and its per-row errors stay; only the files are gone.
+
+| Retention class | Used for | Files deleted | Data kept |
+| --- | --- | --- | --- |
+| `transient` | Contact imports, campaign recipient files, and the error reports made from them | 2 days after a final status | Contacts until the client deletes them; messages per decision 9 |
+| `financial` | Payout batch files and their result reports; paybill statement files if kept | 30 days after a final status | Payout and statement rows in the database, for as long as finance and tax rules require |
+| Records (not in this scheme) | KYB documents | Kept while the account is active; see open points | — |
+
+```sql
+-- contacts.imports carries the columns every upload table uses. Payments adds the same
+-- file columns to payments.payout_batches in Phase 13, with retention_class 'financial'.
+CREATE TYPE contacts.import_status AS ENUM
+  ('awaiting_upload', 'scanning', 'validating', 'processing',
+   'completed', 'completed_with_errors', 'failed', 'cancelled', 'expired');
+
+CREATE TABLE contacts.imports (
+  id                 uuid PRIMARY KEY,
+  tenant_id          uuid NOT NULL,
+  group_id           uuid,                         -- add the imported contacts to this group, if set
+  status             contacts.import_status NOT NULL DEFAULT 'awaiting_upload',
+  file_name          text NOT NULL,                -- shown back to the client; never used in a path
+  content_type       text NOT NULL CHECK (content_type IN ('text/csv',
+                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')),
+  size_bytes         bigint CHECK (size_bytes > 0),  -- known after upload; capped by config
+  sha256             bytea,                        -- of the plaintext
+  object_key         text NOT NULL UNIQUE,         -- uploads/transient/<tenant>/<id>
+  error_report_key   text,                         -- rejected rows as CSV; same retention as the upload
+  retention_class    text NOT NULL DEFAULT 'transient' CHECK (retention_class IN ('transient', 'financial')),
+  rows_total         int,
+  rows_valid         int NOT NULL DEFAULT 0,
+  rows_failed        int NOT NULL DEFAULT 0,
+  upload_expires_at  timestamptz NOT NULL,         -- end of the signed upload link
+  finished_at        timestamptz,                  -- reached a final status
+  delete_after       timestamptz NOT NULL,         -- set at creation, reset at the final status
+  deleted_at         timestamptz,                  -- files removed; the row and its results stay
+  created_by         uuid NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  version            bigint NOT NULL DEFAULT 0,
+  CHECK ((finished_at IS NULL) = (status IN ('awaiting_upload', 'scanning', 'validating', 'processing')))
+);
+CREATE INDEX imports_tenant ON contacts.imports (tenant_id, created_at DESC);
+CREATE INDEX imports_to_purge ON contacts.imports (delete_after) WHERE deleted_at IS NULL;
+
+CREATE TABLE contacts.import_errors (             -- one row per problem; no file needed to show them
+  import_id   uuid NOT NULL REFERENCES contacts.imports (id),
+  tenant_id   uuid NOT NULL,
+  row_no      int NOT NULL,
+  field       text NOT NULL DEFAULT '',
+  error_code  text NOT NULL,                       -- VAL-...
+  message     text NOT NULL,                       -- names the problem; never repeats the row's values
+  PRIMARY KEY (import_id, row_no, field, error_code)
+);
+```
+
+| Status | Meaning | Can move to |
+| --- | --- | --- |
+| `awaiting_upload` | Import created; signed upload link issued | `scanning`, `cancelled`, `expired` (link ran out) |
+| `scanning` | File arrived: size, type and virus checks, then encrypted to its final key | `validating`, `failed` |
+| `validating` | Headers matched to fields; format checked | `processing`, `failed` |
+| `processing` | Rows written in batches; counts update | `completed`, `completed_with_errors`, `failed` |
+| `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | Final; `finished_at` and `delete_after` set | — |
+
+**Flow**
+
+1. The client creates an import with the file's name, type and size, and gets a signed upload link (valid 15 minutes) to the quarantine area. `delete_after` is set to the link's end plus 2 days, in case the upload never happens.
+2. The browser uploads the file straight to storage, then tells the API the upload is complete.
+3. The service checks, scans and encrypts the file, deletes the quarantine copy and starts processing.
+4. At a final status the service sets `finished_at`, resets `delete_after` (2 or 30 days by class) and publishes `contact_import.finished`, which clients can receive by webhook.
+5. Until `delete_after`, the client can download the original and the error report through short-lived signed links. After it, the download returns a clear "file deleted" error and the dashboard shows the date.
+6. A sweeper in each service deletes the files of every row past `delete_after`, then sets `deleted_at`. It is safe to repeat.
+7. Backstops: storage expiry rules on the quarantine area (1 day) and, where the store supports them, on each class's prefix. Backups of upload prefixes are kept no longer than the files.
+
+What stays as it is: KYB documents keep their own table and rules (§4). Paybill statement imports send their CSV in the request body, parse it in memory and keep no file.
+
+**Open points**
+
+- How long to keep KYB documents and other account records after an account closes, and rejected or replaced documents (proposed: 30 days after rejection). Needs counsel; the Data Protection Act requires keeping personal data no longer than needed. (Roadmap OD-23.)
+- Size and row limits: proposed defaults of 100 MB and 1,000,000 rows per contact import, both configurable.
+- Confirm whether SeaweedFS supports expiry rules for the backstop, or rely on the sweeper alone.
+
+## 9. Webhooks and reporting (webhooks)
+
+> Numbered §8 until 16 Nov 2026, when §8 became uploaded files and retention. Code comments and the Phase 5 migrations written before then cite this section as "data model §8".
 
 > **Drafted for Phase 5 (12 Nov 2026, OQ-23)** from the plan agreed for that phase, ahead of the rest of Part 4. To be reviewed with Phase 5's pull request.
 
@@ -1667,13 +1762,13 @@ ORDER BY (tenant_id, type, occurred_at, id);
 - **Retention:** attempts and their responses kept 30 days, deliveries 90 days (proposed, not yet enforced). ClickHouse events are kept for reports, with no limit set.
 - **Sandbox and live:** one set of endpoints per client until Phase 8 adds environments to events.
 
-## 9. Next parts and open points
+## 10. Next parts and open points
 
 | Part | Services | Why in this order |
 | --- | --- | --- |
 | 2 | Billing and invoicing, Payments | Done: sections 6 and 7 |
 | 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow |
-| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3. Webhooks done first, for Phase 5: section 8 |
+| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3. Webhooks done first, for Phase 5: section 9 |
 
 **Open points raised by Part 1**
 

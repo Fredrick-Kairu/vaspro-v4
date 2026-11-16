@@ -1,9 +1,46 @@
 # Build status
 
-**Updated:** 2026-11-17
-**Current phase:** Phase 5: Webhooks, events and reporting, planned 2026-11-12. Phase 4 merged to `main` 2026-11-11 (PR #7, `f4cd4b7`); its "real Daraja sandbox top-up on staging" exit-gate box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
-**Current task:** Phase 5 done, its exit gate green (17 Nov). Next: the phase commit and PR, which wait for your go-ahead. From 5.1 on, Phase 5's work stays uncommitted on the branch and is committed together at the phase's end (your call, 12 Nov); 5.0 and the plan were committed before that.
-**Branch:** `p5/phase-5`, one branch for the phase like Phases 3 and 4. This STATUS update is its first commit, so it reaches `main` with Phase 5's PR, not a PR of its own.
+**Updated:** 2026-11-16
+**Current phase:** Phase 6: Contacts and consent. Phase 5 merged to `main` 2026-11-16 (PR #8, merge `a12ed94`). Phase 4's "real Daraja sandbox top-up on staging" box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
+**Current task:** the uploads and retention design update (D-23, data model §8, ADR 0012) is applied as a docs-only commit. Next: the plan for 6.2a (`platform/uploads`), for your review before any code; the Phase 6 questions below still need your answers.
+**Branch:** `p6/phase-6`, from `origin/main`, one branch for the phase. Its first commit is this STATUS update and the design update; it reaches `main` with Phase 6's PR. Delete `p5/phase-5` when this branch is first pushed.
+
+## Phase 6 plan (draft, 2026-11-16; not yet agreed)
+Data model Part 3 (contacts) isn't written, so the phase starts by drafting it, as 5.0 did for webhooks; your answers will be OQ-25. The uploads and retention update of 16 Nov (D-23, data model §8, ADR 0012) adds 6.2a before imports. Order: 6.1, 6.2a, 6.2, then 6.3–6.6.
+
+| # | Task | Tests first |
+|---|---|---|
+| 6.0 | Data model: the contacts section (tables, rules, events, personal-data columns, v3 mapping, open points); pack schema `numbering.mobile_prefixes` and an `opt_out` block | the pack schema refuses bad keywords and prefixes; KE loads |
+| 6.1 | `contacts` migration: contacts, attribute definitions, groups and members, segments, consents and consent history, suppressions, preference links, and **`imports` and `import_errors` exactly as data model §8**; outbox, idempotency keys; roles; sqlc. Not on `main` yet, so §8's tables go straight into it | goose round trip; RLS on every client table; every CHECK and key, including §8's `finished_at` rule; column-limited updates; consent history append-only |
+| 6.2a | `platform/uploads` (D-23): signed upload links to a quarantine prefix; the quarantine-to-final move (content sniffing, size cap, ClamAV, SHA-256, envelope encryption, streamed); signed download links; the sweeper; retention classes `transient` (2 days) and `financial` (30 days), configurable. Mechanism only | planned separately, before code |
+| 6.2 | The contacts service, number normalisation, contacts and groups API, then imports on 6.2a: create (signed link), confirm, scan, validate, process as a stream with §8's statuses, progress counts, per-row errors, the error report; `contact_import.finished`; files deleted 2 days after a final status | KE formats to E.164; errors by row; duplicates merged within a file and across imports; 1,000,000 rows within the target with flat memory; every §8 status transition; retention with the fake clock; tenant B can't download tenant A's file |
+| 6.3 | Segments from attribute filters | filter table; type errors; keys never reach SQL text; isolation |
+| 6.4 | Consent per channel and purpose; opt-out keywords from the pack; suppression lists; preference-centre link | channel × purpose × state × suppression table; keyword variants; tampered or expired links |
+| 6.5 | Batch consent check over gRPC (≤ 10,000 numbers) | agrees with the domain rule; isolation; latency benchmark |
+| 6.6 | v3 contacts importer: designed, not built (no v3 export, OQ-02) | none |
+| Gate | Consent latency for 10,000 numbers; a 1M-row import through a signed upload, its file gone 2 days later | |
+
+**Questions still open** (asked 16 Nov; my recommendation first):
+1. Promotional consent model: opt-out (unknown allowed, STOP enforced), per pack, `promotional_requires_opt_in: false` for KE. A legal call.
+2. Channels `sms`, `whatsapp`, `email`, `telegram`, `rcs`; purposes `transactional`, `promotional`.
+3. Only the person can undo their opt-out (keyword or preference centre), never the client's API or an import.
+4. New permissions `contacts:read` (all four built-in roles) and `contacts:manage` (Admin, Developer).
+5. Deleting a contact is a hard delete; consents and suppressions stay.
+6. A suppression list across all clients: deferred.
+7. Upload cap 100 MB and 1,000,000 rows (data model §8 proposes the same); a streaming form of envelope encryption for files that size (6.2a).
+8. Targets: 1M rows under 5 minutes on the M4 with peak heap under 64 MB; consent check p95 under 200 ms for 10,000 numbers.
+9. `ExpandAudience` (a group or segment's numbers with consent applied) in 6.5, or left to Phase 7.
+10. Preference links: a short random token stored hashed, per client and number, 90 days.
+11. 6.6 design-only.
+12. Events: `contact_import.finished` and `consent.withdrawn` sent to clients without phone numbers; `consent.changed` internal.
+
+## Design update: uploaded files and retention (2026-11-16)
+Applied before 6.2, as asked, in place of replacing `ROADMAP.md` and `data-model.md` with the exported copies (`docs/vaspro-v4-roadmap (2).md`, `docs/design/VASPRO v4 Data Model.md`). Those exports lacked every ROADMAP tick and its evidence (1 ticked box against 73), the webhooks section, and the tables and columns added in Phases 1–5. Your call, 16 Nov: apply the update to the current files. The exports and the update file are deleted.
+- **Data model:** new §8 "Uploaded files and retention" (rules, retention classes, `contacts.imports` and `import_errors`, statuses, flow, open points), copied as given; its row in the decisions table. Webhooks is now §9 with a note that code comments and the Phase 5 migrations cite it as §8 (merged migrations aren't edited); "Next parts" is §10.
+- **ROADMAP:** D-23; OD-23 (KYB and account-record retention, Phase 17, default: kept while active, rejected or replaced documents deleted after 30 days, closed accounts with counsel); `uploads/` in the platform layout; the object storage row (SeaweedFS, `platform/uploads`); the new Phase 6 section (6.2a, upload, retention and isolation tests, the 1M-row exit-gate box); 7.11, 13.4 and its test, 17.3, 17.5, and the F3 row. Every tick is kept (73). A2's note now says §9.
+- **ADR 0012** "Uploaded files are temporary", with OD-23's default.
+- **6.1** isn't on `main`, so `imports` and `import_errors` go into its migration.
+- **Nothing contradicted an ADR or merged code.** KYB documents (2.8) keep going through the gateway, as §8 says; statement imports (4.6) keep their in-memory CSV.
 
 ## Phase 5 plan (agreed 2026-11-12)
 Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 drafts its webhooks section first. The order changed from ROADMAP: the signer (5.3) and the snippets (5.7) come before endpoints, because they depend only on each other.
@@ -23,6 +60,7 @@ Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 dra
 **Not in Phase 5:** separate sandbox and live endpoints (Phase 8); retention of attempt bodies (30 days proposed); the portal inspector (8.4); email or SMS for a disabled endpoint (Phase 16); ordering guarantees (clients deduplicate by `id`).
 
 ## Done in Phase 5
+- **Merged to `main`** (2026-11-16): PR #8 `p5/phase-5` (merge `a12ed94`), after its CI was green, with your confirmation. The servers are updated after Phase 6 (your call).
 - 5.0 The webhooks design (OQ-23). Data model Part 4 (Stage A A2) wasn't written, so its webhooks part was drafted from the agreed plan, ahead of the other Part 4 services. Docs and one contract test; no service code.
   - **Data model §8** (new; "Next parts and open points" is now §9, and nothing referred to the old §8):
     - **Tables:** `endpoints`, `endpoint_secrets` (sealed with `Envelope`), `subscriptions`, `deliveries` (the exact body bytes, a lease, `replay_of`), `delivery_attempts` (the response capped at 4 KB), with their CHECKs and indexes;
@@ -2408,7 +2446,7 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. Phase 5's commit and PR (`p5/phase-5` → `main`), on your go-ahead: one commit for 5.1–5.6 and the gate (5.0 and the plan are already committed). When the branch is first pushed, delete `p4/phase-4` (`git branch -d p4/phase-4 && git push origin --delete p4/phase-4`).
+1. Phase 6: your answers to the plan's questions, then the 6.2a plan for review, then 6.0 and 6.1.
 2. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you); the exit gate's sandbox-on-staging box waits for staging (Phase 8).
 3. On the dev server, for M-Pesa top-ups: set up VASPRO's paybill with sandbox credentials (runbook "Payments") and set `PAYMENTS_DARAJA_CALLBACK_CIDRS` to Safaricom's published ranges.
 4. Keep `ops/dev-environment` current after each merge to `main`: `env.example` and the compose file for new settings, `API.md` regenerated.
@@ -2422,7 +2460,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - Phase 3's "finance has reviewed the worked examples and the reversal rules" box needs finance's review, which only you can arrange. It was merged without it (your call, 2026-11-10).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
-- (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)
+- OD-23 (KYB and account-record retention) has its default recorded in ADR 0012 and is needed by Phase 17.
+- (otherwise none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)
 
 ## Notes for next session
 - **A Postgres role grant defaults to INHERIT, which silently defeats a "narrow, transaction-scoped elevated role" design (1.8, found by testing).** `GRANT identity_token_exchange TO CURRENT_USER` (no `WITH INHERIT FALSE`) made that role's extra RLS policy match on *every* query the granted connection ever ran — not just inside the one `db.Pool.WithRoleTx` transaction meant to scope it — because INHERIT makes a role's privileges ambiently active for any member, with no `SET ROLE` required at all. `SET ROLE`/`SET LOCAL ROLE` only matters for *non-inheriting* membership; with a default (inheriting) grant it's a no-op the privilege didn't need. Any future "narrow role reached only via an explicit SET ROLE" design needs `WITH INHERIT FALSE` on the grant, or the narrowing is fiction. Caught by a test asserting the *absence* of access outside the elevated-role block — the kind of negative assertion that's easy to skip when the happy path already passes.
