@@ -560,6 +560,10 @@ Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 dra
     - the receiver not failing its first delivery (no retry in the log);
     - `tokens.purchased` dropped from the client event list (the event never reaches the endpoint).
   - **Also:** ROADMAP 5.1's box, never ticked, is now ticked (it's recorded done above).
+  - **PR #8's Security job failed on govulncheck** (17 Nov): two dependencies the ClickHouse client made reachable.
+    - **GO-2026-6888:** `andybalholm/brotli` v1.2.6, fixed in v1.2.7 (23 Oct);
+    - **GO-2026-6865:** `klauspost/compress` v1.20.1, fixed in v1.20.2 (12 Oct; `main` has v1.20.1 too, but nothing there reaches the bug).
+    - Both bumped; `go mod tidy` moved nothing else. govulncheck v1.9.0 now finds 0 vulnerabilities the code reaches. `make check` green first time (lint 0 issues; 39 runs fresh, since the bump touched modules most packages use; 51 from the cache; no container retries). Committed on `p5/phase-5` as a second commit, as the Go 1.26.11 fix was in Phase 4.
   - **Not covered by the gate:** Phase 1's events. Identity publishes no client events (OQ-23's allowlist), so Phase 1 reaches the endpoint only through the account and KYC events built on it.
   - **`make check`** (after staging): green first time. Lint 0 issues; 5 runs fresh (`gateway` 94s with the gate; `test/contract`, whose Go snippet check now also runs gofmt and vet over `testreceiver`), 85 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
 
