@@ -74,6 +74,8 @@ const (
 	VAL4015  Code = "VAL-4015"
 	VAL4016  Code = "VAL-4016"
 	VAL4017  Code = "VAL-4017"
+	VAL4018  Code = "VAL-4018"
+	VAL4019  Code = "VAL-4019"
 )
 
 var registry = map[Code]entry{
@@ -530,6 +532,22 @@ var registry = map[Code]entry{
 		Title:     "Statement already imported",
 		Cause:     "A statement for this paybill and day has already been imported and reconciled.",
 		Fix:       "Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4018: {
+		Status:    422,
+		Title:     "Webhook endpoint verification failed",
+		Cause:     "The endpoint didn't answer the signed verification request with a 2xx and the same challenge within 10 seconds.",
+		Fix:       "Make the endpoint answer the webhook.verification request with {\"challenge\": \"<the value sent>\"} and a 2xx status, then verify again.",
+		Retryable: true,
+		Billable:  false,
+	},
+	VAL4019: {
+		Status:    422,
+		Title:     "Webhook URL not allowed",
+		Cause:     "Webhook URLs must be https, carry no user name or password, and reach a public address. Private, loopback, link-local and metadata addresses are refused, after DNS too.",
+		Fix:       "Use a public https URL.",
 		Retryable: false,
 		Billable:  false,
 	},

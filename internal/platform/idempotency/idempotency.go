@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -90,7 +92,11 @@ func (b *bufferedResponseWriter) WriteHeader(code int) {
 // the first to finish — acceptable for now because nothing in this
 // codebase yet issues concurrent duplicate requests on purpose; revisit
 // if that changes.
-func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler {
+func Middleware(store Store, ttl time.Duration, opts ...Option) func(http.Handler) http.Handler {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// .claude/rules/api.md requires the header on every WRITE
@@ -166,7 +172,91 @@ func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler 
 			w.WriteHeader(buf.code)
 			_, _ = w.Write(buf.body.Bytes())
 
-			_ = store.Complete(r.Context(), tenantID, key, buf.code, buf.body.Bytes())
+			_ = store.Complete(r.Context(), tenantID, key, buf.code, o.stored(r, buf.code, buf.body.Bytes()))
 		})
 	}
+}
+
+// Option configures Middleware.
+type Option func(*options)
+
+type options struct {
+	redactions []redaction
+}
+
+type redaction struct {
+	match  func(*http.Request) bool
+	fields []string
+}
+
+// WithRedactedFields keeps one-time secrets out of what Middleware
+// stores: for a request match accepts, a 2xx response that is a JSON
+// object is stored with these fields (top-level names, or dotted paths
+// into nested objects) set to null. The live
+// response is sent unchanged; a replay of the same key gets the stored
+// copy, so it creates nothing twice and never shows the secret again.
+func WithRedactedFields(match func(*http.Request) bool, fields ...string) Option {
+	return func(o *options) { o.redactions = append(o.redactions, redaction{match: match, fields: fields}) }
+}
+
+// stored is what Middleware keeps for r's response: the body, with any
+// redactions applied.
+func (o options) stored(r *http.Request, code int, body []byte) []byte {
+	if code < 200 || code > 299 {
+		return body
+	}
+	for _, rd := range o.redactions {
+		if rd.match(r) {
+			body = nullFields(body, rd.fields)
+		}
+	}
+	return body
+}
+
+// nullFields sets fields to null in a JSON object, or returns body as it
+// is if it isn't one or has none of them. A field may be a dotted path
+// into nested objects ("secret.secret"); a plain name is a top-level
+// field only.
+func nullFields(body []byte, fields []string) []byte {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return body
+	}
+	changed := false
+	for _, f := range fields {
+		if nullPath(obj, strings.Split(f, ".")) {
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// nullPath sets the field at path to null, reporting whether it found
+// it.
+func nullPath(obj map[string]json.RawMessage, path []string) bool {
+	raw, ok := obj[path[0]]
+	if !ok {
+		return false
+	}
+	if len(path) == 1 {
+		obj[path[0]] = json.RawMessage("null")
+		return true
+	}
+	var inner map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &inner); err != nil || !nullPath(inner, path[1:]) {
+		return false
+	}
+	b, err := json.Marshal(inner)
+	if err != nil {
+		return false
+	}
+	obj[path[0]] = b
+	return true
 }

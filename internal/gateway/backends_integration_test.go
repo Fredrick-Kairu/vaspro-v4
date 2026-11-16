@@ -72,16 +72,16 @@ func (b *recordingBackend) count() int {
 	return len(b.calls)
 }
 
-// newBackendsGateway routes to fake backends. others are the ledger's
-// and payments', in that order, both optional: a fresh recording
-// backend stands in for each one not given.
+// newBackendsGateway routes to fake backends. others are the ledger's,
+// payments' and webhooks', in that order, all optional: a fresh
+// recording backend stands in for each one not given.
 func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, others ...*recordingBackend) http.Handler {
 	t.Helper()
 	root := repoRoot(t)
-	for len(others) < 2 {
+	for len(others) < 3 {
 		others = append(others, newRecordingBackend(t))
 	}
-	ledger, payments := others[:1], others[1]
+	ledger, payments, webhooks := others[:1], others[1], others[2]
 	cfg := Config{
 		IdentityBaseURL:     identity.URL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
@@ -91,6 +91,8 @@ func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sess
 		LedgerOpenAPIPath:   filepath.Join(root, "docs/api/ledger.yaml"),
 		PaymentsBaseURL:     payments.URL,
 		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
+		WebhooksBaseURL:     webhooks.URL,
+		WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, sessions)
 	if err != nil {
@@ -456,4 +458,79 @@ func TestGatewayBackends_Checkout(t *testing.T) {
 	if status, _ := send(t, gw, http.MethodGet, "/v1/payments/tenants/"+uuid.NewString()+"/topup-details", nil, nil); status != http.StatusUnauthorized || payments.count() != before {
 		t.Fatalf("a dashboard route still needs a session: %d", status)
 	}
+}
+
+// TestGatewayBackends_Webhooks: /v1/webhooks/ (task 5.5) is routed like
+// payments: a session is required, the user and session are forwarded
+// and spoofed copies replaced, the token isn't forwarded, requests are
+// validated against webhooks' own spec, and nothing falls through to
+// identity.
+func TestGatewayBackends_Webhooks(t *testing.T) {
+	identity, accounts, webhooks := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, newRecordingBackend(t), newRecordingBackend(t), webhooks)
+	base := "/v1/webhooks/tenants/" + uuid.NewString()
+	auth := map[string]string{"Authorization": "Bearer sess_good"}
+
+	t.Run("an endpoint is created with the session's user, not the token or a spoofed user", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodPost, base+"/endpoints",
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kw1", headerUserID: "33333333-3333-3333-3333-333333333333"},
+			map[string]any{"url": "https://hooks.example.com/vaspro", "events": []string{"*"}})
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := webhooks.last(t)
+		if req.URL.Path != base+"/endpoints" || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" ||
+			req.Header.Get("X-Vaspro-Session-Id") != "11111111-1111-1111-1111-111111111111" || req.Header.Get("Authorization") != "" {
+			t.Fatalf("forwarded %s as %q (session %q) with auth %q", req.URL.Path, req.Header.Get(headerUserID),
+				req.Header.Get("X-Vaspro-Session-Id"), req.Header.Get("Authorization"))
+		}
+	})
+	t.Run("the delivery log is a read", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodGet, base+"/deliveries?status=dead&limit=10", auth, nil)
+		if status != http.StatusOK || webhooks.last(t).URL.RawQuery != "status=dead&limit=10" {
+			t.Fatalf("got %d, forwarded query %q", status, webhooks.last(t).URL.RawQuery)
+		}
+	})
+	t.Run("validated against webhooks' spec before webhooks sees it", func(t *testing.T) {
+		before := webhooks.count()
+		for name, c := range map[string]struct {
+			method, path string
+			body         any
+		}{
+			"an endpoint with no events": {http.MethodPost, base + "/endpoints", map[string]any{"url": "https://hooks.example.com/x"}},
+			"an unknown field":           {http.MethodPost, base + "/endpoints", map[string]any{"url": "https://h.example.com", "events": []string{"*"}, "secret": "mine"}},
+			"an unknown delivery status": {http.MethodGet, base + "/deliveries?status=lost", nil},
+			"a page larger than 100":     {http.MethodGet, base + "/deliveries?limit=500", nil},
+		} {
+			headers := map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kw-" + name}
+			if status, body := send(t, gw, c.method, c.path, headers, c.body); status != http.StatusBadRequest {
+				t.Errorf("%s: got %d %v", name, status, body)
+			}
+		}
+		if webhooks.count() != before {
+			t.Fatal("an invalid request reached webhooks")
+		}
+	})
+	t.Run("a write without an Idempotency-Key is refused at the edge", func(t *testing.T) {
+		before := webhooks.count()
+		status, body := send(t, gw, http.MethodPost, base+"/endpoints/"+uuid.NewString()+"/verification", auth, nil)
+		if status != http.StatusBadRequest || webhooks.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("no session is 401 and never reaches webhooks", func(t *testing.T) {
+		before := webhooks.count()
+		status, body := send(t, gw, http.MethodGet, base+"/endpoints", nil, nil)
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || webhooks.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("webhooks paths never fall through to identity", func(t *testing.T) {
+		before := identity.count()
+		status, _ := send(t, gw, http.MethodGet, "/v1/webhooks/not-an-operation", auth, nil)
+		if status == http.StatusOK || identity.count() != before {
+			t.Fatalf("got %d, identity called %d times", status, identity.count()-before)
+		}
+	})
 }

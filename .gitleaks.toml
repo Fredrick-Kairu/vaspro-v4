@@ -1,0 +1,7 @@
+# gitleaks: the default rules, plus one path whose "secrets" are made up.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Webhook test vectors (5.7): the made-up secrets from internal/webhooks/domain/signature_test.go, which JSON can't mark gitleaks:allow"
+paths = ['''^docs/webhooks/verify/testdata/vectors\.json$''']

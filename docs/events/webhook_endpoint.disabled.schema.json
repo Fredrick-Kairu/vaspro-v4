@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/webhook_endpoint.disabled.schema.json",
+  "title": "webhook_endpoint.disabled",
+  "x-vaspro-webhook": true,
+  "description": "Published by webhooks when an endpoint's attempts have all failed for the configured time (72 hours by default) and it is disabled (data model §8; task 5.4). Its pending deliveries are dead from then on. Sent to the client's other active endpoints; monitoring's client alerts (Phase 16) turn it into email or SMS. Passing the verification challenge re-enables the endpoint. The endpoint's URL never appears here. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "endpoint_id", "reason", "failing_since", "disabled_at", "dead_deliveries"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "endpoint_id": {"type": "string", "format": "uuid"},
+    "reason": {"type": "string", "enum": ["failing"]},
+    "failing_since": {"type": "string", "format": "date-time", "description": "The first failed attempt since the endpoint's last success."},
+    "disabled_at": {"type": "string", "format": "date-time"},
+    "dead_deliveries": {"type": "integer", "minimum": 0, "description": "Pending deliveries ended because the endpoint was disabled; they can be replayed once it is re-enabled."}
+  },
+  "additionalProperties": false
+}

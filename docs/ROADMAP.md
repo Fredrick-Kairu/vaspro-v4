@@ -894,13 +894,13 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 5.1 `webhooks` migrations: endpoints, subscriptions, deliveries, attempts.
-- [ ] 5.2 Endpoint registration with a verification challenge; secret rotation.
-- [ ] 5.3 Signing: HMAC-SHA256 over the timestamp and body, sent in headers.
-- [ ] 5.4 Delivery worker: exponential backoff, maximum attempts, dead letter, automatic disabling after repeated failures (with a client alert), manual replay.
-- [ ] 5.5 Delivery log API for the dashboard and the portal's webhook inspector.
-- [ ] 5.6 ClickHouse sink: every event into an events table, de-duplicated on event ID; first report queries.
-- [ ] 5.7 Verification snippets for clients in Go, PHP, Node and Python.
+- [x] 5.1 `webhooks` migrations: endpoints, subscriptions, deliveries, attempts. *(2026-11-12: `migrations/webhooks/20261112090000_init.sql`, roles, RLS and sqlc.)*
+- [x] 5.2 Endpoint registration with a verification challenge; secret rotation. *(2026-11-16: `internal/webhooks/app/endpoints.go`; URLs checked again at every connection by `adapters.Sender`; the HTTP API comes with 5.5.)*
+- [x] 5.3 Signing: HMAC-SHA256 over the timestamp and body, sent in headers. *(2026-11-13: `internal/webhooks/domain/signature.go`; the key is the whole `whsec_…` string, OQ-23.)*
+- [x] 5.4 Delivery worker: exponential backoff, maximum attempts, dead letter, automatic disabling after repeated failures (with a client alert), manual replay. *(2026-11-16: `internal/webhooks/app/{fanout,worker,replay}.go`; 11 attempts over about 71h, disabled after 72h failing with `webhook_endpoint.disabled`; the alert by email or SMS is Phase 16's.)*
+- [x] 5.5 Delivery log API for the dashboard and the portal's webhook inspector. *(2026-11-16: `docs/api/webhooks.yaml`, `internal/webhooks/api`, gateway `/v1/webhooks`; one-time secrets kept out of idempotency records here and in identity, OQ-24.)*
+- [x] 5.6 ClickHouse sink: every event into an events table, de-duplicated on event ID; first report queries. *(2026-11-16: `migrations/clickhouse`, `bus.ConsumeBatch`, `internal/webhooks/adapters/clickhouse.go`, `app/reports.go`, `getDailyActivity`; `wallet.credited` gains `rail`.)*
+- [x] 5.7 Verification snippets for clients in Go, PHP, Node and Python. *(2026-11-14: `docs/webhooks/verify/`; each checks 42 golden vectors from our signer in its official Docker image, `test/contract/webhook_snippets_test.go`.)*
 
 **Tests specific to this phase**
 
@@ -912,8 +912,8 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] Events from Phases 1–4 reach a test endpoint signed and verified.
-- [ ] The delivery log shows every attempt with its response.
+- [x] Events from Phases 1–4 reach a test endpoint signed and verified. *(2026-11-17: `TestGateway_Phase5ExitGate_EndToEnd`, real identity, accounts, ledger, payments and webhooks on one bus; the endpoint is `docs/webhooks/verify/go/testreceiver`, built on the Go snippet. Identity publishes no client events, so Phase 1's reach the endpoint only through accounts' account and KYC events.)*
+- [x] The delivery log shows every attempt with its response. *(Same test: every delivery's attempts, a failed first one and its retry included.)*
 
 **Kickoff prompt**
 

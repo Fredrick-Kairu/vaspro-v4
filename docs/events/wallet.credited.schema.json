@@ -13,6 +13,7 @@
     "transaction_type": {"type": "string", "enum": ["topup", "refund"]},
     "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
     "amount_minor": {"type": "integer", "minimum": 1, "description": "The net amount credited to the wallet by this transaction, in minor units."},
+    "rail": {"type": "string", "description": "The payment rail the money came in on: the provider-clearing account the posting draws on, e.g. mpesa_ke, or sandbox for a dev top-up (task 5.6). Absent when the posting draws on none, as when staff match a payment out of suspense."},
     "reference_type": {"type": "string"},
     "reference_id": {"type": "string", "format": "uuid"}
   },

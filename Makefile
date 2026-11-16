@@ -45,9 +45,14 @@ gen-check: gen
 migrate:
 	@for dir in migrations/*/; do \
 		schema=$$(basename "$$dir"); \
+		[ "$$schema" = clickhouse ] && continue; \
 		echo "migrate: $$schema"; \
 		goose -dir "$$dir" postgres "$$DATABASE_URL_$$schema" up; \
 	done
+	@if [ -n "$$CLICKHOUSE_URL" ]; then \
+		echo "migrate: clickhouse"; \
+		goose -dir migrations/clickhouse clickhouse "$$CLICKHOUSE_URL" up; \
+	else echo "migrate: CLICKHOUSE_URL unset, skipping clickhouse"; fi
 
 lint:
 	@if [ -z "$(GO_PKGS)" ]; then echo "lint: no Go packages yet, skipping golangci-lint"; \
