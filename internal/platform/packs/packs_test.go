@@ -327,3 +327,60 @@ func TestParse_Rails(t *testing.T) {
 		t.Fatal("a pack with no rails has a top-up rail")
 	}
 }
+
+// TestParse_MobilePrefixesAndOptOut (task 6.0): KE's mobile prefixes
+// and opt-out keywords, which contacts reads to normalise numbers and
+// recognise STOP; bad entries are refused.
+func TestParse_MobilePrefixesAndOptOut(t *testing.T) {
+	schema := readFile(t, realSchemaPath)
+	base := string(readFile(t, realKEPackPath))
+	p, err := packs.Parse(schema, []byte(base))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(p.Numbering.MobilePrefixes, []string{"1", "7"}) {
+		t.Errorf("KE mobile prefixes = %v, want [1 7]", p.Numbering.MobilePrefixes)
+	}
+	if p.OptOut == nil {
+		t.Fatal("KE has no opt_out block")
+	}
+	if p.OptOut.PromotionalRequiresOptIn {
+		t.Error("KE requires opt-in for promotional messages; OQ-26 says opt-out")
+	}
+	if !slices.Equal(p.OptOut.Stop, []string{"STOP"}) || !slices.Equal(p.OptOut.Start, []string{"START"}) {
+		t.Errorf("KE keywords stop=%v start=%v", p.OptOut.Stop, p.OptOut.Start)
+	}
+
+	cut := func(block string) string {
+		i := strings.Index(base, block)
+		if i < 0 {
+			t.Fatalf("KE pack has no %q", block)
+		}
+		j := strings.Index(base[i+1:], "\n\n")
+		return base[:i] + base[i+1+j:]
+	}
+	p, err = packs.Parse(schema, []byte(cut("\nopt_out:")))
+	if err != nil || p.OptOut != nil {
+		t.Fatalf("a pack without opt_out: %v, %+v", err, p.OptOut)
+	}
+
+	for name, bad := range map[string][2]string{
+		"no mobile prefixes":         {`mobile_prefixes: ["1", "7"]`, `mobile_prefixes: []`},
+		"a prefix that isn't digits": {`mobile_prefixes: ["1", "7"]`, `mobile_prefixes: ["1", "7a"]`},
+		"a prefix over 4 digits":     {`mobile_prefixes: ["1", "7"]`, `mobile_prefixes: ["12345"]`},
+		"a repeated prefix":          {`mobile_prefixes: ["1", "7"]`, `mobile_prefixes: ["7", "7"]`},
+		"no stop keyword":            {`stop: ["STOP"]`, `stop: []`},
+		"a lower-case keyword":       {`stop: ["STOP"]`, `stop: ["stop"]`},
+		"punctuation in a keyword":   {`stop: ["STOP"]`, `stop: ["STOP!"]`},
+		"a keyword both ways":        {`start: ["START"]`, `start: ["START", "STOP"]`},
+		"opt-in as a string":         {`promotional_requires_opt_in: false`, `promotional_requires_opt_in: "no"`},
+	} {
+		changed := strings.Replace(base, bad[0], bad[1], 1)
+		if changed == base {
+			t.Fatalf("%s: the KE pack has no %q to change", name, bad[0])
+		}
+		if _, err := packs.Parse(schema, []byte(changed)); err == nil {
+			t.Errorf("%s: accepted, want refused", name)
+		}
+	}
+}

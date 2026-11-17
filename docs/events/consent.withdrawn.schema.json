@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/consent.withdrawn.schema.json",
+  "title": "consent.withdrawn",
+  "x-vaspro-webhook": true,
+  "description": "Published by contacts when a number's consent for a channel and purpose becomes withdrawn (data model §10; task 6.4): by the client through the API or dashboard, or by the person with a stop keyword or the preference centre. Withdrawing what's already withdrawn publishes nothing. The number never appears here, since every event is kept in ClickHouse: contact_id names the contact when the number is one of the client's contacts. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "channel", "purpose", "actor", "source", "withdrawn_at"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "contact_id": {"type": "string", "format": "uuid", "description": "The client's contact with this number, when there is one."},
+    "channel": {"type": "string", "enum": ["sms", "whatsapp", "email", "telegram", "rcs"]},
+    "purpose": {"type": "string", "enum": ["transactional", "promotional"]},
+    "actor": {"type": "string", "enum": ["client", "subject"], "description": "subject: the person themselves, whose withdrawal only they can undo."},
+    "source": {"type": "string", "enum": ["api", "dashboard", "keyword", "preference_centre", "v3"]},
+    "withdrawn_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

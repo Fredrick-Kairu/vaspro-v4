@@ -8,6 +8,8 @@ import "slices"
 var ClientEventTypes = []string{
 	"autobuy.triggered",
 	"collection_notice.matched",
+	"consent.withdrawn",
+	"contact_import.finished",
 	"kyc.check_decided",
 	"membership.invited",
 	"membership.joined",

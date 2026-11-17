@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	// vaspro-all:imports-begin
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/accounts"
+	"github.com/Fredrick-Kairu/vaspro-v4/internal/contacts"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/gateway"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/identity"
 	"github.com/Fredrick-Kairu/vaspro-v4/internal/ledger"
@@ -62,6 +63,12 @@ func main() {
 	}
 	if svc, err := webhooks.Bootstrap(ctx); err != nil {
 		logger.Error("vaspro-all: webhooks: bootstrap", "error", err)
+		os.Exit(1)
+	} else {
+		services = append(services, svc)
+	}
+	if svc, err := contacts.Bootstrap(ctx); err != nil {
+		logger.Error("vaspro-all: contacts: bootstrap", "error", err)
 		os.Exit(1)
 	} else {
 		services = append(services, svc)

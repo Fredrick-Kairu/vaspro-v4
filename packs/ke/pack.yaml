@@ -21,6 +21,10 @@ numbering:
   country_code: "254"
   trunk_prefix: "0"
   national_significant_number_length: 9
+  # What a mobile number's national significant number starts with
+  # (task 6.0): 7xx and 1xx (010, 011). Contacts accepts only these as
+  # Kenyan mobiles; landlines can't receive SMS.
+  mobile_prefixes: ["1", "7"]
 
 tax:
   # 16%, VAT included by default (OD-06's default; data model's worked
@@ -38,6 +42,17 @@ send_windows:
     start: "08:00"
     end: "20:00"
     timezone: Africa/Nairobi
+
+# Consent and opt-out (task 6.0, OQ-26; data model §10). A reply that
+# is only one of these words (any case, spaces and a trailing full stop,
+# comma, ! or ? ignored) withdraws, or gives back, the sender's consent
+# to promotional messages on that channel. Promotional messages to a
+# number with no recorded consent are allowed (opt-out model), and STOP
+# is enforced: a legal call to confirm with counsel (OQ-26).
+opt_out:
+  promotional_requires_opt_in: false
+  stop: ["STOP"]
+  start: ["START"]
 
 # Business verification (task 2.7): profiles are checked against the
 # Business Registration Service, by staff until a registry integration

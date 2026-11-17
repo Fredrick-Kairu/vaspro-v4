@@ -5,7 +5,7 @@
 ## Context
 Phase 6 brings the first client file uploads that feed processing: contact imports (task 6.2). Campaign recipient files (7.11) and payout files (13.4) follow. Until now the only uploads were KYB documents (task 2.8), which are records kept with the account, sent through the gateway in the request body and capped at 10 MB.
 
-Import files are different. They can be large (proposed cap 100 MB and 1,000,000 rows), they hold personal data (phone numbers, names, attributes), and once their rows are in the database the file adds nothing but risk. The Data Protection Act requires keeping personal data no longer than needed. The design had no rule for how long such files live, where they're stored, or how they reach VASPRO.
+Import files are different. They can be large (a 20 MB cap, decided 17 Nov after 100 MB was first proposed, and up to 1,000,000 rows), they hold personal data (phone numbers, names, attributes), and once their rows are in the database the file adds nothing but risk. The Data Protection Act requires keeping personal data no longer than needed. The design had no rule for how long such files live, where they're stored, or how they reach VASPRO.
 
 The decision was made on 16 Nov 2026 and is recorded as D-23 in ROADMAP §4.2 and as data model §8 ("Uploaded files and retention").
 
@@ -35,7 +35,7 @@ The decision was made on 16 Nov 2026 and is recorded as D-23 in ROADMAP §4.2 an
 ## Consequences
 - **New platform package** `platform/uploads` (task 6.2a), built before contact imports (6.2). Contacts' `imports` and `import_errors` follow data model §8 exactly. Payments adds the same file columns to `payout_batches` in Phase 13.
 - **Object storage must be reachable by clients** for signed links. That needs a public endpoint, CORS for the dashboard's origin, and links that are short-lived and bound to one key. The service signs them with its storage credentials (S3 presigned URLs; SeaweedFS locally and on dev), so the credentials never leave the service. Deployment notes go with 6.2a.
-- **Large files can't be sealed in memory.** `platform/crypto.Envelope` seals a whole payload at once, so encrypting files up to 100 MB without loading them needs a streaming form of envelope encryption, designed in 6.2a.
+- **Large files can't be sealed in memory.** `platform/crypto.Envelope` seals a whole payload at once, so encrypting large files without loading them needs a streaming form of envelope encryption, designed in 6.2a.
 - **Expiry backstops are uncertain.** Whether SeaweedFS supports bucket expiry rules is still to confirm (data model §8's open points); until then the sweeper alone deletes files.
 - **Clients lose access to originals.** After 2 days (30 for payouts) a client can't download the original file or the error report, only the row's counts and errors. The dashboard shows the deletion date (frontend track F3).
 - **Retention becomes testable.** Every service with uploads gets fake-clock tests: deleted at `delete_after`, never while processing, and safe to repeat. ROADMAP Phase 6's tests and exit gate name them.

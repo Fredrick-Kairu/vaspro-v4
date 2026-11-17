@@ -418,6 +418,7 @@ func newTestGatewayWithAccounts(t *testing.T, identityBaseURL, accountsBaseURL s
 		// Nor webhooks (task 5.5); TestGatewayBackends_Webhooks covers it.
 		WebhooksBaseURL:     "http://127.0.0.1:1",
 		WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
+		ContactsBaseURL:     "http://127.0.0.1:1", ContactsOpenAPIPath: filepath.Join(root, "docs/api/contacts.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected, sessions)
 	if err != nil {

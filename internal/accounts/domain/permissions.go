@@ -18,6 +18,9 @@ const (
 	PermCredentialsManage = "credentials:manage"
 	PermBillingRead       = "billing:read"
 	PermBillingManage     = "billing:manage"
+	// Contacts, groups, imports and consent (task 6.2, OQ-26).
+	PermContactsRead   = "contacts:read"
+	PermContactsManage = "contacts:manage"
 )
 
 // Built-in role IDs.
@@ -49,15 +52,16 @@ var catalogue = []string{
 	PermMembersRead, PermMembersManage,
 	PermCredentialsRead, PermCredentialsManage,
 	PermBillingRead, PermBillingManage,
+	PermContactsRead, PermContactsManage,
 }
 
 // builtinRoles must match what migrations seed (20261030160000,
-// 20261103090000); a store test checks they do.
+// 20261103090000, 20261117100000); a store test checks they do.
 var builtinRoles = []Role{
 	{ID: BuiltinAdminRoleID, Name: "Admin", Permissions: []string{PermAll}},
-	{ID: BuiltinDeveloperRoleID, Name: "Developer", Permissions: []string{PermAccountRead, PermMembersRead, PermCredentialsRead, PermCredentialsManage}},
-	{ID: BuiltinFinanceRoleID, Name: "Finance", Permissions: []string{PermAccountRead, PermMembersRead, PermBillingRead, PermBillingManage}},
-	{ID: BuiltinViewerRoleID, Name: "Viewer", Permissions: []string{PermAccountRead, PermMembersRead, PermCredentialsRead, PermBillingRead}},
+	{ID: BuiltinDeveloperRoleID, Name: "Developer", Permissions: []string{PermAccountRead, PermMembersRead, PermCredentialsRead, PermCredentialsManage, PermContactsRead, PermContactsManage}},
+	{ID: BuiltinFinanceRoleID, Name: "Finance", Permissions: []string{PermAccountRead, PermMembersRead, PermBillingRead, PermBillingManage, PermContactsRead}},
+	{ID: BuiltinViewerRoleID, Name: "Viewer", Permissions: []string{PermAccountRead, PermMembersRead, PermCredentialsRead, PermBillingRead, PermContactsRead}},
 }
 
 // Catalogue returns every known permission name.

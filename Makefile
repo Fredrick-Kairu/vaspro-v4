@@ -72,9 +72,13 @@ test:
 # `make test-int INTEGRATION_PARALLELISM=n`.
 INTEGRATION_PARALLELISM ?= 4
 
+# Go's default of 10 minutes per package is too close: contacts/app took
+# 430s locally in task 6.2, and CI's runners are slower.
+INTEGRATION_TIMEOUT ?= 25m
+
 test-int:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test-int: no Go packages yet, skipping"; \
-	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) ./...; fi
+	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) -timeout $(INTEGRATION_TIMEOUT) ./...; fi
 
 test-contract:
 	@if [ -z "$$(go list ./test/contract/... 2>/dev/null)" ]; then echo "test-contract: no packages under test/contract yet, skipping"; \

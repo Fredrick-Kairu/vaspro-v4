@@ -1472,7 +1472,7 @@ An uploaded file is a temporary input: the rows taken from it are the record, an
 **Rules**
 
 - **Each service owns its uploads** in its own schema (`contacts.imports` now, campaign and payout uploads later), so the one-schema-per-service rule holds. The shared mechanics live in `platform/uploads`: signed upload and download links, the quarantine-to-final move, scanning, encryption and the sweeper.
-- **Files never pass through the gateway.** The client gets a signed link and uploads straight to a quarantine area in object storage. The service then reads the file, checks it, encrypts it under its final key and deletes the quarantine copy.
+- **Files never pass through the gateway.** The client gets a signed link and uploads straight to a quarantine area in object storage. The service then reads the file, checks it, encrypts it under its final key and deletes the quarantine copy. Downloads come back through the service: stored files are encrypted, so a link straight to storage would only hand out ciphertext. The service signs a short-lived link to its own route, then decrypts the file and streams it through the gateway (decided 16 Nov 2026, task 6.2a, OQ-25).
 - **Same protection as KYB documents:** type checked from the content (not the name), ClamAV scan, SHA-256, envelope encryption. An infected file fails and is deleted at once, not after 2 days.
 - **Object keys are built from the tenant and the upload's ID**, never from anything the client sends: `uploads/<class>/<tenant>/<id>`.
 - **Processing streams the file** in batches and never loads it whole, with progress counts the dashboard can show.
@@ -1554,8 +1554,8 @@ What stays as it is: KYB documents keep their own table and rules (§4). Paybill
 **Open points**
 
 - How long to keep KYB documents and other account records after an account closes, and rejected or replaced documents (proposed: 30 days after rejection). Needs counsel; the Data Protection Act requires keeping personal data no longer than needed. (Roadmap OD-23.)
-- Size and row limits: proposed defaults of 100 MB and 1,000,000 rows per contact import, both configurable.
-- Confirm whether SeaweedFS supports expiry rules for the backstop, or rely on the sweeper alone.
+- Size and row limits: proposed defaults of 100 MB and 1,000,000 rows per contact import, both configurable. *(17 Nov: the size cap is **20 MB**, under ClamAV's default 25 MB stream limit; no client is expected to need more. A 1,000,000-row file fits only with short rows, about 20 bytes each, such as a number and a first name, or as XLSX, which is compressed. The row limit is still to confirm with 6.2.)*
+- Confirm whether SeaweedFS supports expiry rules for the backstop, or rely on the sweeper alone. *(16 Nov, task 6.2a: SeaweedFS 4.48 accepts a bucket expiry rule; whether it enforces one isn't tested yet, so the sweeper stays the deleter.)*
 
 ## 9. Webhooks and reporting (webhooks)
 
@@ -1762,12 +1762,268 @@ ORDER BY (tenant_id, type, occurred_at, id);
 - **Retention:** attempts and their responses kept 30 days, deliveries 90 days (proposed, not yet enforced). ClickHouse events are kept for reports, with no limit set.
 - **Sandbox and live:** one set of endpoints per client until Phase 8 adds environments to events.
 
-## 10. Next parts and open points
+## 10. Contacts and consent (contacts)
+
+> **Drafted for Phase 6 (17 Nov 2026, OQ-26)** from the answers to the Phase 6 plan, ahead of the rest of Part 3. To be reviewed with Phase 6's pull request.
+
+Contacts holds each client's address book (contacts with typed attributes, groups and segments), the consent every send is checked against, and the files clients import contacts from. Messaging (Phase 7) asks it two things over gRPC: may these numbers get this message, and who is in this group or segment. It reads no other service's schema; a tenant's country, which decides how numbers are read and which opt-out words apply, comes from accounts' `CheckTenantAccess`.
+
+**Rules**
+
+- **One contact per number per client.** A contact is keyed by its E.164 number; adding the same number again, by API or import, merges into the existing contact. Every number is normalised with the client's country pack before it's stored or checked (below). Email-only contacts, and other channel IDs (WhatsApp, Telegram), wait for those channels.
+- **Consent belongs to the number, not the contact.** It is kept per client, number, channel and purpose, so it holds for sends to numbers that aren't contacts, and it survives the contact being deleted. Deleting a contact deletes the contact, its attributes and its group memberships; its consent and suppressions stay as the record of what the person chose (OQ-26).
+- **The person's own choice wins.** A withdrawal made by the person (a reply keyword, the preference centre) can only be undone by the person (a start keyword, the preference centre), never by the client's API or an import. A trigger enforces it, as well as the app.
+- **No phone numbers in events.** Every event is copied into ClickHouse and kept for reports (§9), so events name contacts by ID and never carry a number.
+- **Personal data** (for the data catalogue): `contacts.phone_e164`, `first_name`, `last_name`, `email`, `attributes`; `consents.phone_e164` and `evidence`; `consent_events.phone_e164` and `evidence`; `suppressions.phone_e164` and `note`; `preference_links.phone_e164`; `imports.file_name`. Logs carry IDs, never a whole number.
+
+**Numbers.** A number is read in the client's country unless it starts with `+` or `00`. Spaces, hyphens, dots and brackets are dropped. A local number is the trunk prefix and the national significant number (`0712…`), the number alone (`712…`), or the country code and number with or without `+` (`254712…`, `+254712…`). It must have the pack's length and start with one of the pack's `mobile_prefixes` (KE: `7` and `1`), since only mobiles receive messages. A number with another country code is kept if it's valid E.164 (7 to 15 digits); whether it can be sent to is messaging's call. Anything else is refused with a reason (not digits, wrong length, not a mobile), which an import reports with its row.
+
+**Consent decisions.** For a number, channel and purpose:
+
+| Suppressed (this channel or all) | Recorded consent | Transactional | Promotional, opt-out country (KE) | Promotional, opt-in country |
+| --- | --- | --- | --- | --- |
+| Yes | any | blocked: `suppressed` | blocked: `suppressed` | blocked: `suppressed` |
+| No | withdrawn | blocked: `opted_out` | blocked: `opted_out` | blocked: `opted_out` |
+| No | granted | allowed | allowed | allowed |
+| No | none | allowed | allowed | blocked: `no_consent` |
+
+Channels: `sms`, `whatsapp`, `email`, `telegram`, `rcs`. Purposes: `transactional` (OTPs, alerts, receipts) and `promotional` (marketing). The pack's `opt_out.promotional_requires_opt_in` picks the last two columns; KE is opt-out, with STOP enforced (a legal call, OQ-26). An invalid number is `invalid_number`, whatever else holds.
+
+**Opt-out keywords.** A reply that is only one of the pack's `stop` words withdraws the sender's consent to promotional messages on the channel it arrived on; a `start` word gives it back. Both are recorded as the person's own choice (`actor = 'subject'`). Matching ignores case, surrounding and repeated spaces, and one trailing `.`, `,`, `!` or `?`; anything more is not a match (`stop`, ` Stop. ` and `STOP!` match, `stopped` and `please stop` don't). KE: `STOP` and `START`. Contacts exposes this as a gRPC call taking the client, channel, number and text; messaging calls it for replies from Phase 7, and decides which client a reply to a shared sender belongs to.
+
+**Preference centre.** A link `<public base>/p/<token>` lets a person see and change their promotional consent per channel for one client, with no sign-in. The token is 12 characters from 62 (about 71 bits), stored only as its SHA-256; there is one per client and number, it lasts 90 days, and issuing it again replaces it. Messaging asks for one when it builds a promotional message; a client can issue one by API. The page and its API are public, served by contacts through the gateway with a content security policy like `/pay/` (4.8).
+
+*As built (task 6.4):*
+- **Recording consent:** the client records a grant or withdrawal per number, channel and purpose, with optional evidence (at most 500 characters). Over a person's own withdrawal, a client grant is VAL-4026 and a client withdrawal changes nothing. `consent.withdrawn` is published when a consent becomes withdrawn, not when it already was. Each change is a `consent_events` row; a lookup shows the last 50.
+- **Lookup:** the number goes in a POST body (`consent-lookups`), never the URL, and needs `contacts:read`. It returns the consents, suppressions, the decision for every channel and purpose, and the history.
+- **Suppressions:** added per channel or for every channel (adding one already there returns it), listed by number then channel with a cursor, and removed by number and channel in a POST body.
+- **The preference page** offers SMS and WhatsApp, the channels VASPRO sends promotional messages on; email, Telegram and RCS join with those channels. It shows the number masked (`+254 7•• ••• 501`), and receiving is the decision for promotional messages, so a suppressed channel shows as off. **It doesn't name the client** (open point below). Viewing or changing stamps `last_used_at`.
+- **Work done for no user** (reply keywords, the preference page, links messaging asks for) reads numbers and keywords with the one loaded pack, as imports do (open point).
+- **A pack without an `opt_out` block** has no keywords and is treated as opt-in, failing closed.
+
+**Segments.** A segment is a saved filter over a client's contacts, evaluated when it's used, so it always reflects current contacts.
+
+```json
+{"all": [
+  {"field": "attributes.county", "op": "eq", "value": "Nairobi"},
+  {"any": [
+    {"field": "group", "op": "in", "value": ["<group id>"]},
+    {"field": "attributes.joined", "op": "after", "value": "2026-01-01"}
+  ]}
+]}
+```
+
+- **Fields:** `first_name`, `last_name`, `email`, `created_at`, `group`, and `attributes.<key>` for any attribute the client has defined.
+- **Operators** by type: text `eq`, `neq`, `in`, `contains`, `starts_with`, `exists`; number `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `between`, `exists`; date `eq`, `before`, `after`, `between`, `exists`; boolean `eq`, `exists`; group `in`, `not_in`.
+- **Limits:** `all` and `any` nest at most two levels, with at most 20 conditions. A value must suit its field's type.
+- **Matching:** text is compared exactly (case-sensitive), except `email`, which ignores case. `neq` and the comparisons need a value, so a contact without one doesn't match; `not_in` matches a contact in no group. `created_at` is compared as a date in the account's time zone. `between` is inclusive. Numbers are JSON numbers or decimal text, never floats.
+- **Evaluation:** the filter is checked against the client's attribute definitions and groups, then turned into a SQL/JSON path with every value passed as a variable, and run by one fixed query (`jsonb_path_match` over each contact's attributes, fields and group IDs). No SQL is built from client input, and attribute keys reach the path only after matching the key pattern and a definition. **One exception, task 6.3:** `like_regex` takes no variable, so a `contains` value goes into the path as a JSON-quoted string literal read literally (flag `q`); it's tested with quotes, backslashes and regular-expression characters. A segment whose attribute or group was since deleted is refused when used (VAL-4025); a refused filter is VAL-4025 too, its detail naming the problem.
+- **Performance** (task 6.3, the M4, 1,000,000 contacts in one account): counting reads every contact once, 0.6s for an attribute filter and 0.8s for a group filter (group IDs from one grouped join; a lookup per contact took 3.2s); the first page of 100 takes about 5ms (it looks groups up per contact, since it stops early). No materialised membership is needed yet.
+
+**Imports** follow §8: a signed upload, then `scanning` (`platform/uploads`), `validating` (headers matched to fields: `phone`, `msisdn`, `mobile`, `number` or `phone_number` for the number, case-insensitive; the contact fields; then attribute keys or labels; an unknown column is reported, as a row-1 error VAL-4021, and ignored; no number column, or two columns for one field, fails the import) and `processing`.
+- Rows are read as a stream and written in batches of 1,000. Each batch goes as one JSON array (`jsonb_to_recordset`) and is merged in one statement, with its errors and counts in the same transaction. A CSV's separator (comma, semicolon or tab) is taken from its header line, and a row that isn't UTF-8 is refused (VAL-4021); an XLSX is held in memory, within the 20 MB cap, and its first sheet streamed. *(Task 6.2: a JSON batch rather than the temporary table first planned, so the query stays sqlc's.)*
+- Within a file a later row wins. Against an existing contact, a non-empty cell replaces the stored value, an empty one leaves it, and attributes merge key by key.
+- `rows_valid`, `rows_failed` and `rows_total` (every data row read, blank ones too) advance with each batch. A worker holds a session advisory lock on the import while it works, so a worker that dies releases it, and the next one resumes after `rows_total` rows (merges are repeatable).
+- A problem with the whole file is an `import_errors` row with `row_no` 0; the header is row 1, and data rows count from 2, as a spreadsheet shows them.
+- **The country** whose pack reads an import's numbers is the one loaded pack's: the worker acts for no user, so it can't ask accounts' access check. A second country needs an accounts call for an account's country, or the country stored with the import (open point).
+- Limits: the file at most 20 MB (§8), at most 1,000,000 rows.
+- An import doesn't record consent.
+
+```sql
+CREATE SCHEMA contacts;
+
+CREATE TABLE contacts.contacts (
+  id            uuid PRIMARY KEY,
+  tenant_id     uuid NOT NULL,
+  phone_e164    text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  first_name    text CHECK (char_length(first_name) <= 100),
+  last_name     text CHECK (char_length(last_name) <= 100),
+  email         citext CHECK (char_length(email) <= 254),
+  attributes    jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(attributes) = 'object'),
+  source        text NOT NULL CHECK (source IN ('api', 'dashboard', 'import', 'v3')),
+  created_by    uuid,                          -- NULL for the v3 import
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  version       int NOT NULL DEFAULT 1,
+  UNIQUE (tenant_id, phone_e164),
+  UNIQUE (id, tenant_id)                       -- children reference (id, tenant_id), so they share its tenant
+);
+CREATE INDEX contacts_tenant_created ON contacts.contacts (tenant_id, created_at DESC, id DESC);
+CREATE INDEX contacts_attributes ON contacts.contacts USING gin (attributes jsonb_path_ops);
+
+CREATE TABLE contacts.attribute_definitions (   -- at most 50 per client
+  tenant_id   uuid NOT NULL,
+  key         text NOT NULL CHECK (key ~ '^[a-z][a-z0-9_]{0,39}$'),
+  label       text NOT NULL CHECK (char_length(label) BETWEEN 1 AND 100),
+  type        text NOT NULL CHECK (type IN ('text', 'number', 'date', 'boolean')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, key)
+);                                               -- a text value is at most 255 characters; numbers are decimal strings
+
+CREATE TABLE contacts.groups (
+  id          uuid PRIMARY KEY,
+  tenant_id   uuid NOT NULL,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  description text CHECK (char_length(description) <= 500),
+  created_by  uuid,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  version     int NOT NULL DEFAULT 1,
+  UNIQUE (id, tenant_id)
+);
+CREATE UNIQUE INDEX groups_name ON contacts.groups (tenant_id, lower(name));
+
+CREATE TABLE contacts.group_members (
+  tenant_id   uuid NOT NULL,
+  group_id    uuid NOT NULL,
+  contact_id  uuid NOT NULL,
+  added_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, contact_id),
+  FOREIGN KEY (group_id, tenant_id) REFERENCES contacts.groups (id, tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (contact_id, tenant_id) REFERENCES contacts.contacts (id, tenant_id) ON DELETE CASCADE
+);
+CREATE INDEX group_members_contact ON contacts.group_members (tenant_id, contact_id);
+
+CREATE TABLE contacts.segments (
+  id          uuid PRIMARY KEY,
+  tenant_id   uuid NOT NULL,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  filter      jsonb NOT NULL CHECK (jsonb_typeof(filter) = 'object'),
+  created_by  uuid,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  version     int NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX segments_name ON contacts.segments (tenant_id, lower(name));
+
+CREATE TYPE contacts.channel AS ENUM ('sms', 'whatsapp', 'email', 'telegram', 'rcs');
+CREATE TYPE contacts.purpose AS ENUM ('transactional', 'promotional');
+
+CREATE TABLE contacts.consents (                 -- the current state; consent_events is the history
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  channel      contacts.channel NOT NULL,
+  purpose      contacts.purpose NOT NULL,
+  status       text NOT NULL CHECK (status IN ('granted', 'withdrawn')),
+  actor        text NOT NULL CHECK (actor IN ('client', 'subject')),
+  source       text NOT NULL CHECK (source IN ('api', 'dashboard', 'keyword', 'preference_centre', 'v3')),
+  evidence     text CHECK (char_length(evidence) <= 500),   -- how the client obtained it, when the client records it
+  recorded_by  uuid,                            -- the client's user; NULL when the person acted
+  recorded_at  timestamptz NOT NULL,
+  version      int NOT NULL DEFAULT 1,
+  PRIMARY KEY (tenant_id, phone_e164, channel, purpose),
+  CHECK ((actor = 'subject') = (source IN ('keyword', 'preference_centre'))),
+  CHECK ((actor = 'client') = (recorded_by IS NOT NULL) OR source = 'v3')
+);
+-- A trigger refuses an update by actor 'client' of a row withdrawn by actor 'subject'.
+
+CREATE TABLE contacts.consent_events (           -- append-only
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL,
+  channel      contacts.channel NOT NULL,
+  purpose      contacts.purpose NOT NULL,
+  status       text NOT NULL CHECK (status IN ('granted', 'withdrawn')),
+  actor        text NOT NULL CHECK (actor IN ('client', 'subject')),
+  source       text NOT NULL,
+  evidence     text,
+  recorded_by  uuid,
+  occurred_at  timestamptz NOT NULL
+);
+CREATE INDEX consent_events_number ON contacts.consent_events (tenant_id, phone_e164, occurred_at DESC);
+
+CREATE TABLE contacts.suppressions (             -- the client's own do-not-contact list
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  channel      contacts.channel,                -- NULL: every channel
+  reason       text NOT NULL CHECK (reason IN ('client_request', 'complaint', 'invalid', 'other')),
+  note         text CHECK (char_length(note) <= 500),
+  created_by   uuid NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (tenant_id, phone_e164, channel)
+);
+
+CREATE TABLE contacts.preference_links (
+  tenant_id     uuid NOT NULL,
+  phone_e164    text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  token_hash    bytea NOT NULL UNIQUE,          -- SHA-256 of the 12-character token
+  created_at    timestamptz NOT NULL,
+  expires_at    timestamptz NOT NULL,
+  last_used_at  timestamptz,
+  PRIMARY KEY (tenant_id, phone_e164),
+  CHECK (expires_at > created_at)
+);
+
+-- imports and import_errors: §8, exactly.
+-- outbox_events and idempotency_keys: §1. No processed_events until contacts consumes an event.
+```
+
+- **RLS:** the standard policy on every table above. `contacts_system` (NOLOGIN, `WITH INHERIT FALSE`, through `WithRoleTx` only) reads imports across clients to claim work and sweep files, and finds a preference link by its token hash; it can't read contacts outside a client's transaction.
+- **Grants:** updates are column-limited (a contact's tenant and number, a consent's key, an import's object key and file name are never rewritten). `consent_events` and `import_errors` take inserts only. Deletes only for contacts, group members, groups, segments, attribute definitions, suppressions and idempotency keys.
+
+**API** (`docs/api/contacts.yaml`, tasks 6.2 to 6.5). Under `/v1/contacts/tenants/{tenantId}/`, through the gateway with a dashboard session:
+- contacts (list with a cursor, create, read, change, delete);
+- attribute definitions;
+- groups and their members;
+- segments, with a count and a paged member list;
+- imports (create, confirm the upload, read, list, the errors, signed download links for the file and the error report);
+- consent (record a grant or withdrawal; look up a number's state, with the number in the body, never the path);
+- suppressions;
+- preference links.
+
+Reads need `contacts:read`, writes `contacts:manage` (new permissions in accounts' catalogue: `contacts:read` for all four built-in roles, `contacts:manage` for Admin and Developer; OQ-26). Public, with no session: file downloads by signed link, and the preference page and its API.
+
+**gRPC** (`proto/contacts/v1`), for messaging:
+- `CheckConsent`: a client, channel, purpose and up to 10,000 numbers, one answer per number in one query (target: p95 under 200 ms for 10,000 numbers on the reference machine);
+- `ExpandAudience`: a group or segment's numbers with consent applied, streamed in pages, with how many were blocked and why;
+- `RecordReplyKeyword`;
+- `IssuePreferenceLink`.
+
+*As built (task 6.5):* `CONTACTS_GRPC_ADDR` (`:9093`), plaintext until Phase 17's mTLS, trusting the tenant a request names.
+- **`CheckConsent`** answers in the request's order. A number that isn't valid is answered `invalid_number`, not an error. More than 10,000 numbers, or an unknown channel or purpose, is INVALID_ARGUMENT. One query (`ConsentForNumbers`) reads each distinct number's consent and suppression.
+- **Measured** on the reference machine: 10,000 numbers, in an account with 200,000 consents and 20,000 suppressions, have a p95 of 49ms over gRPC (target 200ms).
+- **`ExpandAudience`** streams pages (1,000 contacts by default, at most 5,000), newest first. Each page is read and checked in one tenant transaction, so a long stream sees contacts as they change. Each page carries its allowed recipients and blocked counts by reason, and the last is marked. An unknown group or segment is NOT_FOUND, and a segment whose attribute or group was deleted is FAILED_PRECONDITION.
+- **An account's country** for these calls is the one loaded pack's (the open point below).
+
+**Events**
+
+| Event | When |
+| --- | --- |
+| contact\_import.finished | An import reached a final status: its ID, status and counts. Sent to clients |
+| consent.withdrawn | A number's consent for a channel and purpose was withdrawn: the contact's ID when the number is a contact, the channel, purpose, source and actor, never the number. Sent to clients |
+
+**From v3** (task 6.6, designed in ADR 0013, built with the export; the v3 columns are unknown until an export exists, OQ-02 and OQ-27)
+
+| v3 | v4 | Notes |
+| --- | --- | --- |
+| Contact lists (`list_ids` in `VASPRO_BULK_COMPOSE`) | `groups` | One group per list |
+| Contacts in those lists | `contacts` with `source = 'v3'`, and `group_members` | Numbers normalised as above; invalid ones flagged, not imported |
+| Opt-outs or blacklists, if v3 keeps them | `consents` withdrawn (`source = 'v3'`) or `suppressions` | To find in the export |
+
+ADR 0013's choices:
+- lists map to groups through a new `v3_list_map`, so a re-run finds them;
+- numbers in several lists become one contact in each group;
+- an opt-out becomes the client's withdrawal of promotional SMS, or a suppression, unless v3 records it as the person's STOP reply;
+- extra columns come in only when an operator file maps them;
+- the import publishes no events.
+
+**Open points**
+
+- **Promotional consent model:** opt-out with STOP enforced for KE, set per pack; to confirm with counsel against the Data Protection Act's direct-marketing rules (OQ-26).
+- **What STOP covers:** promotional messages on the channel it arrives on. Whether a person can also stop transactional messages through the preference centre is open; for now only the client can, by suppressing the number.
+- **A suppression list across all clients** (complaints, a regulator's do-not-disturb list): deferred (OQ-26).
+- **Declared consent on imports,** for opt-in countries: not in Phase 6.
+- **`import_errors` references `imports (id)`** as §8 gives it, not `(id, tenant_id)`. Only the service writes it, from its own rows, so a client can't point one at another client's import.
+- **An import's country:** read from the one loaded pack until a second country exists (see Imports above). The same holds for reply keywords and the preference page (task 6.4) and the gRPC calls (task 6.5). Accounts' `CheckTenantAccess` needs a user; a user-free lookup of an account's country (and display name, for the preference page) would close all of these.
+- **The preference page doesn't name the client** whose messages it controls: contacts has no account's display name, and the page acts for no user, so it can't use accounts' access check. A public name lookup in accounts, or the name stored with the link, would fix it (task 6.4; to decide).
+- **Segment performance** on a million contacts: measured in 6.3 (above), under a second per count. A materialised membership stays the fallback if accounts grow well past that.
+
+## 11. Next parts and open points
 
 | Part | Services | Why in this order |
 | --- | --- | --- |
 | 2 | Billing and invoicing, Payments | Done: sections 6 and 7 |
-| 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow |
+| 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow. Contacts done first, for Phase 6: section 10 |
 | 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3. Webhooks done first, for Phase 5: section 9 |
 
 **Open points raised by Part 1**

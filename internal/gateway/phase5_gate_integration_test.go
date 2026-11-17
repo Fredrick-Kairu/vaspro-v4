@@ -75,6 +75,7 @@ func newGateGateway(t *testing.T, b gateBackends, logger *slog.Logger) http.Hand
 		LedgerBaseURL: b.ledger, LedgerOpenAPIPath: filepath.Join(root, "docs/api/ledger.yaml"),
 		PaymentsBaseURL: b.payments, PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
 		WebhooksBaseURL: b.webhooks, WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
+		ContactsBaseURL: "http://127.0.0.1:1", ContactsOpenAPIPath: filepath.Join(root, "docs/api/contacts.yaml"),
 	}, testkit.StartRedis(t), clock.Real{}, logger, nil, sessions)
 	if err != nil {
 		t.Fatalf("gateway.New: %v", err)
@@ -99,7 +100,7 @@ func runPaymentsCLI(t *testing.T, bin string, env []string, stdin string, args .
 // gateReceived is what the test endpoint verified.
 type gateReceived struct {
 	Verified []struct{ ID, Type string } `json:"verified"`
-	Rejected int                        `json:"rejected"`
+	Rejected int                         `json:"rejected"`
 }
 
 func readReceiver(t *testing.T, addr string) gateReceived {

@@ -644,7 +644,7 @@ Sizes are relative: **S** under a week, **M** 2–3 weeks, **L** 4–6 weeks, **
 
 Stage A runs alongside Phases 0–2. Each item must be done before the first phase that needs it.
 
-- [ ] **A1. Data model Part 3:** messaging, USSD, contacts and consent, applications, including the ClickHouse tables and the hand-off log for the SMS engine. *Needed by Phase 6.*
+- [ ] **A1. Data model Part 3:** messaging, USSD, contacts and consent, applications, including the ClickHouse tables and the hand-off log for the SMS engine. *Needed by Phase 6.* *Contacts and consent drafted 2026-11-17, ahead of the rest (data model §10, OQ-26). Messaging, USSD and applications are still open.*
 - [ ] **A2. Data model Part 4:** verify, journeys, surveys and rewards, webhooks, monitoring, sales and referrals. *Webhooks needed by Phase 5.* *Webhooks done 2026-11-12, ahead of the rest (data model §9, numbered §8 until 16 Nov; OQ-23); every schema in `docs/events/` now says whether clients receive it. The other services are still open.*
 - [ ] **A3. Event catalogue:** every event type with a JSON Schema, its producer and consumers, in `docs/events/`. *Needed by Phase 0 for the envelope; per service before its phase.*
 - [ ] **A4. Error-code catalogue:** every code with HTTP status, title, cause, fix, and `retryable` and `billable` flags, in `docs/errors/catalogue.yaml`. *Needed by Phase 0.*
@@ -931,13 +931,13 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Tasks**
 
-- [ ] 6.1 `contacts` migrations: contacts, attributes, groups, segments, consents, suppression lists, and `imports` and `import_errors` exactly as data model §8.
-- [ ] 6.2a `platform/uploads` (D-23): signed upload links to a quarantine prefix; the quarantine-to-final move with content-type sniffing, size cap, ClamAV scan, SHA-256 and envelope encryption; signed download links; a sweeper that deletes files past `delete_after` and sets `deleted_at`; retention classes `transient` (2 days) and `financial` (30 days), configurable. Mechanism only: each service keeps its own upload table.
-- [ ] 6.2 Imports from CSV and XLSX on top of 6.2a: create an import (signed upload link), confirm upload, then scan, validate and process as a stream, with the statuses in data model §8, progress counts, per-row errors and a downloadable error report; `contact_import.finished` event; files deleted 2 days after a final status.
-- [ ] 6.3 Segments from attribute filters.
-- [ ] 6.4 Consent per channel and purpose; opt-out keywords from the pack; suppression lists; a preference-centre link.
-- [ ] 6.5 A consent-check API used by messaging: one call for a batch of numbers.
-- [ ] 6.6 v3 importer: contact groups and contacts.
+- [x] 6.1 `contacts` migrations: contacts, attributes, groups, segments, consents, suppression lists, and `imports` and `import_errors` exactly as data model §8. *(2026-11-17: `migrations/contacts/20261117090000_init.sql`, copied from data model §10 and §8; RLS, roles and starter sqlc.)*
+- [x] 6.2a `platform/uploads` (D-23): signed upload links to a quarantine prefix; the quarantine-to-final move with content-type sniffing, size cap, ClamAV scan, SHA-256 and envelope encryption; signed download links; a sweeper that deletes files past `delete_after` and sets `deleted_at`; retention classes `transient` (2 days) and `financial` (30 days), configurable. Mechanism only: each service keeps its own upload table. *(2026-11-16: `internal/platform/uploads`, `crypto`'s streaming envelope (`NewStreamSealer`, `OpenStream`), `platform/clamav`, signed POST forms in `platform/objectstore`; downloads through the service, OQ-25.)*
+- [x] 6.2 Imports from CSV and XLSX on top of 6.2a: create an import (signed upload link), confirm upload, then scan, validate and process as a stream, with the statuses in data model §8, progress counts, per-row errors and a downloadable error report; `contact_import.finished` event; files deleted 2 days after a final status. *(2026-11-17: `internal/contacts` (service, number rules, contacts, groups and attributes API, imports and their worker), `docs/api/contacts.yaml`, gateway `/v1/contacts`; 1,000,000 rows in 20s with 16 MB of heap.)*
+- [x] 6.3 Segments from attribute filters. *(2026-11-17: `domain.CompileSegment` (a filter to a SQL/JSON path and variables), one fixed query, the segments API with a count and a paged member list, VAL-4025; 1,000,000 contacts counted in under a second.)*
+- [x] 6.4 Consent per channel and purpose; opt-out keywords from the pack; suppression lists; a preference-centre link. *(2026-11-17: `domain.DecideConsent` and keyword matching; consent, suppressions and preference links in the API; the public page `/p/{token}` through the gateway; `consent.withdrawn`; webhooks now consumes contacts' events.)*
+- [x] 6.5 A consent-check API used by messaging: one call for a batch of numbers. *(2026-11-17: `proto/contacts/v1`: `CheckConsent` (10,000 numbers, one query), `ExpandAudience`, `RecordReplyKeyword`, `IssuePreferenceLink`; p95 49ms for 10,000 numbers.)*
+- [>] 6.6 v3 importer: contact groups and contacts. *(2026-11-17: designed, not built, ADR 0013: no v3 export (OQ-02, OQ-26). Its assumptions are OQ-27; build it with the export, as 2.11 and 3.10.)*
 
 **Tests specific to this phase**
 
@@ -952,9 +952,9 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Exit gate**
 
-- [ ] The batch consent check meets its latency target for 10,000 numbers.
-- [ ] A 1,000,000-row import completes through a signed upload with flat memory, and its file is gone 2 days later (fake clock).
-- [ ] The v3 contacts import dry run matches v3 counts.
+- [x] The batch consent check meets its latency target for 10,000 numbers. *(2026-11-17: `TestCheckConsent_Latency`, p95 49ms against 200ms over gRPC, with 200,000 consents and 20,000 suppressions in the account.)*
+- [x] A 1,000,000-row import completes through a signed upload with flat memory, and its file is gone 2 days later (fake clock). *(2026-11-17: `TestPhase6ExitGate_MillionRowImport`: 1,000,000 rows (16.2 MB) uploaded through the signed form in 14s with 17.7 MB of peak heap growth; the download matches the upload's SHA-256; the file stays a second before 2 days and is gone at 2 days, the import and its contacts kept.)*
+- [ ] The v3 contacts import dry run matches v3 counts. *(Waits for 6.6's build and a v3 export; ADR 0013 defines the per-list check.)*
 
 **Kickoff prompt**
 
