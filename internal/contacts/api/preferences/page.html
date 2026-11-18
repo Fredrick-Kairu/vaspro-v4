@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Your message preferences</title>
+<link rel="stylesheet" href="/p/static/preferences.css">
+</head>
+<body>
+<main id="preferences" data-token="{{.Token}}">
+{{if .Problem}}
+  <h1>{{.Problem}}</h1>
+  <p>Use the link in the latest message you received, or reply STOP to that message.</p>
+{{else}}
+  <h1>Your message preferences</h1>
+  <p>For <strong>{{.MaskedPhone}}</strong>. Choose whether this sender may send you offers and other promotional messages.</p>
+  <form id="choices">
+    {{range .Channels}}
+    <label><input type="checkbox" name="{{.Channel}}"{{if .Receiving}} checked{{end}}> {{.Label}}</label>
+    {{end}}
+    <button type="submit">Save</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p class="note">You'll still receive messages you need, such as codes, alerts and receipts.</p>
+{{end}}
+</main>
+<script src="/p/static/preferences.js"></script>
+</body>
+</html>

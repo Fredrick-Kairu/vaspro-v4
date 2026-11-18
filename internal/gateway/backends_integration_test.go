@@ -73,15 +73,21 @@ func (b *recordingBackend) count() int {
 }
 
 // newBackendsGateway routes to fake backends. others are the ledger's,
-// payments' and webhooks', in that order, all optional: a fresh
-// recording backend stands in for each one not given.
+// payments', webhooks' and contacts', in that order, all optional: a
+// fresh recording backend stands in for each one not given.
 func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sessions SessionResolver, others ...*recordingBackend) http.Handler {
 	t.Helper()
+	return newBackendsGatewayWithLog(t, slog.Default(), identity, accounts, sessions, others...)
+}
+
+// newBackendsGatewayWithLog is newBackendsGateway logging to logger.
+func newBackendsGatewayWithLog(t *testing.T, logger *slog.Logger, identity, accounts *recordingBackend, sessions SessionResolver, others ...*recordingBackend) http.Handler {
+	t.Helper()
 	root := repoRoot(t)
-	for len(others) < 3 {
+	for len(others) < 4 {
 		others = append(others, newRecordingBackend(t))
 	}
-	ledger, payments, webhooks := others[:1], others[1], others[2]
+	ledger, payments, webhooks, contacts := others[:1], others[1], others[2], others[3]
 	cfg := Config{
 		IdentityBaseURL:     identity.URL,
 		IdentityOpenAPIPath: filepath.Join(root, "docs/api/identity.yaml"),
@@ -93,8 +99,10 @@ func newBackendsGateway(t *testing.T, identity, accounts *recordingBackend, sess
 		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
 		WebhooksBaseURL:     webhooks.URL,
 		WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
+		ContactsBaseURL:     contacts.URL,
+		ContactsOpenAPIPath: filepath.Join(root, "docs/api/contacts.yaml"),
 	}
-	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, sessions)
+	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, nil, sessions)
 	if err != nil {
 		t.Fatalf("gateway.New: %v", err)
 	}
@@ -533,4 +541,117 @@ func TestGatewayBackends_Webhooks(t *testing.T) {
 			t.Fatalf("got %d, identity called %d times", status, identity.count()-before)
 		}
 	})
+}
+
+// TestGatewayBackends_Contacts: contacts' API behind the session and its
+// spec (task 6.2); its download links are public, the signed token in
+// the path their credential.
+func TestGatewayBackends_Contacts(t *testing.T) {
+	identity, accounts, contacts := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	sessions := fakeSessions{"sess_good": {"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}}
+	gw := newBackendsGateway(t, identity, accounts, sessions, newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), contacts)
+	base := "/v1/contacts/tenants/" + uuid.NewString()
+
+	t.Run("a contact is added with the session's user, not the token or a spoofed user", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodPost, base+"/contacts",
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kc1", headerUserID: "33333333-3333-3333-3333-333333333333"},
+			map[string]any{"phone": "0700000001"})
+		if status != http.StatusOK {
+			t.Fatalf("got status %d", status)
+		}
+		req := contacts.last(t)
+		if req.URL.Path != base+"/contacts" || req.Header.Get(headerUserID) != "22222222-2222-2222-2222-222222222222" || req.Header.Get("Authorization") != "" {
+			t.Fatalf("forwarded %s as %q with auth %q", req.URL.Path, req.Header.Get(headerUserID), req.Header.Get("Authorization"))
+		}
+	})
+	t.Run("a null attribute (removing it) passes the spec", func(t *testing.T) {
+		status, body := send(t, gw, http.MethodPatch, base+"/contacts/"+uuid.NewString(),
+			map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kc-null"},
+			map[string]any{"attributes": map[string]any{"visits": nil, "county": "Nairobi"}})
+		if status != http.StatusOK {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("validated against contacts' spec before contacts sees it", func(t *testing.T) {
+		before := contacts.count()
+		for name, c := range map[string]struct {
+			method, path string
+			body         any
+		}{
+			"a contact with no number":     {http.MethodPost, base + "/contacts", map[string]any{"first_name": "Ann"}},
+			"an import of a PDF":           {http.MethodPost, base + "/imports", map[string]any{"file_name": "a.pdf", "content_type": "application/pdf"}},
+			"an attribute key in capitals": {http.MethodPost, base + "/attribute-definitions", map[string]any{"key": "County", "label": "County", "type": "text"}},
+			"a page larger than 100":       {http.MethodGet, base + "/contacts?limit=500", nil},
+		} {
+			headers := map[string]string{"Authorization": "Bearer sess_good", "Idempotency-Key": "kc-" + name}
+			if status, body := send(t, gw, c.method, c.path, headers, c.body); status != http.StatusBadRequest {
+				t.Errorf("%s: got %d %v", name, status, body)
+			}
+		}
+		if contacts.count() != before {
+			t.Fatal("an invalid request reached contacts")
+		}
+	})
+	t.Run("no session is 401 and never reaches contacts", func(t *testing.T) {
+		before := contacts.count()
+		status, body := send(t, gw, http.MethodGet, base+"/contacts", nil, nil)
+		if status != http.StatusUnauthorized || body["code"] != "AUTH-4010" || contacts.count() != before {
+			t.Fatalf("got %d %v", status, body)
+		}
+	})
+	t.Run("a download link needs no session, and a spoofed user is stripped", func(t *testing.T) {
+		status, _ := send(t, gw, http.MethodGet, "/v1/contacts/downloads/abc.def", map[string]string{headerUserID: "33333333-3333-3333-3333-333333333333"}, nil)
+		if status != http.StatusOK {
+			t.Fatalf("got %d", status)
+		}
+		req := contacts.last(t)
+		if req.URL.Path != "/v1/contacts/downloads/abc.def" || req.Header.Get(headerUserID) != "" {
+			t.Fatalf("forwarded %s as user %q", req.URL.Path, req.Header.Get(headerUserID))
+		}
+	})
+	if identity.count() != 0 {
+		t.Fatal("a contacts request fell through to identity")
+	}
+}
+
+// TestGatewayBackends_PreferencePage: the preference page /p/ (task 6.4)
+// reaches contacts with no session and a spoofed user stripped, like
+// /pay/; its public API passes the spec with no session, and the page's
+// token never reaches the gateway's log.
+func TestGatewayBackends_PreferencePage(t *testing.T) {
+	identity, accounts, contacts := newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t)
+	var logs bytes.Buffer
+	gw := newBackendsGatewayWithLog(t, slog.New(slog.NewJSONHandler(&logs, nil)), identity, accounts, fakeSessions{},
+		newRecordingBackend(t), newRecordingBackend(t), newRecordingBackend(t), contacts)
+	token := "Ab3dE5gH7jK9" // gitleaks:allow -- a made-up preference token; the recording backend never checks it
+	spoof := map[string]string{headerUserID: "33333333-3333-3333-3333-333333333333"}
+
+	if status, _ := send(t, gw, http.MethodGet, "/p/"+token, spoof, nil); status != http.StatusOK {
+		t.Fatalf("the page: %d", status)
+	}
+	if req := contacts.last(t); req.URL.Path != "/p/"+token || req.Header.Get(headerUserID) != "" {
+		t.Fatalf("forwarded %s with user %q", req.URL.Path, req.Header.Get(headerUserID))
+	}
+	if status, _ := send(t, gw, http.MethodGet, "/p/static/preferences.js", nil, nil); status != http.StatusOK || contacts.last(t).URL.Path != "/p/static/preferences.js" {
+		t.Fatalf("the script: %d", status)
+	}
+	if status, body := send(t, gw, http.MethodGet, "/v1/contacts/preferences/"+token, nil, nil); status != http.StatusOK {
+		t.Fatalf("the public API: %d %v", status, body)
+	}
+	if status, body := send(t, gw, http.MethodPut, "/v1/contacts/preferences/"+token, map[string]string{"Idempotency-Key": "p1"},
+		map[string]any{"channels": map[string]bool{"sms": false}}); status != http.StatusOK {
+		t.Fatalf("a change: %d %v", status, body)
+	}
+	before := contacts.count()
+	if status, _ := send(t, gw, http.MethodPut, "/v1/contacts/preferences/"+token, map[string]string{"Idempotency-Key": "p2"},
+		map[string]any{"channels": map[string]bool{"email": false}}); status != http.StatusBadRequest || contacts.count() != before {
+		t.Fatalf("a channel the page doesn't offer: %d", status)
+	}
+	if status, _ := send(t, gw, http.MethodPost, "/v1/contacts/tenants/"+uuid.NewString()+"/consent-lookups", map[string]string{"Idempotency-Key": "p3"},
+		map[string]any{"phone": "0700000001"}); status != http.StatusUnauthorized || contacts.count() != before {
+		t.Fatalf("a consent lookup still needs a session: %d", status)
+	}
+	if strings.Contains(logs.String(), token) {
+		t.Fatal("the token reached the gateway's log")
+	}
 }

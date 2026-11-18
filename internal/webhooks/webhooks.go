@@ -110,6 +110,7 @@ var sinkStreams = []struct{ stream, filter string }{
 	{"ACCOUNTS_EVENTS", ""},
 	{"LEDGER_EVENTS", ""},
 	{"PAYMENTS_EVENTS", ""},
+	{"CONTACTS_EVENTS", ""},
 	{"WEBHOOKS_EVENTS", "webhooks.webhook_endpoint.>"},
 }
 
@@ -120,6 +121,7 @@ var fanoutStreams = []struct{ stream, filter string }{
 	{"ACCOUNTS_EVENTS", ""},
 	{"LEDGER_EVENTS", ""},
 	{"PAYMENTS_EVENTS", ""},
+	{"CONTACTS_EVENTS", ""},
 	{"WEBHOOKS_EVENTS", "webhooks.webhook_endpoint.>"},
 }
 

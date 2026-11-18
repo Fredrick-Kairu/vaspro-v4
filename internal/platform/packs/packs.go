@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -40,6 +41,9 @@ type Pack struct {
 	Ledger Ledger
 	// Rails are the country's payment rails (task 4.3).
 	Rails []Rail
+	// OptOut is consent and opt-out here (task 6.0); nil when the
+	// country has no rules yet.
+	OptOut *OptOut
 }
 
 // Rail is one payment rail in a country (data model §7's payments.rails).
@@ -86,6 +90,20 @@ type Numbering struct {
 	CountryCode                     string
 	TrunkPrefix                     string
 	NationalSignificantNumberLength int
+	// MobilePrefixes are what a mobile's national significant number
+	// starts with (task 6.0), sorted; empty when not set.
+	MobilePrefixes []string
+}
+
+// OptOut is a country's consent rules (task 6.0, data model §10).
+type OptOut struct {
+	// PromotionalRequiresOptIn: promotional messages need a recorded
+	// grant; otherwise only a withdrawal stops them.
+	PromotionalRequiresOptIn bool
+	// Stop and Start are the reply keywords, upper case, that withdraw
+	// and give back consent to promotional messages.
+	Stop  []string
+	Start []string
 }
 
 type Tax struct {
@@ -119,10 +137,16 @@ type jsonPack struct {
 		Exponent int    `json:"exponent"`
 	} `json:"currency"`
 	Numbering struct {
-		CountryCode                     string `json:"country_code"`
-		TrunkPrefix                     string `json:"trunk_prefix"`
-		NationalSignificantNumberLength int    `json:"national_significant_number_length"`
+		CountryCode                     string   `json:"country_code"`
+		TrunkPrefix                     string   `json:"trunk_prefix"`
+		NationalSignificantNumberLength int      `json:"national_significant_number_length"`
+		MobilePrefixes                  []string `json:"mobile_prefixes"`
 	} `json:"numbering"`
+	OptOut *struct {
+		PromotionalRequiresOptIn bool     `json:"promotional_requires_opt_in"`
+		Stop                     []string `json:"stop"`
+		Start                    []string `json:"start"`
+	} `json:"opt_out"`
 	Tax struct {
 		VATRateBasisPoints    int64  `json:"vat_rate_basis_points"`
 		VATInclusiveByDefault bool   `json:"vat_inclusive_by_default"`
@@ -213,6 +237,18 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		return nil, fmt.Errorf("packs: %d rails carry VASPRO's top-ups; at most one may", topups)
 	}
 
+	mobile := slices.Sorted(slices.Values(jp.Numbering.MobilePrefixes))
+
+	var optOut *OptOut
+	if jp.OptOut != nil {
+		for _, k := range jp.OptOut.Start {
+			if slices.Contains(jp.OptOut.Stop, k) {
+				return nil, fmt.Errorf("packs: opt-out keyword %q is both stop and start", k)
+			}
+		}
+		optOut = &OptOut{PromotionalRequiresOptIn: jp.OptOut.PromotionalRequiresOptIn, Stop: jp.OptOut.Stop, Start: jp.OptOut.Start}
+	}
+
 	var kyb *KYB
 	if jp.KYB != nil {
 		kyb = &KYB{Registry: jp.KYB.Registry, TaxIDLabel: jp.KYB.TaxIDLabel, RequiredDocuments: jp.KYB.RequiredDocuments}
@@ -222,6 +258,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 		Ledger:      Ledger{ReversalFinanceLeadMinor: jp.Ledger.ReversalFinanceLeadMinor},
 		Rails:       rails,
 		KYB:         kyb,
+		OptOut:      optOut,
 		Services:    services,
 		Version:     jp.Version,
 		CountryCode: jp.CountryCode,
@@ -232,6 +269,7 @@ func Parse(schemaJSON, packYAML []byte) (*Pack, error) {
 			CountryCode:                     jp.Numbering.CountryCode,
 			TrunkPrefix:                     jp.Numbering.TrunkPrefix,
 			NationalSignificantNumberLength: jp.Numbering.NationalSignificantNumberLength,
+			MobilePrefixes:                  mobile,
 		},
 		Tax: Tax{
 			VATRateBasisPoints:    money.VATRateBasisPoints(jp.Tax.VATRateBasisPoints),

@@ -233,6 +233,35 @@ func TestService_DeliversABusEventEndToEnd(t *testing.T) {
 		t.Fatalf("stored source %q, tenant %q (%v)", source, tenantID, err)
 	}
 
+	// Contacts' events reach the endpoint and ClickHouse too (task 6.4:
+	// 6.2 added contact_import.finished without the stream).
+	if err := b.EnsureStream(ctx, "CONTACTS_EVENTS", []string{"contacts.>"}); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := events.New(uuid.New(), "contact_import.finished", 1, tenant, time.Now().UTC(), "trace", map[string]any{"tenant_id": tenant, "status": "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawImported, _ := json.Marshal(imported)
+	if err := b.Publish(ctx, "contacts.contact_import.finished", rawImported); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(20 * time.Second)
+	for delivered := false; !delivered; {
+		mu.Lock()
+		for _, r := range received {
+			delivered = delivered || r.Header.Get(domain.HeaderID) == imported.ID.String()
+		}
+		mu.Unlock()
+		var n int64
+		_ = raw2.QueryRowContext(ctx, "SELECT count() FROM events FINAL WHERE id = ? AND source = 'contacts'", imported.ID).Scan(&n)
+		delivered = delivered && n == 1
+		if !delivered && time.Now().After(deadline) {
+			t.Fatal("contact_import.finished didn't reach both the endpoint and ClickHouse")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	cancel()
 	select {
 	case err := <-done:

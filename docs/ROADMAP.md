@@ -126,7 +126,7 @@ vaspro-v4/
 │   ├── platform/                 # shared libraries only; no business logic
 │   │   ├── config/  log/  otel/  httpx/  problem/  db/  ids/  money/  clock/
 │   │   ├── idempotency/  outbox/  inbox/  events/  bus/  cache/  packs/
-│   │   ├── crypto/  authz/  testkit/
+│   │   ├── crypto/  authz/  uploads/  testkit/
 │   ├── identity/                 # one folder per service, same internal layout (section 5.3)
 │   ├── accounts/
 │   ├── ledger/
@@ -324,6 +324,7 @@ Code may rely on these. Changing one needs an ADR.
 | D-20 | Allocating money to a service is final for the client. No transaction moves tokens back to the main wallet; only an approved reversal claws back unused tokens | Decision 21 Oct |
 | D-21 | Code, shortcode and sender ID rentals are billed by invoice from the billable assets register (auto-pay or Pay now), not bought with tokens. Paying VASPRO (ledger, billing) and client collections and payouts (payments, no ledger except VASPRO's fee) are separate flows | Decision 21 Oct; data model §6–7 |
 | D-22 | People can sign in with Google (OIDC), always followed by VASPRO's own second factor: an authenticator app (TOTP) or a passkey. Accounts are matched on Google's `sub`, never on email, and are never linked silently. Google never satisfies step-up. A domain with company SSO is sent to its own identity provider | Decision 30 Oct; data model §3 (`identity.user_identities`); system design §3 |
+| D-23 | Uploaded files are temporary inputs; the rows taken from them are the record. Clients upload straight to a quarantine area in object storage through a signed link (never through the gateway); the owning service scans, encrypts and processes the file as a stream. Files are deleted by a sweeper 2 days after a final status (`transient`: contact imports, campaign recipient files, their error reports) or 30 days after (`financial`: payout files and result reports). Abandoned uploads expire too | Decision 16 Nov; data model §8 |
 
 ### 4.3 Open decisions and when they block
 
@@ -353,6 +354,7 @@ If a decision isn't made by its **needed by** phase, the build uses the default 
 | OD-20 | Frontend stack | Track F0 | Vue 3 + TypeScript + Vite |
 | OD-21 | VAT on payout fees (v3 records 1.6%) | Phase 13 | 16%, as the pack's VAT rate |
 | OD-22 | v3 collection and payout history depth to import | Phase 18 | 24 months |
+| OD-23 | Retention of KYB documents and account records after an account closes, and of rejected or replaced documents | Phase 17 | Kept while the account is active; rejected or replaced documents deleted 30 days after; closed accounts decided with counsel |
 
 ---
 
@@ -418,7 +420,7 @@ Pin every version in `go.mod`, `package.json` and the `Makefile`. Upgrade on pur
 | SMS engine hand-off | RabbitMQ via `rabbitmq/amqp091-go`, plus HTTP calls, exactly per system design §5.2 |
 | Cache, sessions, rate limits | Redis 7, `redis/go-redis/v9` |
 | Analytics events | ClickHouse, `ClickHouse/clickhouse-go/v2` |
-| Object storage | S3-compatible; MinIO locally |
+| Object storage | S3-compatible (SeaweedFS locally and on dev); signed upload links, quarantine, scanning and the retention sweeper in `platform/uploads` (data model §8) |
 | Secrets and encryption | Cloud KMS or Vault in production; a local key-encryption key in development; envelope encryption in `platform/crypto` |
 | IDs | `google/uuid` (UUIDv7) |
 | Decimals (tokens) | `shopspring/decimal` |
@@ -642,8 +644,8 @@ Sizes are relative: **S** under a week, **M** 2–3 weeks, **L** 4–6 weeks, **
 
 Stage A runs alongside Phases 0–2. Each item must be done before the first phase that needs it.
 
-- [ ] **A1. Data model Part 3:** messaging, USSD, contacts and consent, applications, including the ClickHouse tables and the hand-off log for the SMS engine. *Needed by Phase 6.*
-- [ ] **A2. Data model Part 4:** verify, journeys, surveys and rewards, webhooks, monitoring, sales and referrals. *Webhooks needed by Phase 5.* *Webhooks done 2026-11-12, ahead of the rest (data model §8, OQ-23); every schema in `docs/events/` now says whether clients receive it. The other services are still open.*
+- [ ] **A1. Data model Part 3:** messaging, USSD, contacts and consent, applications, including the ClickHouse tables and the hand-off log for the SMS engine. *Needed by Phase 6.* *Contacts and consent drafted 2026-11-17, ahead of the rest (data model §10, OQ-26). Messaging, USSD and applications are still open.*
+- [ ] **A2. Data model Part 4:** verify, journeys, surveys and rewards, webhooks, monitoring, sales and referrals. *Webhooks needed by Phase 5.* *Webhooks done 2026-11-12, ahead of the rest (data model §9, numbered §8 until 16 Nov; OQ-23); every schema in `docs/events/` now says whether clients receive it. The other services are still open.*
 - [ ] **A3. Event catalogue:** every event type with a JSON Schema, its producer and consumers, in `docs/events/`. *Needed by Phase 0 for the envelope; per service before its phase.*
 - [ ] **A4. Error-code catalogue:** every code with HTTP status, title, cause, fix, and `retryable` and `billable` flags, in `docs/errors/catalogue.yaml`. *Needed by Phase 0.*
 - [ ] **A5. OpenAPI 3.1 per service** in `docs/api/`, written just in time: each service's spec is reviewed before its phase starts.
@@ -925,16 +927,17 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 **Goal.** Clients manage contacts, groups and segments, and every send can check consent and opt-outs per channel and purpose.
 
-**Read first.** Data model Part 3 (contacts); system design §5; requirements, contacts and consent hub.
+**Read first.** Data model Part 3 (contacts) and **§8 (uploaded files and retention)**; system design §5; requirements, contacts and consent hub.
 
 **Tasks**
 
-- [ ] 6.1 `contacts` migrations: contacts, attributes, groups, segments, consents, suppression lists.
-- [ ] 6.2 Imports from CSV and XLSX, streamed, with a per-row error report.
-- [ ] 6.3 Segments from attribute filters.
-- [ ] 6.4 Consent per channel and purpose; opt-out keywords from the pack; suppression lists; a preference-centre link.
-- [ ] 6.5 A consent-check API used by messaging: one call for a batch of numbers.
-- [ ] 6.6 v3 importer: contact groups and contacts.
+- [x] 6.1 `contacts` migrations: contacts, attributes, groups, segments, consents, suppression lists, and `imports` and `import_errors` exactly as data model §8. *(2026-11-17: `migrations/contacts/20261117090000_init.sql`, copied from data model §10 and §8; RLS, roles and starter sqlc.)*
+- [x] 6.2a `platform/uploads` (D-23): signed upload links to a quarantine prefix; the quarantine-to-final move with content-type sniffing, size cap, ClamAV scan, SHA-256 and envelope encryption; signed download links; a sweeper that deletes files past `delete_after` and sets `deleted_at`; retention classes `transient` (2 days) and `financial` (30 days), configurable. Mechanism only: each service keeps its own upload table. *(2026-11-16: `internal/platform/uploads`, `crypto`'s streaming envelope (`NewStreamSealer`, `OpenStream`), `platform/clamav`, signed POST forms in `platform/objectstore`; downloads through the service, OQ-25.)*
+- [x] 6.2 Imports from CSV and XLSX on top of 6.2a: create an import (signed upload link), confirm upload, then scan, validate and process as a stream, with the statuses in data model §8, progress counts, per-row errors and a downloadable error report; `contact_import.finished` event; files deleted 2 days after a final status. *(2026-11-17: `internal/contacts` (service, number rules, contacts, groups and attributes API, imports and their worker), `docs/api/contacts.yaml`, gateway `/v1/contacts`; 1,000,000 rows in 20s with 16 MB of heap.)*
+- [x] 6.3 Segments from attribute filters. *(2026-11-17: `domain.CompileSegment` (a filter to a SQL/JSON path and variables), one fixed query, the segments API with a count and a paged member list, VAL-4025; 1,000,000 contacts counted in under a second.)*
+- [x] 6.4 Consent per channel and purpose; opt-out keywords from the pack; suppression lists; a preference-centre link. *(2026-11-17: `domain.DecideConsent` and keyword matching; consent, suppressions and preference links in the API; the public page `/p/{token}` through the gateway; `consent.withdrawn`; webhooks now consumes contacts' events.)*
+- [x] 6.5 A consent-check API used by messaging: one call for a batch of numbers. *(2026-11-17: `proto/contacts/v1`: `CheckConsent` (10,000 numbers, one query), `ExpandAudience`, `RecordReplyKeyword`, `IssuePreferenceLink`; p95 49ms for 10,000 numbers.)*
+- [>] 6.6 v3 importer: contact groups and contacts. *(2026-11-17: designed, not built, ADR 0013: no v3 export (OQ-02, OQ-26). Its assumptions are OQ-27; build it with the export, as 2.11 and 3.10.)*
 
 **Tests specific to this phase**
 
@@ -943,15 +946,19 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - An import of 1,000,000 rows finishes within the agreed time, with flat memory use.
 - Table test of consent outcomes for channel × purpose × state.
 - Opt-out keyword variants from the pack are recognised.
+- Uploads: every status transition in data model §8, allowed and forbidden; an upload never confirmed expires; an infected file fails and is deleted at once; a file whose content isn't CSV or XLSX is refused whatever its name says; the object key never contains client input.
+- Retention: with the fake clock, the sweeper deletes a finished import's file and error report 2 days after its final status and sets `deleted_at`; the import row, counts and errors remain; a download after that returns the "file deleted" error; running the sweeper twice changes nothing more; it never touches an import still `processing`.
+- Isolation: tenant B can't create a download link for tenant A's import.
 
 **Exit gate**
 
-- [ ] The batch consent check meets its latency target for 10,000 numbers.
-- [ ] The v3 contacts import dry run matches v3 counts.
+- [x] The batch consent check meets its latency target for 10,000 numbers. *(2026-11-17: `TestCheckConsent_Latency`, p95 49ms against 200ms over gRPC, with 200,000 consents and 20,000 suppressions in the account.)*
+- [x] A 1,000,000-row import completes through a signed upload with flat memory, and its file is gone 2 days later (fake clock). *(2026-11-17: `TestPhase6ExitGate_MillionRowImport`: 1,000,000 rows (16.2 MB) uploaded through the signed form in 14s with 17.7 MB of peak heap growth; the download matches the upload's SHA-256; the file stays a second before 2 days and is gone at 2 days, the import and its contacts kept.)*
+- [ ] The v3 contacts import dry run matches v3 counts. *(Waits for 6.6's build and a v3 export; ADR 0013 defines the per-list check.)*
 
 **Kickoff prompt**
 
-> We're starting Phase 6 of docs/ROADMAP.md. Read the Phase 6 section and the contacts part of data model Part 3. Plan tasks 6.1–6.6 with tests first.
+> We're starting Phase 6 of docs/ROADMAP.md. Read the Phase 6 section and the contacts part of data model Part 3. Plan tasks 6.1, 6.2a, 6.2–6.6 with tests first, building 6.2a (`platform/uploads`) before 6.2.
 
 ---
 
@@ -975,7 +982,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [ ] 7.8 **SMS engine adapter**: publish to the RabbitMQ queues with the exchange, routing key, persistent delivery and JSON fields v3 uses; make the HTTP gateway calls v3 makes; carry the v4 message ID as the correlator.
 - [ ] 7.9 DLR intake for every format in system design §5.2; mapping raw values to statuses and `DLR-` reasons through the pack's tables; duplicates ignored.
 - [ ] 7.10 Retries on the pack's next route, up to the pack's limit; expiry when no DLR arrives.
-- [ ] 7.11 Campaigns: scheduled sends; recipients expanded by v4 from contacts (not `VASPRO_BULK_COMPOSE`); one up-front balance check; pacing.
+- [ ] 7.11 Campaigns: scheduled sends; recipients expanded by v4 from contacts (not `VASPRO_BULK_COMPOSE`); one up-front balance check; pacing. An uploaded recipient file goes through `platform/uploads` as `transient` and is deleted 2 days after the campaign is expanded.
 - [ ] 7.12 Message timeline in the API and dashboard.
 - [ ] 7.13 Sandbox: the simulator adapter replaces the engine for sandbox credentials.
 - [ ] 7.14 Shadow mode: for a copy of v3 traffic, v4 computes route, price and compliance decisions without sending, and a report compares them with v3.
@@ -1204,7 +1211,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - [ ] 13.1 Client rail accounts; credentials entered by clients, envelope-encrypted, verified with a test call, and rotated.
 - [ ] 13.2 Client collections: STK push to the client's paybill or till; C2B registration; `payment.received` webhooks.
 - [ ] 13.3 Payment links for the client's own customers.
-- [ ] 13.4 Payouts: single by API; bulk by file with row-by-row validation; approval with maker-checker; name checks; beneficiaries and allowlist.
+- [ ] 13.4 Payouts: single by API; bulk by file with row-by-row validation; approval with maker-checker; name checks; beneficiaries and allowlist. Payout files and result reports go through `platform/uploads` as `financial` (data model §8): deleted 30 days after the batch's final status, while every payout row stays.
 - [ ] 13.5 Fee holds on the payments token wallet; capture on success; release on failure.
 - [ ] 13.6 Status query before any retry; timeout and result callbacks; payout attempts log.
 - [ ] 13.7 Balance checks on client shortcodes; low-balance alerts.
@@ -1221,6 +1228,7 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 - Rotating credentials doesn't interrupt payouts in flight.
 - A failed airtime purchase releases its value hold.
 - Reconciliation opens an exception for each kind of mismatch.
+- A payout file and its result report are deleted 30 days after the batch completes (fake clock); the batch, its payouts and attempts remain.
 
 **Exit gate**
 
@@ -1337,9 +1345,9 @@ Each phase lists its goal, what to read first, the tasks, the tests specific to 
 
 - [ ] 17.1 Security review against OWASP ASVS level 2; external penetration test; fix every high and critical finding.
 - [ ] 17.2 Load tests at 3× v3's peak traffic for SMS, USSD, top-ups and payouts; tune.
-- [ ] 17.3 Backup and restore drill for PostgreSQL and ClickHouse; recovery time and recovery point measured.
+- [ ] 17.3 Backup and restore drill for PostgreSQL and ClickHouse; recovery time and recovery point measured. Object-storage backups keep upload prefixes no longer than their retention class (D-23).
 - [ ] 17.4 Failure drills: lose a database node, the bus, Redis, RabbitMQ, a rail.
-- [ ] 17.5 Compliance: ODPC registration and data catalogue; retention rules; KRA eTIMS live; CA rules for sender IDs and promotional hours.
+- [ ] 17.5 Compliance: ODPC registration and data catalogue; retention rules (data model §8, OD-23 decided); KRA eTIMS live; CA rules for sender IDs and promotional hours.
 - [ ] 17.6 Production environment (OD-02); secrets in the KMS; access reviews.
 - [ ] 17.7 Support playbooks; client-facing documentation complete.
 
@@ -1468,7 +1476,7 @@ Built alongside the backend phases, against the generated TypeScript API client.
 | F0 | 0–1 | App shell for `web/dashboard`, `web/console` and `web/portal`; design system; auth screens; i18n set-up (English first, then Swahili and French) |
 | F1 | 1–2 | Sign-up, sign-in with passkey, password and TOTP, or Google and TOTP; onboarding service picker, KYC steps, team management |
 | F2 | 3–4 | Wallet, token purchase, top-up, statements |
-| F3 | 6–7 | Contacts, imports, campaigns, send, message timeline, limits |
+| F3 | 6–7 | Contacts, imports with status, progress and downloads until the file is deleted, campaigns, send, message timeline, limits |
 | F4 | 9–11 | Invoices and Pay now; applications wizard; USSD builder and simulator; staff console |
 | F5 | 12–15 | Inbox, keywords, subscriptions, payouts and approvals, surveys, WhatsApp set-up |
 | F6 | 16+ | Alerts and status; analytics |

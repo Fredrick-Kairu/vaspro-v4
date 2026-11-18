@@ -332,6 +332,62 @@ codes:
     retryable: false
     billable: false
 
+  - code: VAL-4020
+    status: 422
+    title: Phone number not valid
+    cause: The number isn't a mobile number in the account's country, in any of its usual formats (07…, 01…, 254…, +254… in Kenya), or a valid international number starting with + or 00. The detail says whether it has letters, the wrong length, or isn't a mobile.
+    fix: Correct the number.
+    retryable: false
+    billable: false
+
+  - code: VAL-4021
+    status: 422
+    title: Field value not valid
+    cause: A contact field or attribute value doesn't suit its type (a number, a date as YYYY-MM-DD, true or false, text of at most 255 characters), or names an attribute the account hasn't defined.
+    fix: Correct the value, or define the attribute first.
+    retryable: false
+    billable: false
+
+  - code: VAL-4022
+    status: 422
+    title: Import file can't be read
+    cause: The file isn't a readable CSV or XLSX, has no column for the phone number, has two columns for one field, or is over the row limit.
+    fix: Check the file opens in a spreadsheet and has a phone, msisdn, mobile, number or phone_number column.
+    retryable: false
+    billable: false
+
+  - code: VAL-4023
+    status: 409
+    title: Import not in a state for this
+    cause: The import isn't awaiting its upload, or its upload form has expired.
+    fix: Start a new import.
+    retryable: false
+    billable: false
+
+  - code: VAL-4024
+    status: 410
+    title: File deleted
+    cause: Uploaded files and their error reports are deleted 2 days after the import finishes (data model §8). The import, its counts and its errors remain.
+    fix: Upload the file again if you need it processed again.
+    retryable: false
+    billable: false
+
+  - code: VAL-4025
+    status: 422
+    title: Segment filter not valid
+    cause: The filter isn't an "all" or "any" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem.
+    fix: Correct the filter, or change the segment to drop the deleted attribute or group.
+    retryable: false
+    billable: false
+
+  - code: VAL-4026
+    status: 409
+    title: Consent withdrawn by the person
+    cause: The person withdrew this consent themselves, by replying with a stop word or on their preference page, and only they can give it back (data model §10).
+    fix: Ask the person to reply with the start word or use their preference page. Recording the withdrawal again is accepted and changes nothing.
+    retryable: false
+    billable: false
+
   - code: BAL-4001
     status: 402
     title: Insufficient balance

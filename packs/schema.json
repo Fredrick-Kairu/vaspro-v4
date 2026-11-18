@@ -90,7 +90,25 @@
           "description": "E.164 calling code, no leading +, e.g. 254."
         },
         "trunk_prefix": { "type": "string" },
-        "national_significant_number_length": { "type": "integer", "minimum": 1 }
+        "national_significant_number_length": { "type": "integer", "minimum": 1 },
+        "mobile_prefixes": {
+          "type": "array",
+          "description": "What a mobile number's national significant number starts with (task 6.0); contacts accepts only these as local mobiles. A country without it can't normalise numbers yet.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[0-9]{1,4}$" }
+        }
+      }
+    },
+    "opt_out": {
+      "type": "object",
+      "description": "Consent and opt-out (task 6.0, data model §10): whether promotional messages need a recorded opt-in, and the reply keywords that withdraw (stop) or give back (start) consent to promotional messages on the channel they arrive on. Keywords are upper case, letters, digits and single spaces.",
+      "required": ["promotional_requires_opt_in", "stop", "start"],
+      "additionalProperties": false,
+      "properties": {
+        "promotional_requires_opt_in": { "type": "boolean" },
+        "stop": { "$ref": "#/$defs/keywords" },
+        "start": { "$ref": "#/$defs/keywords" }
       }
     },
     "tax": {
@@ -161,6 +179,12 @@
     }
   },
   "$defs": {
+    "keywords": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z0-9]+( [A-Z0-9]+)*$" }
+    },
     "send_window": {
       "type": "object",
       "required": ["start", "end", "timezone"],
