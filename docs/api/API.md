@@ -384,6 +384,72 @@ The data is test data and may be reset at any time.
 - [`GET /v1/payments/staff/recon-exceptions`](#op-listreconexceptions) Reconciliation exceptions (staff only)
 - [`POST /v1/payments/staff/recon-exceptions/{exceptionId}/resolution`](#op-resolvereconexception) Close a reconciliation exception (staff only)
 
+**Webhooks API**
+
+
+*Other*
+
+- [`GET /v1/webhooks/tenants/{tenantId}/endpoints`](#op-listwebhookendpoints) The account's webhook endpoints
+- [`POST /v1/webhooks/tenants/{tenantId}/endpoints`](#op-createwebhookendpoint) Register a webhook endpoint
+- [`GET /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}`](#op-getwebhookendpoint) One webhook endpoint
+- [`PATCH /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}`](#op-updatewebhookendpoint) Change an endpoint's URL, description or events
+- [`DELETE /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}`](#op-deletewebhookendpoint) Delete an endpoint
+- [`POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/verification`](#op-verifywebhookendpoint) Send the verification challenge
+- [`POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/secret-rotations`](#op-rotatewebhookendpointsecret) Give the endpoint a new signing secret
+- [`POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/disable`](#op-disablewebhookendpoint) Stop sending to an endpoint
+- [`POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/test-events`](#op-sendwebhooktestevent) Send the endpoint a test event
+- [`GET /v1/webhooks/tenants/{tenantId}/deliveries`](#op-listwebhookdeliveries) The delivery log
+- [`GET /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}`](#op-getwebhookdelivery) One delivery, its body and every attempt
+- [`POST /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}/replays`](#op-replaywebhookdelivery) Send a delivery again
+- [`GET /v1/webhooks/tenants/{tenantId}/reports/daily-activity`](#op-getdailyactivity) The account's wallet activity per day
+
+**Contacts API**
+
+
+*Other*
+
+- [`GET /v1/contacts/tenants/{tenantId}/contacts`](#op-listcontacts) The account's contacts
+- [`POST /v1/contacts/tenants/{tenantId}/contacts`](#op-createcontact) Add a contact
+- [`GET /v1/contacts/tenants/{tenantId}/contacts/{contactId}`](#op-getcontact) One contact
+- [`PATCH /v1/contacts/tenants/{tenantId}/contacts/{contactId}`](#op-updatecontact) Change a contact
+- [`DELETE /v1/contacts/tenants/{tenantId}/contacts/{contactId}`](#op-deletecontact) Delete a contact
+- [`GET /v1/contacts/tenants/{tenantId}/attribute-definitions`](#op-listattributedefinitions) The account's contact attributes
+- [`POST /v1/contacts/tenants/{tenantId}/attribute-definitions`](#op-createattributedefinition) Define a contact attribute
+- [`DELETE /v1/contacts/tenants/{tenantId}/attribute-definitions/{attributeKey}`](#op-deleteattributedefinition) Delete a contact attribute
+- [`GET /v1/contacts/tenants/{tenantId}/groups`](#op-listgroups) The account's groups
+- [`POST /v1/contacts/tenants/{tenantId}/groups`](#op-creategroup) Create a group
+- [`GET /v1/contacts/tenants/{tenantId}/groups/{groupId}`](#op-getgroup) One group
+- [`PATCH /v1/contacts/tenants/{tenantId}/groups/{groupId}`](#op-updategroup) Rename or describe a group
+- [`DELETE /v1/contacts/tenants/{tenantId}/groups/{groupId}`](#op-deletegroup) Delete a group
+- [`GET /v1/contacts/tenants/{tenantId}/segments`](#op-listsegments) The account's segments
+- [`POST /v1/contacts/tenants/{tenantId}/segments`](#op-createsegment) Save a segment
+- [`GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}`](#op-getsegment) One segment
+- [`PATCH /v1/contacts/tenants/{tenantId}/segments/{segmentId}`](#op-updatesegment) Rename a segment or replace its filter
+- [`DELETE /v1/contacts/tenants/{tenantId}/segments/{segmentId}`](#op-deletesegment) Delete a segment
+- [`GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}/count`](#op-getsegmentcount) How many contacts a segment matches
+- [`GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}/contacts`](#op-listsegmentcontacts) A segment's contacts
+- [`GET /v1/contacts/tenants/{tenantId}/imports`](#op-listimports) The account's imports
+- [`POST /v1/contacts/tenants/{tenantId}/imports`](#op-createimport) Start an import from a CSV or XLSX file
+- [`GET /v1/contacts/tenants/{tenantId}/imports/{importId}`](#op-getimport) One import, with its progress
+- [`POST /v1/contacts/tenants/{tenantId}/imports/{importId}/upload-confirmation`](#op-confirmimportupload) Say the file is uploaded
+- [`GET /v1/contacts/tenants/{tenantId}/imports/{importId}/errors`](#op-listimporterrors) An import's rejected rows and columns
+- [`POST /v1/contacts/tenants/{tenantId}/imports/{importId}/download-links`](#op-createimportdownloadlink) A link to download the original file or the error report
+- [`POST /v1/contacts/tenants/{tenantId}/consents`](#op-recordconsent) Record the client's consent for a number
+- [`POST /v1/contacts/tenants/{tenantId}/consent-lookups`](#op-lookupconsent) A number's consent
+- [`GET /v1/contacts/tenants/{tenantId}/suppressions`](#op-listsuppressions) The client's do-not-contact list
+- [`POST /v1/contacts/tenants/{tenantId}/suppressions`](#op-addsuppression) Suppress a number
+- [`POST /v1/contacts/tenants/{tenantId}/suppression-removals`](#op-removesuppression) Take a number off the list
+- [`POST /v1/contacts/tenants/{tenantId}/preference-links`](#op-issuepreferencelink) Issue a number's preference link
+- [`GET /v1/contacts/preferences/{token}`](#op-getpreferences) A preference page's choices
+- [`PUT /v1/contacts/preferences/{token}`](#op-updatepreferences) Change a preference page's choices
+- [`GET /v1/contacts/downloads/{token}`](#op-downloadimportfile) Download a file by its signed link
+
+*Members, roles and invitations*
+
+- [`GET /v1/contacts/tenants/{tenantId}/groups/{groupId}/members`](#op-listgroupmembers) A group's contacts
+- [`POST /v1/contacts/tenants/{tenantId}/groups/{groupId}/members`](#op-addgroupmembers) Add contacts to a group
+- [`DELETE /v1/contacts/tenants/{tenantId}/groups/{groupId}/members/{contactId}`](#op-removegroupmember) Remove a contact from a group
+
 
 ---
 
@@ -918,8 +984,8 @@ Returns the enrollment URL and recovery codes exactly once; the account isn't re
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `url` | string | no | otpauth:// URL for an authenticator app to scan. |
-| `recovery_codes` | array of string | no | Shown exactly once — store them somewhere safe. |
+| `url` | string \| null | no | otpauth:// URL for an authenticator app to scan. Shown once; null on a retry with the same Idempotency-Key. |
+| `recovery_codes` | array of string \| null | no | Shown exactly once — store them somewhere safe. Null on a retry with the same Idempotency-Key. |
 
 ```json
 {
@@ -1742,8 +1808,8 @@ Example:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `url` | string | no | otpauth:// URL for an authenticator app to scan. |
-| `recovery_codes` | array of string | no | Shown exactly once — store them somewhere safe. |
+| `url` | string \| null | no | otpauth:// URL for an authenticator app to scan. Shown once; null on a retry with the same Idempotency-Key. |
+| `recovery_codes` | array of string \| null | no | Shown exactly once — store them somewhere safe. Null on a retry with the same Idempotency-Key. |
 
 ```json
 {
@@ -2230,7 +2296,7 @@ Example:
 | `revoked_at` | string (date-time) | no |  |
 | `secret` | object | no |  |
 | `secret.id` | string | no |  |
-| `secret.secret` | string | no | Shown exactly once — store it somewhere safe. |
+| `secret.secret` | string \| null | no | Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key; rotate to get a new one. |
 | `secret.last4` | string | no |  |
 | `secret.expires_at` | string (date-time) | no |  |
 
@@ -2398,7 +2464,7 @@ Requires step-up MFA proved within the last 5 minutes — same reasoning as crea
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | no |  |
-| `secret` | string | no | Shown exactly once — store it somewhere safe. |
+| `secret` | string \| null | no | Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key; rotate to get a new one. |
 | `last4` | string | no |  |
 | `expires_at` | string (date-time) | no |  |
 
@@ -2650,7 +2716,7 @@ Example:
 | `max_tps` | integer | no |  |
 | `environment` | string | no |  |
 | `status` | string | no |  |
-| `password` | string | no | Shown exactly once — store it somewhere safe. |
+| `password` | string \| null | no | Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key; reset it to get a new one. |
 
 ```json
 {
@@ -2827,7 +2893,7 @@ Requires step-up MFA proved within the last 5 minutes — same reasoning as crea
 | `max_tps` | integer | no |  |
 | `environment` | string | no |  |
 | `status` | string | no |  |
-| `password` | string | no | Shown exactly once — store it somewhere safe. |
+| `password` | string \| null | no | Shown exactly once — store it somewhere safe. Null on a retry with the same Idempotency-Key; reset it to get a new one. |
 
 ```json
 {
@@ -7228,6 +7294,3353 @@ Example:
 
 ---
 
+## Webhooks API
+
+### Other
+
+<a id="op-listwebhookendpoints"></a>
+#### The account's webhook endpoints
+
+```
+GET /v1/webhooks/tenants/{tenantId}/endpoints
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listWebhookEndpoints`
+
+Every endpoint not deleted, oldest first; an account has at most 16, so there's no paging. Never the secret.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: The endpoints.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `endpoints` | array of object | yes |  |
+| `endpoints[].id` | string | yes |  |
+| `endpoints[].url` | string | yes |  |
+| `endpoints[].description` | string | no |  |
+| `endpoints[].status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `endpoints[].events` | array of string | yes |  |
+| `endpoints[].verified_at` | string (date-time) | no | The last passed challenge. |
+| `endpoints[].failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `endpoints[].disabled_at` | string (date-time) | no |  |
+| `endpoints[].disabled_reason` | string: `failing`, `client` | no |  |
+| `endpoints[].created_at` | string (date-time) | yes |  |
+| `endpoints[].updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "endpoints": [
+    {
+      "id": "0192c3a1-7f00-7000-8000-0000000000e1",
+      "url": "https://hooks.example.com/vaspro",
+      "description": "Order updates",
+      "status": "active",
+      "events": [
+        "payment_intent.succeeded",
+        "wallet.credited"
+      ],
+      "verified_at": "2026-11-16T09:01:00Z",
+      "created_at": "2026-11-16T09:00:00Z",
+      "updated_at": "2026-11-16T09:01:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createwebhookendpoint"></a>
+#### Register a webhook endpoint
+
+```
+POST /v1/webhooks/tenants/{tenantId}/endpoints
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createWebhookEndpoint`
+
+Registers an https endpoint for the event types listed (or "*" for every event sent to clients). The response carries the endpoint's signing secret, shown this once: store it, then call verifyWebhookEndpoint. The endpoint receives nothing until it answers that challenge. A retry with the same Idempotency-Key returns the same endpoint with secret null; a lost secret is replaced with rotateWebhookEndpointSecret. Private, loopback and metadata addresses, plain http and user names in the URL are VAL-4019; more than 16 endpoints, no events or an internal event type is VAL-4000. Needs credentials:manage and a fresh step-up.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | yes | https, a public address, no user name or password. |
+| `description` | string | no |  |
+| `events` | array of string | yes | Event types sent to clients (those marked x-vaspro-webhook in docs/events/), or ["*"] for all of them. |
+
+Example:
+
+```json
+{
+  "url": "https://hooks.example.com/vaspro",
+  "description": "Order updates",
+  "events": [
+    "payment_intent.succeeded",
+    "wallet.credited"
+  ]
+}
+```
+
+**Response `201`**: The endpoint, pending verification, with its secret.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `description` | string | no |  |
+| `status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `events` | array of string | yes |  |
+| `verified_at` | string (date-time) | no | The last passed challenge. |
+| `failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `disabled_at` | string (date-time) | no |  |
+| `disabled_reason` | string: `failing`, `client` | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+| `secret` | string \| null | yes | The signing secret (whsec_…), used whole as the HMAC key. Shown once; null on a retry with the same Idempotency-Key. |
+
+```json
+{
+  "id": "0192c3a1-7f00-7000-8000-0000000000e1",
+  "url": "https://hooks.example.com/vaspro",
+  "description": "Order updates",
+  "status": "pending_verification",
+  "events": [
+    "payment_intent.succeeded",
+    "wallet.credited"
+  ],
+  "created_at": "2026-11-16T09:00:00Z",
+  "updated_at": "2026-11-16T09:00:00Z",
+  "secret": "whsec_EXAMPLEexampleEXAMPLEexampleEXAMPLEexample123"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4019` | 422 | Webhook URL not allowed | Webhook URLs must be https, carry no user name or password, and reach a public address. Private, loopback, link-local and metadata addresses are refused, after DNS too. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getwebhookendpoint"></a>
+#### One webhook endpoint
+
+```
+GET /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getWebhookEndpoint`
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+
+**Response `200`**: The endpoint, never its secret.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `description` | string | no |  |
+| `status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `events` | array of string | yes |  |
+| `verified_at` | string (date-time) | no | The last passed challenge. |
+| `failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `disabled_at` | string (date-time) | no |  |
+| `disabled_reason` | string: `failing`, `client` | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "url": "https://example.com/path",
+  "description": "string",
+  "status": "pending_verification",
+  "events": [
+    "string"
+  ],
+  "verified_at": "2026-11-05T09:30:00Z",
+  "failing_since": "2026-11-05T09:30:00Z",
+  "disabled_at": "2026-11-05T09:30:00Z",
+  "disabled_reason": "failing",
+  "created_at": "2026-11-05T09:30:00Z",
+  "updated_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-updatewebhookendpoint"></a>
+#### Change an endpoint's URL, description or events
+
+```
+PATCH /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `updateWebhookEndpoint`
+
+Only the fields given change; events given replace the old set. A new URL needs a fresh step-up and sends the endpoint back to pending_verification: it receives nothing, and what's queued for it waits, until the new URL answers the challenge. Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | no |  |
+| `description` | string | no | An empty string clears it. |
+| `events` | array of string | no |  |
+
+Example:
+
+```json
+{
+  "events": [
+    "*"
+  ]
+}
+```
+
+**Response `200`**: The endpoint as it is now.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `description` | string | no |  |
+| `status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `events` | array of string | yes |  |
+| `verified_at` | string (date-time) | no | The last passed challenge. |
+| `failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `disabled_at` | string (date-time) | no |  |
+| `disabled_reason` | string: `failing`, `client` | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "url": "https://example.com/path",
+  "description": "string",
+  "status": "pending_verification",
+  "events": [
+    "string"
+  ],
+  "verified_at": "2026-11-05T09:30:00Z",
+  "failing_since": "2026-11-05T09:30:00Z",
+  "disabled_at": "2026-11-05T09:30:00Z",
+  "disabled_reason": "failing",
+  "created_at": "2026-11-05T09:30:00Z",
+  "updated_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-deletewebhookendpoint"></a>
+#### Delete an endpoint
+
+```
+DELETE /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `deleteWebhookEndpoint`
+
+It receives nothing more; its queued deliveries end as dead (endpoint_deleted). Its delivery log stays readable. Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `204`**: Deleted.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-verifywebhookendpoint"></a>
+#### Send the verification challenge
+
+```
+POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/verification
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `verifyWebhookEndpoint`
+
+POSTs a signed webhook.verification event whose data.challenge the endpoint must echo, as {"challenge": "<the value>"}, with a 2xx within 10 seconds. Then the endpoint is active: from pending_verification, from disabled (this is how it's re-enabled), or again when it's already active. Anything else is VAL-4018 and changes nothing; an address that resolves to a private one is VAL-4019. Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `200`**: The endpoint, now active.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `description` | string | no |  |
+| `status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `events` | array of string | yes |  |
+| `verified_at` | string (date-time) | no | The last passed challenge. |
+| `failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `disabled_at` | string (date-time) | no |  |
+| `disabled_reason` | string: `failing`, `client` | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "url": "https://example.com/path",
+  "description": "string",
+  "status": "pending_verification",
+  "events": [
+    "string"
+  ],
+  "verified_at": "2026-11-05T09:30:00Z",
+  "failing_since": "2026-11-05T09:30:00Z",
+  "disabled_at": "2026-11-05T09:30:00Z",
+  "disabled_reason": "failing",
+  "created_at": "2026-11-05T09:30:00Z",
+  "updated_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4018` | 422 | Webhook endpoint verification failed | The endpoint didn't answer the signed verification request with a 2xx and the same challenge within 10 seconds. |
+| `VAL-4019` | 422 | Webhook URL not allowed | Webhook URLs must be https, carry no user name or password, and reach a public address. Private, loopback, link-local and metadata addresses are refused, after DNS too. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-rotatewebhookendpointsecret"></a>
+#### Give the endpoint a new signing secret
+
+```
+POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/secret-rotations
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `rotateWebhookEndpointSecret`
+
+The new secret is shown this once. For 24 hours every request is signed with both the new and the previous secret (two v1= values, the new one first), so the receiver can switch over; rotating again within those 24 hours ends the oldest at once. A retry with the same Idempotency-Key returns secret null and rotates nothing. Needs credentials:manage and a fresh step-up.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `201`**: The new secret.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `endpoint_id` | string | yes |  |
+| `secret` | string \| null | yes | The new secret, shown once; null on a retry with the same Idempotency-Key. |
+| `previous_valid_until` | string (date-time) | yes | Until when the previous secret still signs, alongside the new one. |
+
+```json
+{
+  "endpoint_id": "0192c3a1-7f00-7000-8000-0000000000e1",
+  "secret": "whsec_EXAMPLEexampleEXAMPLEexampleEXAMPLEexample456",
+  "previous_valid_until": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-disablewebhookendpoint"></a>
+#### Stop sending to an endpoint
+
+```
+POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/disable
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `disableWebhookEndpoint`
+
+The endpoint is disabled (disabled_reason client) and its queued deliveries end as dead (endpoint_disabled); they can be replayed once it's re-enabled with verifyWebhookEndpoint. Disabling a disabled endpoint changes nothing. Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `200`**: The endpoint, disabled.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `url` | string | yes |  |
+| `description` | string | no |  |
+| `status` | string: `pending_verification`, `active`, `disabled` | yes |  |
+| `events` | array of string | yes |  |
+| `verified_at` | string (date-time) | no | The last passed challenge. |
+| `failing_since` | string (date-time) | no | The first failed attempt since the last success; absent while healthy. 72 hours of failure disables the endpoint. |
+| `disabled_at` | string (date-time) | no |  |
+| `disabled_reason` | string: `failing`, `client` | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "url": "https://example.com/path",
+  "description": "string",
+  "status": "pending_verification",
+  "events": [
+    "string"
+  ],
+  "verified_at": "2026-11-05T09:30:00Z",
+  "failing_since": "2026-11-05T09:30:00Z",
+  "disabled_at": "2026-11-05T09:30:00Z",
+  "disabled_reason": "failing",
+  "created_at": "2026-11-05T09:30:00Z",
+  "updated_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-sendwebhooktestevent"></a>
+#### Send the endpoint a test event
+
+```
+POST /v1/webhooks/tenants/{tenantId}/endpoints/{endpointId}/test-events
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `sendWebhookTestEvent`
+
+Queues a webhook.test event (data.endpoint_id names the endpoint) through the ordinary delivery path: signed, retried and shown in the delivery log. Only to an active endpoint (VAL-4000 otherwise). Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpointId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `202`**: The delivery, due now.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `endpoint_id` | string | yes |  |
+| `event_id` | string | yes | Sent as Vaspro-Webhook-Id; the same on every attempt and every replay. |
+| `event_type` | string | yes |  |
+| `occurred_at` | string (date-time) | yes |  |
+| `status` | string: `pending`, `succeeded`, `dead` | yes |  |
+| `dead_reason` | string: `attempts_exhausted`, `endpoint_disabled`, `endpoint_deleted` | no |  |
+| `attempts` | integer | yes |  |
+| `next_attempt_at` | string (date-time) | no |  |
+| `replay_of` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `completed_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "endpoint_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_type": "string",
+  "occurred_at": "2026-11-05T09:30:00Z",
+  "status": "pending",
+  "dead_reason": "attempts_exhausted",
+  "attempts": 1,
+  "next_attempt_at": "2026-11-05T09:30:00Z",
+  "replay_of": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "completed_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listwebhookdeliveries"></a>
+#### The delivery log
+
+```
+GET /v1/webhooks/tenants/{tenantId}/deliveries
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listWebhookDeliveries`
+
+Every delivery to the account's endpoints, newest first, paged with next_cursor. Filter by endpoint, status, event type or event ID (a replay shares its original's event ID). Needs credentials:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `endpoint_id` | query | no | string |  |
+| `status` | query | no | string: `pending`, `succeeded`, `dead` |  |
+| `event_type` | query | no | string |  |
+| `event_id` | query | no | string |  |
+| `cursor` | query | no | string |  |
+| `limit` | query | no | integer |  |
+
+**Response `200`**: A page of the log.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `deliveries` | array of object | yes |  |
+| `deliveries[].id` | string | yes |  |
+| `deliveries[].endpoint_id` | string | yes |  |
+| `deliveries[].event_id` | string | yes | Sent as Vaspro-Webhook-Id; the same on every attempt and every replay. |
+| `deliveries[].event_type` | string | yes |  |
+| `deliveries[].occurred_at` | string (date-time) | yes |  |
+| `deliveries[].status` | string: `pending`, `succeeded`, `dead` | yes |  |
+| `deliveries[].dead_reason` | string: `attempts_exhausted`, `endpoint_disabled`, `endpoint_deleted` | no |  |
+| `deliveries[].attempts` | integer | yes |  |
+| `deliveries[].next_attempt_at` | string (date-time) | no |  |
+| `deliveries[].replay_of` | string | no |  |
+| `deliveries[].created_at` | string (date-time) | yes |  |
+| `deliveries[].completed_at` | string (date-time) | no |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "deliveries": [
+    {
+      "id": "0192c3a1-7f00-7000-8000-0000000000d1",
+      "endpoint_id": "0192c3a1-7f00-7000-8000-0000000000e1",
+      "event_id": "0192c3a1-7f00-7000-8000-0000000000a1",
+      "event_type": "wallet.credited",
+      "occurred_at": "2026-11-16T09:05:00Z",
+      "status": "succeeded",
+      "attempts": 2,
+      "created_at": "2026-11-16T09:05:00Z",
+      "completed_at": "2026-11-16T09:05:31Z"
+    }
+  ],
+  "next_cursor": "MTc2MzI4MzkwMDAwMDAwMDAwMHwwMTkyYzNhMS03ZjAwLTcwMDAtODAwMC0wMDAwMDAwMDAwZDE"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-getwebhookdelivery"></a>
+#### One delivery, its body and every attempt
+
+```
+GET /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getWebhookDelivery`
+
+The exact body every attempt sends, and each attempt with the headers sent (the signature included, never the secret) and what came back: the status, headers and the first 4 KB of the body, or the error when nothing came back. Needs credentials:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `deliveryId` | path | yes | string |  |
+
+**Response `200`**: The delivery.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `endpoint_id` | string | yes |  |
+| `event_id` | string | yes | Sent as Vaspro-Webhook-Id; the same on every attempt and every replay. |
+| `event_type` | string | yes |  |
+| `occurred_at` | string (date-time) | yes |  |
+| `status` | string: `pending`, `succeeded`, `dead` | yes |  |
+| `dead_reason` | string: `attempts_exhausted`, `endpoint_disabled`, `endpoint_deleted` | no |  |
+| `attempts` | integer | yes |  |
+| `next_attempt_at` | string (date-time) | no |  |
+| `replay_of` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `completed_at` | string (date-time) | no |  |
+| `body` | string | yes | The exact JSON body every attempt sends. |
+| `attempt_log` | array of object | yes |  |
+| `attempt_log[].attempt` | integer | yes |  |
+| `attempt_log[].started_at` | string (date-time) | yes |  |
+| `attempt_log[].duration_ms` | integer | yes |  |
+| `attempt_log[].outcome` | string: `succeeded`, `http_status`, `timeout`, `connect`, `tls`, `refused_url` | yes |  |
+| `attempt_log[].request_headers` | object | yes |  |
+| `attempt_log[].response_status` | integer | no |  |
+| `attempt_log[].response_headers` | object | no |  |
+| `attempt_log[].response_body` | string | no | The first 4 KB of the answer; base64 when response_body_encoding says so. |
+| `attempt_log[].response_body_encoding` | string: `utf8`, `base64` | no |  |
+| `attempt_log[].response_truncated` | boolean | yes |  |
+| `attempt_log[].error` | string | no | What went wrong when nothing came back. |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "endpoint_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_type": "string",
+  "occurred_at": "2026-11-05T09:30:00Z",
+  "status": "pending",
+  "dead_reason": "attempts_exhausted",
+  "attempts": 1,
+  "next_attempt_at": "2026-11-05T09:30:00Z",
+  "replay_of": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "completed_at": "2026-11-05T09:30:00Z",
+  "body": "string",
+  "attempt_log": [
+    {
+      "attempt": 1,
+      "started_at": "2026-11-05T09:30:00Z",
+      "duration_ms": 1,
+      "outcome": "succeeded",
+      "request_headers": {},
+      "response_status": 1,
+      "response_headers": {},
+      "response_body": "string",
+      "response_body_encoding": "utf8",
+      "response_truncated": true,
+      "error": "string"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-replaywebhookdelivery"></a>
+#### Send a delivery again
+
+```
+POST /v1/webhooks/tenants/{tenantId}/deliveries/{deliveryId}/replays
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `replayWebhookDelivery`
+
+A new delivery with the same event ID (Vaspro-Webhook-Id) and the same body, signed afresh, due now; replay_of names the original. Only to an active endpoint (VAL-4000 otherwise). Needs credentials:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `deliveryId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Response `202`**: The replay, due now.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `endpoint_id` | string | yes |  |
+| `event_id` | string | yes | Sent as Vaspro-Webhook-Id; the same on every attempt and every replay. |
+| `event_type` | string | yes |  |
+| `occurred_at` | string (date-time) | yes |  |
+| `status` | string: `pending`, `succeeded`, `dead` | yes |  |
+| `dead_reason` | string: `attempts_exhausted`, `endpoint_disabled`, `endpoint_deleted` | no |  |
+| `attempts` | integer | yes |  |
+| `next_attempt_at` | string (date-time) | no |  |
+| `replay_of` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+| `completed_at` | string (date-time) | no |  |
+
+```json
+{
+  "id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "endpoint_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_id": "0192f3e4-5b6c-7d8e-9f00-0a1b2c3d4e5f",
+  "event_type": "string",
+  "occurred_at": "2026-11-05T09:30:00Z",
+  "status": "pending",
+  "dead_reason": "attempts_exhausted",
+  "attempts": 1,
+  "next_attempt_at": "2026-11-05T09:30:00Z",
+  "replay_of": "string",
+  "created_at": "2026-11-05T09:30:00Z",
+  "completed_at": "2026-11-05T09:30:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getdailyactivity"></a>
+#### The account's wallet activity per day
+
+```
+GET /v1/webhooks/tenants/{tenantId}/reports/daily-activity
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getDailyActivity`
+
+Per day and currency, from through to (inclusive, at most 92 days): money credited to the main wallet (top-ups and refunds), how many top-ups, what token purchases cost, and the value and count of usage. Days are in the time zone of the account's country (Africa/Nairobi for Kenya); days with no activity are left out. Built from the events in the reporting store, each counted once however often it was delivered. Needs billing:read (AUTH-4024 otherwise); bad dates are VAL-4000.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `from` | query | yes | string (date) |  |
+| `to` | query | yes | string (date) |  |
+
+**Response `200`**: The days with activity.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `time_zone` | string | yes | The IANA zone the days are in. |
+| `days` | array of object | yes |  |
+| `days[].date` | string (date) | yes |  |
+| `days[].currency` | string | yes |  |
+| `days[].credited_minor` | integer (int64) | yes | Money credited to the main wallet (top-ups and refunds), in minor units. |
+| `days[].topups` | integer (int64) | yes |  |
+| `days[].token_purchases_minor` | integer (int64) | yes | What the tokens bought cost, from the main wallet. |
+| `days[].usage_minor` | integer (int64) | yes | The value of the tokens used. |
+| `days[].usage_events` | integer (int64) | yes | Messages and other billed events used. |
+
+```json
+{
+  "time_zone": "Africa/Nairobi",
+  "days": [
+    {
+      "date": "2026-11-10",
+      "currency": "KES",
+      "credited_minor": 152000,
+      "topups": 2,
+      "token_purchases_minor": 80000,
+      "usage_minor": 3000,
+      "usage_events": 5
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4024` | 403 | Your role doesn't allow this | You are a member of this account, but your role doesn't include the permission this action needs. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+
+
+---
+
+## Contacts API
+
+### Other
+
+<a id="op-listcontacts"></a>
+#### The account's contacts
+
+```
+GET /v1/contacts/tenants/{tenantId}/contacts
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listContacts`
+
+Newest first, cursor-paged; group_id lists one group's contacts. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `group_id` | query | no | string | Only this group's contacts. |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of contacts.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `contacts` | array of object | yes |  |
+| `contacts[].id` | string | yes |  |
+| `contacts[].phone` | string | yes | E.164. |
+| `contacts[].first_name` | string | no |  |
+| `contacts[].last_name` | string | no |  |
+| `contacts[].email` | string | no |  |
+| `contacts[].attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `contacts[].source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `contacts[].created_at` | string (date-time) | yes |  |
+| `contacts[].updated_at` | string (date-time) | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "contacts": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+      "phone": "+254700000001",
+      "first_name": "Ann",
+      "last_name": "Test",
+      "email": "ann@example.com",
+      "attributes": {
+        "county": "Nairobi",
+        "visits": 3,
+        "joined": "2026-01-15",
+        "vip": true
+      },
+      "source": "api",
+      "created_at": "2026-11-17T09:00:00Z",
+      "updated_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "next_cursor": "MTc2MzM2OTYwMDAwMDAwMDAwMC4wMTkz"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createcontact"></a>
+#### Add a contact
+
+```
+POST /v1/contacts/tenants/{tenantId}/contacts
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createContact`
+
+The number is read in the account's country (07…, 01…, 254… or +254… in Kenya) and stored in E.164. A number already in the account merges into its contact: fields given replace the stored ones, attributes merge, and the answer is 200 rather than 201. An invalid number is VAL-4020; an unknown attribute, or a value that doesn't suit its attribute's type, VAL-4021. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats; stored in E.164. |
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | no | Values as text, checked against each attribute's type: "42", "2026-11-17", "true". |
+
+Example:
+
+```json
+{
+  "phone": "0700 000 001",
+  "first_name": "Ann",
+  "last_name": "Test",
+  "email": "ann@example.com",
+  "attributes": {
+    "county": "Nairobi",
+    "visits": "3"
+  }
+}
+```
+
+**Response `201`**: The new contact.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `phone` | string | yes | E.164. |
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+  "phone": "+254700000001",
+  "first_name": "Ann",
+  "last_name": "Test",
+  "email": "ann@example.com",
+  "attributes": {
+    "county": "Nairobi",
+    "visits": 3,
+    "joined": "2026-01-15",
+    "vip": true
+  },
+  "source": "api",
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Response `200`**: The existing contact, merged.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `phone` | string | yes | E.164. |
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+  "phone": "+254700000001",
+  "first_name": "Ann",
+  "last_name": "Test",
+  "email": "ann@example.com",
+  "attributes": {
+    "county": "Nairobi",
+    "visits": 3,
+    "joined": "2026-01-15",
+    "vip": true
+  },
+  "source": "api",
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4020` | 422 | Phone number not valid | The number isn't a mobile number in the account's country, in any of its usual formats (07…, 01…, 254…, +254… in Kenya), or a valid international number starting with + or 00. The detail says whether it has letters, the wrong length, or isn't a mobile. |
+| `VAL-4021` | 422 | Field value not valid | A contact field or attribute value doesn't suit its type (a number, a date as YYYY-MM-DD, true or false, text of at most 255 characters), or names an attribute the account hasn't defined. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getcontact"></a>
+#### One contact
+
+```
+GET /v1/contacts/tenants/{tenantId}/contacts/{contactId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getContact`
+
+Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `contactId` | path | yes | string |  |
+
+**Response `200`**: The contact.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `phone` | string | yes | E.164. |
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+  "phone": "+254700000001",
+  "first_name": "Ann",
+  "last_name": "Test",
+  "email": "ann@example.com",
+  "attributes": {
+    "county": "Nairobi",
+    "visits": 3,
+    "joined": "2026-01-15",
+    "vip": true
+  },
+  "source": "api",
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-updatecontact"></a>
+#### Change a contact
+
+```
+PATCH /v1/contacts/tenants/{tenantId}/contacts/{contactId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `updateContact`
+
+Fields given replace the stored ones (an empty string clears one); attributes given are set, and null removes one. The number can't change. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `contactId` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | no | null removes an attribute. |
+
+Example:
+
+```json
+{
+  "email": "",
+  "attributes": {
+    "visits": "4",
+    "county": null
+  }
+}
+```
+
+**Response `200`**: The contact.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `phone` | string | yes | E.164. |
+| `first_name` | string | no |  |
+| `last_name` | string | no |  |
+| `email` | string | no |  |
+| `attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+  "phone": "+254700000001",
+  "first_name": "Ann",
+  "last_name": "Test",
+  "email": "ann@example.com",
+  "attributes": {
+    "county": "Nairobi",
+    "visits": 3,
+    "joined": "2026-01-15",
+    "vip": true
+  },
+  "source": "api",
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-deletecontact"></a>
+#### Delete a contact
+
+```
+DELETE /v1/contacts/tenants/{tenantId}/contacts/{contactId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `deleteContact`
+
+Deletes the contact, its attributes and its group memberships. Its number's consent and suppressions stay. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `contactId` | path | yes | string |  |
+
+**Response `204`**: Deleted.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listattributedefinitions"></a>
+#### The account's contact attributes
+
+```
+GET /v1/contacts/tenants/{tenantId}/attribute-definitions
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listAttributeDefinitions`
+
+By key. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: Every attribute.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `attributes` | array of object | yes |  |
+| `attributes[].key` | string | yes |  |
+| `attributes[].label` | string | yes |  |
+| `attributes[].type` | string: `text`, `number`, `date`, `boolean` | yes |  |
+| `attributes[].created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "attributes": [
+    {
+      "key": "county",
+      "label": "County",
+      "type": "text",
+      "created_at": "2026-11-17T09:00:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createattributedefinition"></a>
+#### Define a contact attribute
+
+```
+POST /v1/contacts/tenants/{tenantId}/attribute-definitions
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createAttributeDefinition`
+
+At most 50 per account, each key once (VAL-4000). The key is lower case: a letter, then letters, digits and underscores, at most 40. The type is text, number, date or boolean. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | yes |  |
+| `label` | string | yes |  |
+| `type` | string: `text`, `number`, `date`, `boolean` | yes |  |
+
+Example:
+
+```json
+{
+  "key": "county",
+  "label": "County",
+  "type": "text"
+}
+```
+
+**Response `201`**: The attribute.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | yes |  |
+| `label` | string | yes |  |
+| `type` | string: `text`, `number`, `date`, `boolean` | yes |  |
+| `created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "key": "county",
+  "label": "County",
+  "type": "text",
+  "created_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-deleteattributedefinition"></a>
+#### Delete a contact attribute
+
+```
+DELETE /v1/contacts/tenants/{tenantId}/attribute-definitions/{attributeKey}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `deleteAttributeDefinition`
+
+Also removes its values from every contact. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `attributeKey` | path | yes | string |  |
+
+**Response `204`**: Deleted.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listgroups"></a>
+#### The account's groups
+
+```
+GET /v1/contacts/tenants/{tenantId}/groups
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listGroups`
+
+By name, with how many contacts each has. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: Every group.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `groups` | array of object | yes |  |
+| `groups[].id` | string | yes |  |
+| `groups[].name` | string | yes |  |
+| `groups[].description` | string | no |  |
+| `groups[].members` | integer (int64) | yes |  |
+| `groups[].created_at` | string (date-time) | yes |  |
+| `groups[].updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "groups": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000b1",
+      "name": "Nairobi customers",
+      "members": 1187,
+      "created_at": "2026-11-17T09:00:00Z",
+      "updated_at": "2026-11-17T09:00:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-creategroup"></a>
+#### Create a group
+
+```
+POST /v1/contacts/tenants/{tenantId}/groups
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createGroup`
+
+Names are unique in an account, ignoring case (VAL-4000). Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `description` | string | no |  |
+
+Example:
+
+```json
+{
+  "name": "Nairobi customers",
+  "description": "From the November promotion"
+}
+```
+
+**Response `201`**: The group.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `description` | string | no |  |
+| `members` | integer (int64) | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000b1",
+  "name": "Nairobi customers",
+  "members": 1187,
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getgroup"></a>
+#### One group
+
+```
+GET /v1/contacts/tenants/{tenantId}/groups/{groupId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getGroup`
+
+With how many contacts it has. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `groupId` | path | yes | string |  |
+
+**Response `200`**: The group.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `description` | string | no |  |
+| `members` | integer (int64) | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000b1",
+  "name": "Nairobi customers",
+  "members": 1187,
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-updategroup"></a>
+#### Rename or describe a group
+
+```
+PATCH /v1/contacts/tenants/{tenantId}/groups/{groupId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `updateGroup`
+
+Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `groupId` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no |  |
+| `description` | string | no | An empty string clears it. |
+
+Example:
+
+```json
+{
+  "name": "Nairobi VIPs"
+}
+```
+
+**Response `200`**: The group.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `description` | string | no |  |
+| `members` | integer (int64) | yes |  |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000b1",
+  "name": "Nairobi customers",
+  "members": 1187,
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-deletegroup"></a>
+#### Delete a group
+
+```
+DELETE /v1/contacts/tenants/{tenantId}/groups/{groupId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `deleteGroup`
+
+Its contacts stay. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `groupId` | path | yes | string |  |
+
+**Response `204`**: Deleted.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listsegments"></a>
+#### The account's segments
+
+```
+GET /v1/contacts/tenants/{tenantId}/segments
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listSegments`
+
+By name. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+
+**Response `200`**: Every segment.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `segments` | array of object | yes |  |
+| `segments[].id` | string | yes |  |
+| `segments[].name` | string | yes |  |
+| `segments[].filter` | object | yes | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+| `segments[].created_at` | string (date-time) | yes |  |
+| `segments[].updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "segments": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000e1",
+      "name": "Nairobi regulars",
+      "filter": {
+        "all": [
+          {
+            "field": "attributes.county",
+            "op": "eq",
+            "value": "Nairobi"
+          },
+          {
+            "any": [
+              {
+                "field": "group",
+                "op": "in",
+                "value": [
+                  "0193a1b2-7f00-7000-8000-0000000000b1"
+                ]
+              },
+              {
+                "field": "attributes.visits",
+                "op": "gte",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "created_at": "2026-11-17T09:00:00Z",
+      "updated_at": "2026-11-17T09:00:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createsegment"></a>
+#### Save a segment
+
+```
+POST /v1/contacts/tenants/{tenantId}/segments
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createSegment`
+
+A filter over the account's contacts, checked against its attributes and groups (VAL-4025 if it isn't valid). Names are unique ignoring case. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `filter` | object | yes | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+
+Example:
+
+```json
+{
+  "name": "Nairobi regulars",
+  "filter": {
+    "all": [
+      {
+        "field": "attributes.county",
+        "op": "eq",
+        "value": "Nairobi"
+      },
+      {
+        "any": [
+          {
+            "field": "group",
+            "op": "in",
+            "value": [
+              "0193a1b2-7f00-7000-8000-0000000000b1"
+            ]
+          },
+          {
+            "field": "attributes.visits",
+            "op": "gte",
+            "value": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Response `201`**: The segment.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `filter` | object | yes | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000e1",
+  "name": "Nairobi regulars",
+  "filter": {
+    "all": [
+      {
+        "field": "attributes.county",
+        "op": "eq",
+        "value": "Nairobi"
+      },
+      {
+        "any": [
+          {
+            "field": "group",
+            "op": "in",
+            "value": [
+              "0193a1b2-7f00-7000-8000-0000000000b1"
+            ]
+          },
+          {
+            "field": "attributes.visits",
+            "op": "gte",
+            "value": 3
+          }
+        ]
+      }
+    ]
+  },
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4025` | 422 | Segment filter not valid | The filter isn't an "all" or "any" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getsegment"></a>
+#### One segment
+
+```
+GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getSegment`
+
+Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `segmentId` | path | yes | string |  |
+
+**Response `200`**: The segment.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `filter` | object | yes | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000e1",
+  "name": "Nairobi regulars",
+  "filter": {
+    "all": [
+      {
+        "field": "attributes.county",
+        "op": "eq",
+        "value": "Nairobi"
+      },
+      {
+        "any": [
+          {
+            "field": "group",
+            "op": "in",
+            "value": [
+              "0193a1b2-7f00-7000-8000-0000000000b1"
+            ]
+          },
+          {
+            "field": "attributes.visits",
+            "op": "gte",
+            "value": 3
+          }
+        ]
+      }
+    ]
+  },
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-updatesegment"></a>
+#### Rename a segment or replace its filter
+
+```
+PATCH /v1/contacts/tenants/{tenantId}/segments/{segmentId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `updateSegment`
+
+A new filter is checked as on creation. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `segmentId` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no |  |
+| `filter` | object | no | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+
+Example:
+
+```json
+{
+  "name": "Nairobi regulars, 2026"
+}
+```
+
+**Response `200`**: The segment.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `name` | string | yes |  |
+| `filter` | object | yes | A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between, exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to 255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB. |
+| `created_at` | string (date-time) | yes |  |
+| `updated_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000e1",
+  "name": "Nairobi regulars",
+  "filter": {
+    "all": [
+      {
+        "field": "attributes.county",
+        "op": "eq",
+        "value": "Nairobi"
+      },
+      {
+        "any": [
+          {
+            "field": "group",
+            "op": "in",
+            "value": [
+              "0193a1b2-7f00-7000-8000-0000000000b1"
+            ]
+          },
+          {
+            "field": "attributes.visits",
+            "op": "gte",
+            "value": 3
+          }
+        ]
+      }
+    ]
+  },
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-deletesegment"></a>
+#### Delete a segment
+
+```
+DELETE /v1/contacts/tenants/{tenantId}/segments/{segmentId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `deleteSegment`
+
+Its contacts are untouched. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `segmentId` | path | yes | string |  |
+
+**Response `204`**: Deleted.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getsegmentcount"></a>
+#### How many contacts a segment matches
+
+```
+GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}/count
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getSegmentCount`
+
+Evaluated now, so it reflects current contacts. A segment naming an attribute or group deleted since is VAL-4025. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `segmentId` | path | yes | string |  |
+
+**Response `200`**: The count.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `count` | integer (int64) | yes |  |
+
+```json
+{
+  "count": 1187
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4025` | 422 | Segment filter not valid | The filter isn't an "all" or "any" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-listsegmentcontacts"></a>
+#### A segment's contacts
+
+```
+GET /v1/contacts/tenants/{tenantId}/segments/{segmentId}/contacts
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listSegmentContacts`
+
+Evaluated now; newest first, cursor-paged. A segment naming an attribute or group deleted since is VAL-4025. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `segmentId` | path | yes | string |  |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of contacts.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `contacts` | array of object | yes |  |
+| `contacts[].id` | string | yes |  |
+| `contacts[].phone` | string | yes | E.164. |
+| `contacts[].first_name` | string | no |  |
+| `contacts[].last_name` | string | no |  |
+| `contacts[].email` | string | no |  |
+| `contacts[].attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `contacts[].source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `contacts[].created_at` | string (date-time) | yes |  |
+| `contacts[].updated_at` | string (date-time) | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "contacts": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+      "phone": "+254700000001",
+      "first_name": "Ann",
+      "last_name": "Test",
+      "email": "ann@example.com",
+      "attributes": {
+        "county": "Nairobi",
+        "visits": 3,
+        "joined": "2026-01-15",
+        "vip": true
+      },
+      "source": "api",
+      "created_at": "2026-11-17T09:00:00Z",
+      "updated_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "next_cursor": "MTc2MzM2OTYwMDAwMDAwMDAwMC4wMTkz"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4025` | 422 | Segment filter not valid | The filter isn't an "all" or "any" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-listimports"></a>
+#### The account's imports
+
+```
+GET /v1/contacts/tenants/{tenantId}/imports
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listImports`
+
+Newest first, cursor-paged. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of imports.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `imports` | array of object | yes |  |
+| `imports[].id` | string | yes |  |
+| `imports[].status` | string: `awaiting_upload`, `scanning`, `validating`, `processing`, `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | yes |  |
+| `imports[].file_name` | string | yes |  |
+| `imports[].content_type` | string | yes |  |
+| `imports[].group_id` | string | no |  |
+| `imports[].size_bytes` | integer (int64) | no |  |
+| `imports[].rows_total` | integer | no |  |
+| `imports[].rows_valid` | integer | yes |  |
+| `imports[].rows_failed` | integer | yes |  |
+| `imports[].upload_expires_at` | string (date-time) | yes |  |
+| `imports[].finished_at` | string (date-time) | no |  |
+| `imports[].delete_after` | string (date-time) | yes | When the file and its error report are deleted. |
+| `imports[].deleted_at` | string (date-time) | no | Set once they are. |
+| `imports[].has_error_report` | boolean | yes |  |
+| `imports[].created_at` | string (date-time) | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "imports": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000a1",
+      "status": "completed_with_errors",
+      "file_name": "customers.csv",
+      "content_type": "text/csv",
+      "group_id": "0193a1b2-7f00-7000-8000-0000000000b1",
+      "size_bytes": 48211,
+      "rows_total": 1200,
+      "rows_valid": 1187,
+      "rows_failed": 13,
+      "upload_expires_at": "2026-11-17T09:15:00Z",
+      "finished_at": "2026-11-17T09:02:41Z",
+      "delete_after": "2026-11-19T09:02:41Z",
+      "has_error_report": true,
+      "created_at": "2026-11-17T09:00:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createimport"></a>
+#### Start an import from a CSV or XLSX file
+
+```
+POST /v1/contacts/tenants/{tenantId}/imports
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createImport`
+
+Returns the import, awaiting its upload, and a signed form that works for 15 minutes: post its fields, then the file in a field named "file", straight to storage, never through this API. Then call confirmImportUpload. A file is at most 20 MB and 1,000,000 rows. It and its error report are deleted 2 days after the import finishes. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file_name` | string | yes | Shown back to you; never used to store the file. |
+| `content_type` | string: `text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | yes |  |
+| `group_id` | string | no | Add every imported contact to this group. |
+
+Example:
+
+```json
+{
+  "file_name": "customers.csv",
+  "content_type": "text/csv",
+  "group_id": "0193a1b2-7f00-7000-8000-0000000000b1"
+}
+```
+
+**Response `201`**: The import and its upload form.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `import` | object | yes |  |
+| `import.id` | string | yes |  |
+| `import.status` | string: `awaiting_upload`, `scanning`, `validating`, `processing`, `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | yes |  |
+| `import.file_name` | string | yes |  |
+| `import.content_type` | string | yes |  |
+| `import.group_id` | string | no |  |
+| `import.size_bytes` | integer (int64) | no |  |
+| `import.rows_total` | integer | no |  |
+| `import.rows_valid` | integer | yes |  |
+| `import.rows_failed` | integer | yes |  |
+| `import.upload_expires_at` | string (date-time) | yes |  |
+| `import.finished_at` | string (date-time) | no |  |
+| `import.delete_after` | string (date-time) | yes | When the file and its error report are deleted. |
+| `import.deleted_at` | string (date-time) | no | Set once they are. |
+| `import.has_error_report` | boolean | yes |  |
+| `import.created_at` | string (date-time) | yes |  |
+| `upload` | object | yes |  |
+| `upload.url` | string | yes |  |
+| `upload.fields` | object | yes |  |
+| `upload.expires_at` | string (date-time) | yes |  |
+| `upload.max_bytes` | integer (int64) | yes |  |
+
+```json
+{
+  "import": {
+    "id": "0193a1b2-7f00-7000-8000-0000000000a1",
+    "status": "awaiting_upload",
+    "file_name": "customers.csv",
+    "content_type": "text/csv",
+    "group_id": "0193a1b2-7f00-7000-8000-0000000000b1",
+    "rows_valid": 0,
+    "rows_failed": 0,
+    "upload_expires_at": "2026-11-17T09:15:00Z",
+    "delete_after": "2026-11-19T09:15:00Z",
+    "has_error_report": false,
+    "created_at": "2026-11-17T09:00:00Z"
+  },
+  "upload": {
+    "url": "https://files.vaspro.test/contacts",
+    "expires_at": "2026-11-17T09:15:00Z",
+    "max_bytes": 20971520,
+    "fields": {
+      "key": "quarantine/0193a1b2-7f00-7000-8000-0000000000d1/0193a1b2-7f00-7000-8000-0000000000a1",
+      "policy": "eyJleHBpcmF0aW9uIjoiMjAyNi0xMS0xN1QwOToxNTowMFoifQ",
+      "x-amz-algorithm": "AWS4-HMAC-SHA256",
+      "x-amz-credential": "EXAMPLE/20261117/us-east-1/s3/aws4_request",
+      "x-amz-date": "20261117T090000Z",
+      "x-amz-signature": "example0000000000000000000000000000000000000000000000000000000000"
+    }
+  }
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getimport"></a>
+#### One import, with its progress
+
+```
+GET /v1/contacts/tenants/{tenantId}/imports/{importId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `getImport`
+
+Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `importId` | path | yes | string |  |
+
+**Response `200`**: The import.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `status` | string: `awaiting_upload`, `scanning`, `validating`, `processing`, `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | yes |  |
+| `file_name` | string | yes |  |
+| `content_type` | string | yes |  |
+| `group_id` | string | no |  |
+| `size_bytes` | integer (int64) | no |  |
+| `rows_total` | integer | no |  |
+| `rows_valid` | integer | yes |  |
+| `rows_failed` | integer | yes |  |
+| `upload_expires_at` | string (date-time) | yes |  |
+| `finished_at` | string (date-time) | no |  |
+| `delete_after` | string (date-time) | yes | When the file and its error report are deleted. |
+| `deleted_at` | string (date-time) | no | Set once they are. |
+| `has_error_report` | boolean | yes |  |
+| `created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000a1",
+  "status": "completed_with_errors",
+  "file_name": "customers.csv",
+  "content_type": "text/csv",
+  "group_id": "0193a1b2-7f00-7000-8000-0000000000b1",
+  "size_bytes": 48211,
+  "rows_total": 1200,
+  "rows_valid": 1187,
+  "rows_failed": 13,
+  "upload_expires_at": "2026-11-17T09:15:00Z",
+  "finished_at": "2026-11-17T09:02:41Z",
+  "delete_after": "2026-11-19T09:02:41Z",
+  "has_error_report": true,
+  "created_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-confirmimportupload"></a>
+#### Say the file is uploaded
+
+```
+POST /v1/contacts/tenants/{tenantId}/imports/{importId}/upload-confirmation
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `confirmImportUpload`
+
+The import moves to scanning and is processed in the background; follow its status, or the contact_import.finished event. An import not awaiting its upload, or whose form has expired, is VAL-4023. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `importId` | path | yes | string |  |
+
+**Response `202`**: The import, scanning.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `status` | string: `awaiting_upload`, `scanning`, `validating`, `processing`, `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | yes |  |
+| `file_name` | string | yes |  |
+| `content_type` | string | yes |  |
+| `group_id` | string | no |  |
+| `size_bytes` | integer (int64) | no |  |
+| `rows_total` | integer | no |  |
+| `rows_valid` | integer | yes |  |
+| `rows_failed` | integer | yes |  |
+| `upload_expires_at` | string (date-time) | yes |  |
+| `finished_at` | string (date-time) | no |  |
+| `delete_after` | string (date-time) | yes | When the file and its error report are deleted. |
+| `deleted_at` | string (date-time) | no | Set once they are. |
+| `has_error_report` | boolean | yes |  |
+| `created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "id": "0193a1b2-7f00-7000-8000-0000000000a1",
+  "status": "completed_with_errors",
+  "file_name": "customers.csv",
+  "content_type": "text/csv",
+  "group_id": "0193a1b2-7f00-7000-8000-0000000000b1",
+  "size_bytes": 48211,
+  "rows_total": 1200,
+  "rows_valid": 1187,
+  "rows_failed": 13,
+  "upload_expires_at": "2026-11-17T09:15:00Z",
+  "finished_at": "2026-11-17T09:02:41Z",
+  "delete_after": "2026-11-19T09:02:41Z",
+  "has_error_report": true,
+  "created_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4023` | 409 | Import not in a state for this | The import isn't awaiting its upload, or its upload form has expired. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listimporterrors"></a>
+#### An import's rejected rows and columns
+
+```
+GET /v1/contacts/tenants/{tenantId}/imports/{importId}/errors
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listImportErrors`
+
+By row; row 1 is the header, and row 0 the file as a whole. Each names the problem, never the row's values. Kept after the file is deleted. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `importId` | path | yes | string |  |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of errors.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `errors` | array of object | yes |  |
+| `errors[].row` | integer | yes |  |
+| `errors[].field` | string | yes |  |
+| `errors[].code` | string | yes |  |
+| `errors[].message` | string | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "errors": [
+    {
+      "row": 1,
+      "field": "Notes",
+      "code": "VAL-4021",
+      "message": "not a contact field or one of the account's attributes; the column was ignored"
+    },
+    {
+      "row": 14,
+      "field": "phone",
+      "code": "VAL-4020",
+      "message": "not a mobile number"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-createimportdownloadlink"></a>
+#### A link to download the original file or the error report
+
+```
+POST /v1/contacts/tenants/{tenantId}/imports/{importId}/download-links
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `createImportDownloadLink`
+
+The link works for 5 minutes, needs no session, and is answered by downloadImportFile. Once the files are deleted this is VAL-4024 (410); errors for an import with no error report are VAL-4003. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `importId` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file` | string: `original`, `errors` | yes |  |
+
+Example:
+
+```json
+{
+  "file": "errors"
+}
+```
+
+**Response `201`**: The link.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "url": "https://api.vaspro.test/v1/contacts/downloads/EXAMPLE.TOKEN",
+  "expires_at": "2026-11-17T09:10:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4024` | 410 | File deleted | Uploaded files and their error reports are deleted 2 days after the import finishes (data model §8). The import, its counts and its errors remain. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-recordconsent"></a>
+#### Record the client's consent for a number
+
+```
+POST /v1/contacts/tenants/{tenantId}/consents
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `recordConsent`
+
+A grant or withdrawal for one channel and purpose, recorded as the client's (source api), with how it was obtained. The number may be any contact or not. A withdrawal the person made themselves (a STOP reply or the preference centre) can only be undone by the person: granting over it is VAL-4026, withdrawing again changes nothing. A new withdrawal publishes consent.withdrawn. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats. |
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `purpose` | string: `transactional`, `promotional` | yes |  |
+| `status` | string: `granted`, `withdrawn` | yes |  |
+| `evidence` | string | no | How the client obtained or lost it. |
+
+Example:
+
+```json
+{
+  "phone": "0700000001",
+  "channel": "sms",
+  "purpose": "promotional",
+  "status": "granted",
+  "evidence": "Signed up for offers at the Westlands till, 14 Nov"
+}
+```
+
+**Response `200`**: The consent as now recorded.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `purpose` | string: `transactional`, `promotional` | yes |  |
+| `status` | string: `granted`, `withdrawn` | yes |  |
+| `actor` | string: `client`, `subject` | yes | subject: the person themselves, whose withdrawal only they can undo. |
+| `source` | string: `api`, `dashboard`, `keyword`, `preference_centre`, `v3` | yes |  |
+| `evidence` | string | no |  |
+| `recorded_at` | string (date-time) | yes |  |
+
+```json
+{
+  "channel": "sms",
+  "purpose": "promotional",
+  "status": "granted",
+  "actor": "client",
+  "source": "api",
+  "evidence": "Signed up for offers at the Westlands till, 14 Nov",
+  "recorded_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4026` | 409 | Consent withdrawn by the person | The person withdrew this consent themselves, by replying with a stop word or on their preference page, and only they can give it back (data model §10). |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-lookupconsent"></a>
+#### A number's consent
+
+```
+POST /v1/contacts/tenants/{tenantId}/consent-lookups
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `lookupConsent`
+
+The number goes in the body, never the URL. Its recorded consents, suppressions, the decision for every channel and purpose, and the last 50 changes. Writes nothing. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats. |
+
+Example:
+
+```json
+{
+  "phone": "0700000001"
+}
+```
+
+**Response `200`**: The number's consent.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes |  |
+| `contact_id` | string | no |  |
+| `consents` | array of object | yes |  |
+| `consents[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `consents[].purpose` | string: `transactional`, `promotional` | yes |  |
+| `consents[].status` | string: `granted`, `withdrawn` | yes |  |
+| `consents[].actor` | string: `client`, `subject` | yes | subject: the person themselves, whose withdrawal only they can undo. |
+| `consents[].source` | string: `api`, `dashboard`, `keyword`, `preference_centre`, `v3` | yes |  |
+| `consents[].evidence` | string | no |  |
+| `consents[].recorded_at` | string (date-time) | yes |  |
+| `suppressions` | array of object | yes |  |
+| `suppressions[].phone` | string | yes |  |
+| `suppressions[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+| `suppressions[].reason` | string: `client_request`, `complaint`, `invalid`, `other` | yes |  |
+| `suppressions[].note` | string | no |  |
+| `suppressions[].created_at` | string (date-time) | yes |  |
+| `decisions` | array of object | yes |  |
+| `decisions[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `decisions[].purpose` | string: `transactional`, `promotional` | yes |  |
+| `decisions[].allowed` | boolean | yes |  |
+| `decisions[].reason` | string: `suppressed`, `opted_out`, `no_consent`, `invalid_number` | no |  |
+| `history` | array of object | yes |  |
+| `history[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `history[].purpose` | string: `transactional`, `promotional` | yes |  |
+| `history[].status` | string | yes |  |
+| `history[].actor` | string | yes |  |
+| `history[].source` | string | yes |  |
+| `history[].evidence` | string | no |  |
+| `history[].recorded_by` | string | no |  |
+| `history[].occurred_at` | string (date-time) | yes |  |
+
+```json
+{
+  "phone": "+254700000001",
+  "contact_id": "0193a1b2-7f00-7000-8000-0000000000c1",
+  "consents": [
+    {
+      "channel": "sms",
+      "purpose": "promotional",
+      "status": "granted",
+      "actor": "client",
+      "source": "api",
+      "evidence": "Signed up for offers at the Westlands till, 14 Nov",
+      "recorded_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "suppressions": [
+    {
+      "phone": "+254700000002",
+      "channel": "whatsapp",
+      "reason": "complaint",
+      "note": "Asked us to stop by phone",
+      "created_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "decisions": [
+    {
+      "channel": "sms",
+      "purpose": "promotional",
+      "allowed": true
+    },
+    {
+      "channel": "whatsapp",
+      "purpose": "promotional",
+      "allowed": false,
+      "reason": "suppressed"
+    }
+  ],
+  "history": [
+    {
+      "channel": "sms",
+      "purpose": "promotional",
+      "status": "granted",
+      "actor": "client",
+      "source": "api",
+      "evidence": "Signed up for offers at the Westlands till, 14 Nov",
+      "recorded_by": "0193a1b2-7f00-7000-8000-0000000000f1",
+      "occurred_at": "2026-11-17T09:00:00Z"
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-listsuppressions"></a>
+#### The client's do-not-contact list
+
+```
+GET /v1/contacts/tenants/{tenantId}/suppressions
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listSuppressions`
+
+By number, then channel; cursor-paged. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of suppressions.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `suppressions` | array of object | yes |  |
+| `suppressions[].phone` | string | yes |  |
+| `suppressions[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+| `suppressions[].reason` | string: `client_request`, `complaint`, `invalid`, `other` | yes |  |
+| `suppressions[].note` | string | no |  |
+| `suppressions[].created_at` | string (date-time) | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "suppressions": [
+    {
+      "phone": "+254700000002",
+      "channel": "whatsapp",
+      "reason": "complaint",
+      "note": "Asked us to stop by phone",
+      "created_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "next_cursor": "KzI1NDcwMDAwMDAwMi93aGF0c2FwcA"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-addsuppression"></a>
+#### Suppress a number
+
+```
+POST /v1/contacts/tenants/{tenantId}/suppressions
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `addSuppression`
+
+On one channel, or every channel when channel is left out. A suppressed number gets nothing on that channel, whatever its consent. Already there: 200 with the existing entry. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats. |
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+| `reason` | string: `client_request`, `complaint`, `invalid`, `other` | yes |  |
+| `note` | string | no |  |
+
+Example:
+
+```json
+{
+  "phone": "0700000002",
+  "channel": "whatsapp",
+  "reason": "complaint",
+  "note": "Asked us to stop by phone"
+}
+```
+
+**Response `201`**: Added.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes |  |
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+| `reason` | string: `client_request`, `complaint`, `invalid`, `other` | yes |  |
+| `note` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "phone": "+254700000002",
+  "channel": "whatsapp",
+  "reason": "complaint",
+  "note": "Asked us to stop by phone",
+  "created_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Response `200`**: Already suppressed.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes |  |
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+| `reason` | string: `client_request`, `complaint`, `invalid`, `other` | yes |  |
+| `note` | string | no |  |
+| `created_at` | string (date-time) | yes |  |
+
+```json
+{
+  "phone": "+254700000002",
+  "channel": "whatsapp",
+  "reason": "complaint",
+  "note": "Asked us to stop by phone",
+  "created_at": "2026-11-17T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-removesuppression"></a>
+#### Take a number off the list
+
+```
+POST /v1/contacts/tenants/{tenantId}/suppression-removals
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `removeSuppression`
+
+For one channel, or the every-channel entry when channel is left out; the number in the body. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats. |
+| `channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | no |  |
+
+Example:
+
+```json
+{
+  "phone": "0700000002",
+  "channel": "whatsapp"
+}
+```
+
+**Response `204`**: Removed.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-issuepreferencelink"></a>
+#### Issue a number's preference link
+
+```
+POST /v1/contacts/tenants/{tenantId}/preference-links
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `issuePreferenceLink`
+
+A link to a page where the person can turn promotional messages on or off per channel, with no sign-in. It works for 90 days; issuing another replaces it. The token is shown only here. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | Any of the country's usual formats. |
+
+Example:
+
+```json
+{
+  "phone": "0700000001"
+}
+```
+
+**Response `201`**: The link.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "url": "https://api.vaspro.test/p/Ab3dE5gH7jK9",
+  "expires_at": "2027-02-15T09:00:00Z"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-getpreferences"></a>
+#### A preference page's choices
+
+```
+GET /v1/contacts/preferences/{token}
+```
+
+**Auth:** none  
+**Operation ID:** `getPreferences`
+
+Public: the link's token is the credential. The number, masked, and whether the person receives promotional messages on each channel. A changed, replaced or expired link is VAL-4003.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string | The 12-character token from the link. |
+
+**Response `200`**: The choices.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `masked_phone` | string | yes |  |
+| `channels` | array of object | yes |  |
+| `channels[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `channels[].receiving` | boolean | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "masked_phone": "+254 7•• ••• 001",
+  "expires_at": "2027-02-15T09:00:00Z",
+  "channels": [
+    {
+      "channel": "sms",
+      "receiving": true
+    },
+    {
+      "channel": "whatsapp",
+      "receiving": false
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-updatepreferences"></a>
+#### Change a preference page's choices
+
+```
+PUT /v1/contacts/preferences/{token}
+```
+
+**Auth:** none  
+**Operation ID:** `updatePreferences`
+
+Public. Recorded as the person's own choice (source preference_centre), which the client can't undo. Turning a channel off publishes consent.withdrawn. A changed, replaced or expired link is VAL-4003.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string | The 12-character token from the link. |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `channels` | object | yes | true receives promotional messages on the channel, false stops them. |
+| `channels.sms` | boolean | no |  |
+| `channels.whatsapp` | boolean | no |  |
+
+Example:
+
+```json
+{
+  "channels": {
+    "sms": false
+  }
+}
+```
+
+**Response `200`**: The choices now.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `masked_phone` | string | yes |  |
+| `channels` | array of object | yes |  |
+| `channels[].channel` | string: `sms`, `whatsapp`, `email`, `telegram`, `rcs` | yes |  |
+| `channels[].receiving` | boolean | yes |  |
+| `expires_at` | string (date-time) | yes |  |
+
+```json
+{
+  "masked_phone": "+254 7•• ••• 001",
+  "expires_at": "2027-02-15T09:00:00Z",
+  "channels": [
+    {
+      "channel": "sms",
+      "receiving": true
+    },
+    {
+      "channel": "whatsapp",
+      "receiving": false
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-downloadimportfile"></a>
+#### Download a file by its signed link
+
+```
+GET /v1/contacts/downloads/{token}
+```
+
+**Auth:** none  
+**Operation ID:** `downloadImportFile`
+
+Public: the signed token is the credential. The file is decrypted as it streams. A changed or expired link is VAL-4003; a deleted file VAL-4024 (410).
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `token` | path | yes | string |  |
+
+**Response `200`**: The file.
+
+Body: the raw file (`text/csv`).
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4024` | 410 | File deleted | Uploaded files and their error reports are deleted 2 days after the import finishes (data model §8). The import, its counts and its errors remain. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+### Members, roles and invitations
+
+<a id="op-listgroupmembers"></a>
+#### A group's contacts
+
+```
+GET /v1/contacts/tenants/{tenantId}/groups/{groupId}/members
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `listGroupMembers`
+
+Newest first, cursor-paged. Needs contacts:read.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `groupId` | path | yes | string |  |
+| `cursor` | query | no | string | The next_cursor of the page before. |
+| `limit` | query | no | integer | 1 to 100; 50 when absent. |
+
+**Response `200`**: A page of contacts.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `contacts` | array of object | yes |  |
+| `contacts[].id` | string | yes |  |
+| `contacts[].phone` | string | yes | E.164. |
+| `contacts[].first_name` | string | no |  |
+| `contacts[].last_name` | string | no |  |
+| `contacts[].email` | string | no |  |
+| `contacts[].attributes` | object | yes | Text and dates as strings, numbers as JSON numbers, booleans as true or false. |
+| `contacts[].source` | string: `api`, `dashboard`, `import`, `v3` | yes |  |
+| `contacts[].created_at` | string (date-time) | yes |  |
+| `contacts[].updated_at` | string (date-time) | yes |  |
+| `next_cursor` | string | no |  |
+
+```json
+{
+  "contacts": [
+    {
+      "id": "0193a1b2-7f00-7000-8000-0000000000c1",
+      "phone": "+254700000001",
+      "first_name": "Ann",
+      "last_name": "Test",
+      "email": "ann@example.com",
+      "attributes": {
+        "county": "Nairobi",
+        "visits": 3,
+        "joined": "2026-01-15",
+        "vip": true
+      },
+      "source": "api",
+      "created_at": "2026-11-17T09:00:00Z",
+      "updated_at": "2026-11-17T09:00:00Z"
+    }
+  ],
+  "next_cursor": "MTc2MzM2OTYwMDAwMDAwMDAwMC4wMTkz"
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+
+
+<a id="op-addgroupmembers"></a>
+#### Add contacts to a group
+
+```
+POST /v1/contacts/tenants/{tenantId}/groups/{groupId}/members
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `addGroupMembers`
+
+Up to 1,000 at once. One already in the group is skipped; an unknown contact is VAL-4003 and nothing is added. Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `groupId` | path | yes | string |  |
+
+**Request body** (`application/json`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `contact_ids` | array of string | yes |  |
+
+Example:
+
+```json
+{
+  "contact_ids": [
+    "0193a1b2-7f00-7000-8000-0000000000c1"
+  ]
+}
+```
+
+**Response `200`**: How many were added.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `added` | integer (int64) | yes |  |
+
+```json
+{
+  "added": 1
+}
+```
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+<a id="op-removegroupmember"></a>
+#### Remove a contact from a group
+
+```
+DELETE /v1/contacts/tenants/{tenantId}/groups/{groupId}/members/{contactId}
+```
+
+**Auth:** session token (`Authorization: Bearer <session_token>`)  
+**Operation ID:** `removeGroupMember`
+
+Needs contacts:manage.
+
+**Parameters**
+
+| Name | In | Required | Type | Description |
+|---|---|---|---|---|
+| `tenantId` | path | yes | string |  |
+| `Idempotency-Key` | header | yes | string | A fresh unique value (e.g. a UUID) per action; reuse it only to retry the same request. |
+| `groupId` | path | yes | string |  |
+| `contactId` | path | yes | string |  |
+
+**Response `204`**: Removed, or it wasn't in the group.
+
+**Errors**
+
+| Code | HTTP | Meaning | When |
+|---|---|---|---|
+| `AUTH-4010` | 401 | Invalid or missing credentials | The request's bearer token or API credentials are missing, expired, or don't match any account. |
+| `VAL-4003` | 404 | Resource not found | The referenced resource doesn't exist, or doesn't belong to the caller. Deliberately not distinguished in the response. |
+| `VAL-4000` | 400 | Request failed validation | One or more fields in the request body don't satisfy the API's rules. |
+| `VAL-4001` | 409 | Idempotency key reused with a different request body | The Idempotency-Key header matches an earlier request whose body hashes differently. |
+
+
+---
+
 ## Error catalogue
 
 Every code the platform defines. Codes from families that aren't live yet (messaging, routing, payments) are listed so clients can be ready for them.
@@ -7270,6 +10683,15 @@ Every code the platform defines. Codes from families that aren't live yet (messa
 | `VAL-4015` | 409 | Reversal exceeds the original | This reversal and the open or completed reversals of the same top-up together would be more than the top-up. | Reverse at most what's left of the top-up; a rejected reversal frees its share. |
 | `VAL-4016` | 409 | Reversal isn't awaiting pay-back | Only a pay-back reversal that's posted and not yet paid back can record a pay-back. | Read the reversal's status; chargebacks and operator reversals have no pay-back. |
 | `VAL-4017` | 409 | Statement already imported | A statement for this paybill and day has already been imported and reconciled. | Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import. |
+| `VAL-4018` | 422 | Webhook endpoint verification failed | The endpoint didn't answer the signed verification request with a 2xx and the same challenge within 10 seconds. | Make the endpoint answer the webhook.verification request with {"challenge": "<the value sent>"} and a 2xx status, then verify again. |
+| `VAL-4019` | 422 | Webhook URL not allowed | Webhook URLs must be https, carry no user name or password, and reach a public address. Private, loopback, link-local and metadata addresses are refused, after DNS too. | Use a public https URL. |
+| `VAL-4020` | 422 | Phone number not valid | The number isn't a mobile number in the account's country, in any of its usual formats (07…, 01…, 254…, +254… in Kenya), or a valid international number starting with + or 00. The detail says whether it has letters, the wrong length, or isn't a mobile. | Correct the number. |
+| `VAL-4021` | 422 | Field value not valid | A contact field or attribute value doesn't suit its type (a number, a date as YYYY-MM-DD, true or false, text of at most 255 characters), or names an attribute the account hasn't defined. | Correct the value, or define the attribute first. |
+| `VAL-4022` | 422 | Import file can't be read | The file isn't a readable CSV or XLSX, has no column for the phone number, has two columns for one field, or is over the row limit. | Check the file opens in a spreadsheet and has a phone, msisdn, mobile, number or phone_number column. |
+| `VAL-4023` | 409 | Import not in a state for this | The import isn't awaiting its upload, or its upload form has expired. | Start a new import. |
+| `VAL-4024` | 410 | File deleted | Uploaded files and their error reports are deleted 2 days after the import finishes. The import, its counts and its errors remain. | Upload the file again if you need it processed again. |
+| `VAL-4025` | 422 | Segment filter not valid | The filter isn't an "all" or "any" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem. | Correct the filter, or change the segment to drop the deleted attribute or group. |
+| `VAL-4026` | 409 | Consent withdrawn by the person | The person withdrew this consent themselves, by replying with a stop word or on their preference page, and only they can give it back. | Ask the person to reply with the start word or use their preference page. Recording the withdrawal again is accepted and changes nothing. |
 | `BAL-4001` | 402 | Insufficient balance | The wallet's available money doesn't cover the request (a token purchase from the main wallet, or a money hold). | Top up the wallet, or reduce the request. |
 | `BAL-4002` | 402 | No tokens left for this service | The service's token wallet doesn't have enough tokens left (beyond those already held) for this request. | Buy tokens for the service, or turn on auto-buy. |
 | `BAL-4003` | 409 | Hold can't change this way | The hold was already captured, released or expired, or the capture is larger than the hold. | Read the hold's status; capture at most its amount, and only while it's active. |

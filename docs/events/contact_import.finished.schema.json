@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.vaspro.io/events/contact_import.finished.schema.json",
+  "title": "contact_import.finished",
+  "x-vaspro-webhook": true,
+  "description": "Published by contacts when an import reaches a final status (data model §8 and §10; task 6.2): completed, completed with errors, failed, cancelled, or expired because the file was never uploaded. The file and its error report are deleted at delete_after. No file name, number or row data appears here. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
+  "type": "object",
+  "required": ["tenant_id", "import_id", "status", "rows_total", "rows_valid", "rows_failed", "finished_at", "delete_after"],
+  "properties": {
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "import_id": {"type": "string", "format": "uuid"},
+    "status": {"type": "string", "enum": ["completed", "completed_with_errors", "failed", "cancelled", "expired"]},
+    "rows_total": {"type": "integer", "minimum": 0, "description": "Data rows read, blank ones included; 0 when the file was never read."},
+    "rows_valid": {"type": "integer", "minimum": 0},
+    "rows_failed": {"type": "integer", "minimum": 0},
+    "error_code": {"type": "string", "description": "Why a failed import failed, a catalogue code: VAL-4007 not CSV or XLSX, VAL-4008 too large or empty, VAL-4009 malware, VAL-4022 unreadable or no number column."},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "delete_after": {"type": "string", "format": "date-time", "description": "When the file and its error report are deleted."}
+  },
+  "additionalProperties": false
+}

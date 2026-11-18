@@ -489,7 +489,7 @@ func (d doc) fieldRows(rows *[]string, schema *yaml.Node, prefix string, depth i
 		s := d.resolve(f.schema)
 		name := prefix + f.name
 		*rows = append(*rows, fmt.Sprintf("| `%s` | %s | %s | %s |", name, d.typeOf(f.schema), yesNo(f.required), cell(cleanDescription(str(get(s, "description"))))))
-		switch str(get(s, "type")) {
+		switch t, _ := schemaType(s); t {
 		case "array":
 			d.fieldRows(rows, get(s, "items"), name+"[].", depth+1)
 		default:
@@ -506,16 +506,16 @@ func (d doc) typeOf(schema *yaml.Node) string {
 	if get(s, "allOf") != nil {
 		return "object"
 	}
-	t := str(get(s, "type"))
-	if t == "" && get(s, "type") != nil && get(s, "type").Kind == yaml.SequenceNode {
-		var ts []string
-		for _, n := range get(s, "type").Content {
-			ts = append(ts, n.Value)
-		}
-		t = strings.Join(ts, " \\| ")
-	}
+	t, nullable := schemaType(s)
 	if t == "array" {
-		return "array of " + d.typeOf(get(s, "items"))
+		t = "array of " + d.typeOf(get(s, "items"))
+		if nullable {
+			t += " \\| null"
+		}
+		return t
+	}
+	if nullable {
+		t += " \\| null"
 	}
 	if f := str(get(s, "format")); f != "" {
 		t += " (" + f + ")"
@@ -531,6 +531,24 @@ func (d doc) typeOf(schema *yaml.Node) string {
 		t = "any"
 	}
 	return t
+}
+
+// schemaType is a schema's type, and whether OpenAPI 3.1's list form
+// adds "null" to it ([array, "null"] is a nullable array).
+func schemaType(s *yaml.Node) (string, bool) {
+	n := get(s, "type")
+	if n == nil || n.Kind != yaml.SequenceNode {
+		return str(n), false
+	}
+	t, nullable := "", false
+	for _, c := range n.Content {
+		if c.Value == "null" {
+			nullable = true
+		} else if t == "" {
+			t = c.Value
+		}
+	}
+	return t, nullable
 }
 
 // sample builds an example value from a schema, using its example,
@@ -556,7 +574,7 @@ func (d doc) sample(schema *yaml.Node, name string, depth int) any {
 		}
 		return o
 	}
-	switch str(get(s, "type")) {
+	switch t, _ := schemaType(s); t {
 	case "array":
 		item := d.sample(get(s, "items"), strings.TrimSuffix(name, "s"), depth+1)
 		if item == nil {

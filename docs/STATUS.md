@@ -1,9 +1,1138 @@
 # Build status
 
-**Updated:** 2026-11-11
-**Current phase:** Phase 4: Payments I, wallet top-ups (Phase 3 merged to `main` 2026-11-10, PR #5, `46760ec`; its finance review and v3 dry-run boxes stay open, see Blockers. Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too)
-**Current task:** Phase 4's tasks are done (2026-11-11): 4.1–4.6 and 4.8, with 4.7 (Airtel) deferred. Next: the PR of `p4/phase-4` to `main`.
-**Branch:** `p4/phase-4`, one branch for the phase like Phase 3: a conventional commit per task, one PR to `main` at the end.
+**Updated:** 2026-11-17
+**Current phase:** Phase 6: Contacts and consent, ready for its PR. Phase 5 merged to `main` 2026-11-16 (PR #8, merge `a12ed94`). Phase 4's "real Daraja sandbox top-up on staging" box stays open until staging (Phase 8), and 4.7 (Airtel) is deferred. Phase 3's finance review and v3 dry-run boxes, Phase 2's dry-run box and Phase 0's clean-machine `make up` check are still open too (see Blockers).
+**Current task:** Phase 6 done but for the v3 dry-run gate box, which waits for a v3 export (as Phases 2 and 3's do). Committed on `p6/phase-6` as one commit; not pushed. Next: push the branch and open Phase 6's PR (your go-ahead), then the servers for Phases 5 and 6 together.
+**Branch:** `p6/phase-6`, from `origin/main`, one branch for the phase. Its first commit is this STATUS update and the design update; it reaches `main` with Phase 6's PR. Delete `p5/phase-5` when this branch is first pushed.
+
+## Phase 6 plan (agreed 2026-11-17)
+Data model Part 3 (contacts) isn't written, so the phase starts by drafting it, as 5.0 did for webhooks; your answers are OQ-26 (contacts) and OQ-25 (uploads). The uploads and retention update of 16 Nov (D-23, data model §8, ADR 0012) adds 6.2a before imports. Order: 6.1, 6.2a, 6.2, then 6.3–6.6.
+
+| # | Task | Tests first |
+|---|---|---|
+| 6.0 | Data model §10: the contacts section (tables, rules, events, personal-data columns, v3 mapping, open points); pack schema `numbering.mobile_prefixes` and an `opt_out` block | **done**, below |
+| 6.1 | `contacts` migration: contacts, attribute definitions, groups and members, segments, consents and consent history, suppressions, preference links, and **`imports` and `import_errors` exactly as data model §8**; outbox, idempotency keys; roles; sqlc. Not on `main` yet, so §8's tables go straight into it | **done**, below |
+| 6.2a | `platform/uploads` (D-23): signed upload links to a quarantine prefix; the quarantine-to-final move (content sniffing, size cap, ClamAV, SHA-256, envelope encryption, streamed); signed download links; the sweeper; retention classes `transient` (2 days) and `financial` (30 days), configurable. Mechanism only | **done**, below |
+| 6.2 | **done**, below. The contacts service, number normalisation, contacts and groups API, then imports on 6.2a: create (signed link), confirm, scan, validate, process as a stream with §8's statuses, progress counts, per-row errors, the error report; `contact_import.finished`; files deleted 2 days after a final status | KE formats to E.164; errors by row; duplicates merged within a file and across imports; 1,000,000 rows within the target with flat memory; every §8 status transition; retention with the fake clock; tenant B can't download tenant A's file |
+| 6.3 | **done**, below. Segments from attribute filters | filter table; type errors; keys never reach SQL text; isolation |
+| 6.4 | **done**, below. Consent per channel and purpose; opt-out keywords from the pack; suppression lists; preference-centre link | channel × purpose × state × suppression table; keyword variants; tampered or expired links |
+| 6.5 | **done**, below. Batch consent check over gRPC (≤ 10,000 numbers) | agrees with the domain rule; isolation; latency benchmark |
+| 6.6 | **done** (design), below. v3 contacts importer: designed, not built (no v3 export, OQ-02) | none |
+| Gate | Consent latency for 10,000 numbers; a 1M-row import through a signed upload, its file gone 2 days later | |
+
+**Questions** (asked 16 Nov; answered 17 Nov by taking the recommendations, OQ-26; 7 is OQ-25):
+1. Promotional consent model: opt-out (unknown allowed, STOP enforced), per pack, `promotional_requires_opt_in: false` for KE. A legal call.
+2. Channels `sms`, `whatsapp`, `email`, `telegram`, `rcs`; purposes `transactional`, `promotional`.
+3. Only the person can undo their opt-out (keyword or preference centre), never the client's API or an import.
+4. New permissions `contacts:read` (all four built-in roles) and `contacts:manage` (Admin, Developer).
+5. Deleting a contact is a hard delete; consents and suppressions stay.
+6. A suppression list across all clients: deferred.
+7. ~~Upload cap and streaming encryption~~: answered with 6.2a (OQ-25). **The cap is 20 MB** (17 Nov). A 1,000,000-row CSV then fits only with rows of about 20 bytes (a number and a first name), or as XLSX; the exit gate's 1M-row import uses such a file.
+8. Targets: 1M rows under 5 minutes on the M4 with peak heap under 64 MB; consent check p95 under 200 ms for 10,000 numbers.
+9. `ExpandAudience` (a group or segment's numbers with consent applied) in 6.5, or left to Phase 7.
+10. Preference links: a short random token stored hashed, per client and number, 90 days.
+11. 6.6 design-only.
+12. Events: `contact_import.finished` and `consent.withdrawn` sent to clients without phone numbers. ~~`consent.changed` internal~~: dropped while drafting 6.0, since every event lands in ClickHouse; messaging asks `CheckConsent`.
+
+## Done in Phase 6
+- 6.2a `platform/uploads` (D-23, data model §8, ADR 0012). Your answers of 16 Nov, all as recommended, are OQ-25: downloads through the service, the streaming encryption format, the size cap as a POST policy, a new `platform/clamav`, and a public storage endpoint with CORS. Mechanism only: no table, no statuses, no service code.
+  - **`crypto`:** streaming envelope encryption, `Envelope.NewStreamSealer` (`SealedSize`, `Writer`) and `Envelope.OpenStream`.
+    - A data key per file, wrapped by the KMS as `Seal` does.
+    - AES-256-GCM in 64 KiB chunks. The nonce is a 7-byte random prefix, a 4-byte chunk counter and a last-chunk flag, and the header is the additional data.
+    - Every chunk but the last is full, so the sealed size is exact in advance and a cut at a chunk boundary is caught.
+    - A bad chunk is `ErrStreamCorrupt`, and no bytes of a chunk are returned before it's checked.
+  - **`objectstore`:** `Stat`, `PutStream` (a known length, or -1 in 8 MB parts), `GetStream` (`ErrNotFound` up front), and `SetExpiryRule`.
+    - **`PresignUpload`** is a signed S3 POST form for exactly one key, with `content-length-range` 1 to the cap and an expiry. It's signed for `PublicEndpoint` (the host is in the signature), with the region set so signing never calls the store.
+    - `Config` gains `PublicEndpoint`, `PublicUseTLS` and `Region`; existing callers are unchanged.
+  - **`platform/clamav`:** a streaming client (`Scan(ctx, io.Reader)`, `Ping`).
+    - 64 KiB INSTREAM chunks, a 5-minute cap without a context deadline.
+    - **`ErrTooLarge`** when clamd says the stream passed StreamMaxLength (it may close the connection mid-stream, so the reply is read after a failed write).
+    - A failing reader is an error, never a verdict.
+    - Accounts keeps its own client (task 2.8) for now.
+  - **`tools/fakes/clamd`:** scans as it reads, keeping only the tail EICAR could start in, so a 100 MB scan doesn't grow the test's memory. `SetStreamMaxLength` mirrors clamd's setting (default 25 MB, as clamd's).
+  - **New fake `tools/fakes/objectstore`:** in memory, with `FailDeletes` and an `OnGet` hook that can swap a file between reads.
+  - **`platform/uploads`:**
+    - **Keys** are built from IDs only: `quarantine/<tenant>/<id>`, `uploads/<class>/<tenant>/<id>`, plus `.errors` for the report.
+    - **`DefaultConfig`**: **a 20 MB cap** (your call of 17 Nov, under clamd's default 25 MB StreamMaxLength; §8 had proposed 100 MB), a 15-minute upload link, a 5-minute download link, 48h transient, 30 days financial. `New` refuses a missing KMS key, a download key that isn't 32 bytes, a zero cap or lifetime, and financial retention shorter than transient.
+    - **`IssueUpload`:** the form, its expiry, and `DeleteAfter` = the link's end plus transient retention, so an upload that never happens still expires.
+    - **`Finalize`** (§8's scanning step):
+      1. the size, from `Stat` (empty `ErrEmpty`, over the cap `ErrTooLarge`);
+      2. a first read: the type from the first 8 KB (CSV is text with no NUL or control bytes; XLSX starts with a zip header), the SHA-256, and the scan;
+      3. a second read, encrypted to the final key with the hash taken again. **A different hash or length means the file was replaced between the reads** (the form still works for minutes), which is `ErrChanged`;
+      4. the quarantine copy deleted.
+      - A refused file (`ErrEmpty`, `ErrTooLarge`, `ErrWrongType`, `ErrInfected`, `ErrChanged`) is deleted at once with anything written for it.
+      - **`ErrScanUnavailable` keeps the quarantine copy** for a retry.
+      - Finalize again is `ErrAlreadyFinalized`; nothing uploaded is `ErrNotUploaded`.
+    - **`Open`** streams the decrypted file (`ErrDeleted` once it's gone); **`PutSealed`** encrypts a service's own files (error reports) of unknown length.
+    - **`SignDownload`/`VerifyDownload`:** base64url(tenant, expiry, key) and an HMAC-SHA256 under the download key, `ErrLinkInvalid` or `ErrLinkExpired`. The service signs only after finding the upload under the caller's tenant (6.2's isolation test).
+    - **`Sweep`:** the service lists rows past `delete_after` and marks them. Every key is deleted (missing counts as deleted), and a row is marked only if all its deletes succeeded.
+  - **Tests:**
+    - **crypto** (no containers):
+      - round trips at 0, 1, a chunk ±1, three chunks and 10 MB, with the exact predicted size;
+      - two seals of one file differ;
+      - **refused:** every header byte flipped, chunk bytes, truncation at each chunk boundary and inside one, extra bytes, swapped and dropped chunks, a chunk from another file, the wrong KMS key;
+      - a write after Close, an unknown KMS key, and a failing destination;
+      - **sealing 100 MB allocates under 1 MB** (a benchmark run as a test).
+    - **objectstore** (SeaweedFS 4.48):
+      - 20 MB streamed both ways, and missing objects;
+      - **the signed form:** an upload lands; **1,025 bytes against 1,024 refused by the store**; a changed key, an expired form and a bad signature refused;
+      - **the expiry rule is accepted**, recording §8's open point.
+    - **clamav:** against the fake, clean and empty files, **EICAR at 0, astride 64 KiB and 1 MB boundaries and at the end of 3 MB**, `ErrTooLarge` over the limit, a failing reader, clamd down; against **real ClamAV** (integration), a 2 MB clean file and EICAR.
+    - **uploads** (the in-memory store, the clamd fake, a fake clock):
+      - the defaults and 7 refused settings;
+      - keys for 1,000 random IDs;
+      - `DeleteAfter` per class and configured;
+      - the issued form's key, limit, expiry and `delete_after`;
+      - **finalize:** a CSV stored sealed (no plaintext in the object), the right size and SHA-256, one scan, opened back exactly, the quarantine copy gone, a second call `ErrAlreadyFinalized`; an XLSX;
+      - **9 refusals that leave nothing in storage:** a PNG or PDF as CSV, NUL bytes, a CSV or PNG as XLSX, an unknown type, over the cap, empty, infected;
+      - nothing uploaded; the scanner down keeps the quarantine copy; the scanner's limit is `ErrTooLarge`;
+      - **a file swapped between the reads** (same length, other bytes) is `ErrChanged`, leaving nothing;
+      - a deleted file is `ErrDeleted`; a tampered one fails to read; an error report round trip, stored sealed;
+      - **download links:** a round trip; every changed character, garbage and another key's link refused; valid at exactly 5 minutes, `ErrLinkExpired` a second later;
+      - **the sweeper:** nothing a second early; at `delete_after` the due upload's three keys gone and it's marked at the sweep's time; one whose delete fails isn't marked and is retried next pass; one not due is untouched; a third pass changes nothing; a failing table read is an error.
+    - **uploads integration** (SeaweedFS, the fake clamd raised to 100 MB):
+      - **the whole path through a real signed form**, streamed: finalized, the right SHA-256, the quarantine copy gone, stored without plaintext, opened back exactly; an infected upload leaves neither key;
+      - **a file of exactly the 20 MB default cap** finalized against clamd's default limit; one byte more refused by storage, so `Finalize` finds nothing uploaded (added with the 20 MB cap);
+      - **100 MB (the cap raised for the test) finalized in 0.8–1.2s with peak heap growth of 17 MB** (sampled every 20 ms; the limit is 64 MB), and read back to the same SHA-256: memory doesn't depend on the cap.
+    - **Order of work:** every test was seen failing against stubs first (crypto, objectstore, clamav, uploads), then passing with the code.
+    - **A test fix while writing them:** the crypto round trip first looked for the first byte of a 1-byte plaintext in the ciphertext, which random ciphertext contains by chance; it now looks only for 32-byte runs.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no last-chunk flag (both boundary truncations);
+      - no re-hash on the second read (the swapped file);
+      - refused files kept (the refusals and the scanner limit);
+      - marking despite a failed delete (the sweeper);
+      - download expiry ignored (the first try didn't compile and was redone);
+      - the CSV type check off;
+      - an infected verdict ignored;
+      - **no `content-length-range` on the form** (the store's size refusal);
+      - the clamav client ignoring `FOUND`.
+      - **Survived:** sealing without the header as additional data. Any header change is already refused by the wrapped key, the nonce prefix or the magic, so it's kept as defence in depth.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 53 runs fresh (the changed `crypto` and `objectstore` reach most integration packages: `identity/app` 301s, `identity/api` 218s, `gateway` 155s; `platform/clamav` 22s against real ClamAV, `objectstore` 63s, `uploads` 31s), 41 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Docs:** data model §8 says downloads come back through the service, records SeaweedFS accepting an expiry rule, and the 20 MB cap; ADR 0012's context; OQ-25; ROADMAP 6.2a ticked.
+  - **Deployment notes** (for when Phase 6 reaches the dev server):
+    - **clamd keeps its defaults** (25 MB StreamMaxLength), since the cap is 20 MB. A service that raises its cap past 25 MB must raise clamd's limits too, or larger files fail as `ErrTooLarge`;
+    - **object storage needs a public endpoint reachable by browsers, and CORS for the dashboard's origin** (POST from that origin). The service's `PublicEndpoint` must be exactly the host browsers use;
+    - each service with uploads needs a KMS key ID for files and a 32-byte download signing key;
+    - SeaweedFS accepts expiry rules: set `quarantine/` to 1 day as a backstop once enforcement is confirmed.
+  - **Not in 6.2a:** contacts' table, statuses, API and download route (6.2); moving accounts onto `platform/clamav`.
+
+- 6.0 The contacts design (OQ-26). Docs and the pack; no service code. Your answer of 17 Nov was "proceed", taking the 16 Nov recommendations; question 1 (the opt-out model) stays a legal call to confirm.
+  - **Data model §10** "Contacts and consent" (new; "Next parts" is now §11), drafted ahead of the rest of Part 3:
+    - **Rules:**
+      - one contact per number per client, merged on repeat;
+      - consent per client, number, channel and purpose, kept when a contact is deleted;
+      - **the person's own withdrawal can only be undone by the person** (app and trigger);
+      - **no numbers in events**, since they land in ClickHouse;
+      - the personal-data columns listed for the catalogue.
+    - **Numbers:** local formats read in the client's country with its trunk prefix, length and new `mobile_prefixes`; foreign numbers with `+` or `00` kept if valid E.164; refusals with a reason.
+    - **The consent decision table:** suppression, then withdrawal, then purpose; opt-in countries block promotional with no consent.
+    - **Opt-out keywords:** whole-reply matches only, ignoring case, spaces and one trailing `.,!?`; promotional on that channel; recorded as the person's.
+    - **The preference centre:** `/p/<token>`, 12 characters, hashed, one per client and number, 90 days.
+    - **Segments:** a JSON filter (fields, operators by type, 2 levels, 20 conditions) **compiled to a SQL/JSON path run by one fixed query**, so no SQL is built from client input.
+    - **Imports** on §8:
+      - header matching;
+      - batches of 1,000 merged through a temporary table; later rows win, non-empty cells replace;
+      - **a session advisory lock per import**: a dead worker releases it, and the next resumes after the counted rows;
+      - file problems as `row_no` 0.
+      - §8's columns are unchanged.
+    - **Tables:**
+      - `contacts`; `attribute_definitions` (at most 50); `groups`; `group_members` (by `(id, tenant_id)`); `segments`;
+      - `consents` (current state) and `consent_events` (append-only);
+      - `suppressions` (`NULLS NOT DISTINCT`, a NULL channel meaning all);
+      - `preference_links`;
+      - with `imports` and `import_errors` from §8.
+    - **Also:**
+      - RLS, grants and the `contacts_system` role;
+      - the HTTP API outline;
+      - gRPC `CheckConsent`, `ExpandAudience`, `RecordReplyKeyword` and `IssuePreferenceLink`;
+      - the events `contact_import.finished` and `consent.withdrawn`;
+      - the v3 mapping and open points.
+    - **Changed from the 16 Nov answers:** no internal `consent.changed` event with the number, since it would sit in ClickHouse indefinitely.
+    - **Not yet:** the two events' schemas. They join `docs/events/` with their tasks (6.2, 6.4), together with webhooks' client-event list, which a contract test keeps equal to the markers.
+  - **Packs:**
+    - `numbering.mobile_prefixes`: 1–4 digits, unique.
+    - An optional `opt_out` block: `promotional_requires_opt_in`, `stop`, `start` (upper-case words; no keyword both ways). `Pack.OptOut` is nil without it.
+    - **KE:** prefixes `1` and `7`; opt-out; `STOP` and `START`.
+  - **Test:** `TestParse_MobilePrefixesAndOptOut`: KE's values, a pack without `opt_out`, and 9 refusals (no prefixes, letters, over 4 digits, repeated, no stop word, lower case, punctuation, a word both ways, opt-in as a string).
+    - Seen failing first (no field).
+    - **Mutation-checked:** dropping the both-ways check fails it.
+    - A Go check that a prefix is shorter than a number **survived**: the schema's 4-digit limit already refuses that case, so the check was removed rather than kept as dead code.
+  - **ROADMAP:** A1 notes contacts drafted. **OQ-26** records the answers.
+  - **`make check`:** run with 6.1, below.
+
+- 6.1 `contacts` schema, RLS, roles and sqlc (OQ-26). Like 5.1, no service code: a migration, starter queries and repository tests.
+  - **Migration** `migrations/contacts/20261117090000_init.sql`:
+    - data model §10's tables and §8's `imports`/`import_errors`, **both copied from the data model's SQL by script**, so they're exact;
+    - plus `outbox_events` and `idempotency_keys`; no `processed_events` (contacts consumes nothing yet);
+    - `CREATE EXTENSION IF NOT EXISTS citext` for `email`, never dropped by Down.
+  - **Trigger** `consents_subject_withdrawal_sticks`: an update that would replace a person's own withdrawal with anything but the person's choice is `check_violation`. It catches an upsert as well as a plain update.
+  - **Roles:**
+    - **`contacts_service`:**
+      - updates are column-limited (a contact's number and tenant, a consent's key, an import's object key and file name never change);
+      - `consent_events` and `import_errors` are insert-only;
+      - deletes only on contacts, attribute definitions, groups, members, segments, suppressions and idempotency keys.
+    - **`contacts_system`** (NOLOGIN, `WITH INHERIT FALSE`, `WithRoleTx` only):
+      - reads and moves imports across clients (status, `finished_at`, `delete_after`, `deleted_at`);
+      - finds a preference link by hash and stamps `last_used_at`;
+      - writes the outbox;
+      - no grant on contacts, consents or anything else.
+  - **RLS:** the standard policy on all 11 client tables; `contacts_system`'s reads and updates on imports and preference links.
+  - **sqlc** (a sixth `sqlc.yaml` entry), the starter set:
+    - contacts: create, get, get by number;
+    - groups: create, get, `AddGroupMember` (repeat-safe), count;
+    - attribute definitions: create, list; segments: create, get;
+    - consents: `UpsertConsent`, get, history insert and list;
+    - suppressions: add, list for a number;
+    - preference links: `UpsertPreferenceLink` (replaces the earlier token), `FindPreferenceLink` (across clients);
+    - imports: create, get, errors (repeat-safe) and list.
+  - **Tests** (`internal/contacts/store/*_integration_test.go`, as `contacts_app` with only `contacts_service`'s privileges; constraint cases as the owner in rolled-back transactions), 121 subtests:
+    - **schema:** goose Down-to-0-then-Up (schema and both roles gone);
+    - **RLS:** `AssertRowLevelSecurity` on all 11 tables;
+    - **keys:** a client can't put its contact into another client's group, or another client's contact into its own (23503); deleting a contact removes its memberships;
+    - **`contacts_system`:** sees both clients' imports, finds a link by hash, is denied 8 other tables, may set `deleted_at` but not a file name, is hidden outside `WithRoleTx`, and is granted without inheritance (`pg_auth_members`);
+    - **grants:** 18 cases;
+    - **the trigger:** a client's update or upsert, granting or withdrawing, is refused; the person's own choice passes, after which the client may change it; a client's own withdrawal stays the client's to undo;
+    - **constraints:** 75 cases across contacts (number shapes, attributes, sources, lengths, one number per client), attribute keys (40 and 41 characters, capitals, digits first, hyphens, dots), group and segment names in other cases, consents (actor and source agree, who recorded it, unknown channel and purpose, one row per key), suppressions (a NULL channel once; a channel beside it), links, and §8's imports (`finished_at` both ways, types, sizes, classes, keys) and errors (row 0, foreign key, one per key);
+    - **sqlc:** a round trip in a tenant transaction; another client sees nothing; a reissued link's old token no longer found, the new one found by `contacts_system`.
+    - **Test numbers** are `+99900…`: 999 is a country code no country has, so none can be a real person's number (no `packs/ke/sandbox.yaml` exists yet).
+    - **Order of work:** the schema, RLS, keys, role, grants, trigger and constraint tests were seen failing with no migration (goose found none), then passed on the first run with it; the sqlc test came after `make gen`.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - a plain foreign key on `group_members`;
+      - no trigger;
+      - `contacts_system` granted with inheritance;
+      - a full UPDATE grant on contacts;
+      - no system read policy on links (two tests);
+      - no `finished_at` CHECK;
+      - consent history writable.
+  - **`make check`:** green first time, covering 6.0's pack change, the 20 MB cap and 6.1. Lint 0 issues; 24 runs fresh (the packs change reran accounts' and the ledger's apps, which load packs: `accounts/app` 133s, `ledger/app` 124s; `contacts/store` and `platform/uploads` 52s), 71 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Deployment notes:** the service's login role is granted `contacts_service` and must not own the tables; it reaches `contacts_system` through it.
+  - **Not in 6.1:** the service skeleton (6.2, where `Run` first has work); the queries 6.2 to 6.5 need.
+
+- 6.2 The contacts service, number rules, the contacts, groups and attributes API, and imports on 6.2a (OQ-26, D-23).
+  - **Your answer of 17 Nov:** the built-in roles' permissions updated by an accounts migration (asked first: it rewrites seeded rows).
+  - **Accounts:**
+    - `contacts:read` and `contacts:manage` in the permission catalogue;
+    - migration `20261117100000_contacts_permissions.sql`: Developer gets both, Finance and Viewer `contacts:read`, Admin's `*` already covers them; Down removes them;
+    - the role × permission matrix gains the two columns.
+  - **Contracts:**
+    - **`docs/api/contacts.yaml`:** 22 operations under `/v1/contacts/tenants/{tenantId}/`, each body with a realistic example:
+      - contacts (cursor list with a group filter, create-or-merge 201/200, read, PATCH, delete);
+      - attribute definitions; groups and members;
+      - imports (create with the signed form, confirm 202, read, list, errors paged by row, download links);
+    - plus the public `GET /v1/contacts/downloads/{token}`.
+    - **Codes:** VAL-4020 (number not valid, 422), VAL-4021 (value not valid or unknown attribute, 422), VAL-4022 (file can't be read, 422), VAL-4023 (import not awaiting its upload, 409), VAL-4024 (file deleted, 410).
+    - **Event `contact_import.finished`** (sent to clients, no numbers); webhooks' client-event list gains it (the contract test keeps it equal).
+    - **sqlc:**
+      - `InsertContactIfNew` and `MergeContact`, the PATCH `UpdateContact`, `ListContacts` (a `(created_at, id)` cursor, optional group);
+      - **`ImportContacts`**: one JSON batch through `jsonb_to_recordset`, merging on conflict (sqlc doesn't know the multi-argument `unnest` §10 first had in mind);
+      - group, attribute and import queries;
+      - the worker's queries as `contacts_system`: `ListImportsToProcess`, `ExpireImports`, `DueImportFiles` (never one still processing), `MarkImportFilesDeleted`;
+      - `TryLockImport`/`UnlockImport`, session advisory locks.
+    - **New dependency** `github.com/xuri/excelize/v2` v2.11.1 (2 Nov, 15 days old). It adds only indirect dependencies (mscfb, msoleps, go-deepcopy, efp, nfp); nothing else moved.
+  - **Rules** (`internal/contacts/domain`):
+    - **`NormalizePhone`:** local numbers in the client's country (trunk prefix, the number alone, the country code with or without `+`); `+` or `00` for others, valid E.164; spaces, hyphens, dots, brackets and a `(0)` after the country code dropped. Refusals: empty, not digits (other scripts' digits too), wrong length, not a mobile.
+    - **`AttributeValue`:** text up to 255; numbers as decimal text kept as JSON numbers, never a float; dates `YYYY-MM-DD`; booleans true/false/yes/no.
+    - **`NormalizeContactFields`:** names up to 100, a bare email.
+    - **`MatchHeaders`:** the number under phone/msisdn/mobile/number/phone_number, the fields, then attributes by key or label; a byte-order mark, case, underscores and hyphens ignored; two columns for one field refused.
+    - **The §8 status table** (`CanMoveImport`, `Final`).
+  - **App** (`internal/contacts/app`):
+    - **contacts:**
+      - create-or-merge (a field given replaces, attributes merge);
+      - read, list with a cursor, PATCH (empty clears, null removes an attribute), hard delete;
+    - **attributes:** at most 50, unique keys; deleting one removes its values;
+    - **groups:** names unique ignoring case; up to 1,000 members added at once, none if any is unknown;
+    - every call asks accounts (`contacts:read` or `:manage`); accounts down fails closed.
+    - **Imports:**
+      - `CreateImport` (the signed form; keys from IDs only), `ConfirmImportUpload` (only while awaiting the upload and the form works), reads, errors, download links (5 minutes; refused from `delete_after`), `OpenDownload` (decrypting);
+      - **`ProcessImports`**, under a session advisory lock per import, runs §8's steps:
+        - **scanning** through `uploads.Finalize`; a refusal fails the import with a row-0 error (VAL-4007, VAL-4008, VAL-4009, or VAL-4022 for a changed or missing file); a scanner that can't answer leaves it for the next pass;
+        - **validating:** the header matched; unknown columns are row-1 VAL-4021 errors;
+        - **processing:** rows streamed; a CSV's separator from its header line; a non-UTF-8 row refused; an XLSX held in memory (within 20 MB) and its first sheet streamed. Batches of 1,000 merged in one statement, later rows winning within the batch, with group memberships, errors and counts in the same transaction. **A resumed import skips `rows_total` rows.** More than 1,000,000 rows stops with a row-0 error.
+        - An error report CSV is streamed from the errors a page at a time and sealed; cells a spreadsheet would run as formulas get an apostrophe.
+        - A final status, `delete_after` two days on, and `contact_import.finished`, in one transaction.
+      - **`ExpireImports`** and **`SweepImportFiles`** as `contacts_system`.
+    - **An import's country is the one loaded pack's:** the worker has no user to ask accounts with. Noted as an open point in §10.
+  - **API** (`internal/contacts/api`):
+    - webhooks' pattern: the gateway's user, idempotency on writes, and both skipped for the public download;
+    - problems mapped to their codes;
+    - **the download streams as an attachment** with `nosniff` and `no-store`, and the file closed after.
+  - **Service:**
+    - `internal/contacts/contacts.go`, `cmd/contacts`, registered in `vaspro-all`;
+    - `Run` ensures the bucket and `CONTACTS_EVENTS`, relays the outbox on `contacts.<event>`, works on imports every `CONTACTS_WORKER_POLL`, and expires and sweeps every `CONTACTS_SWEEP_INTERVAL`.
+    - **Config:**
+      - `CONTACTS_DATABASE_URL`, `_NATS_URL`, `_HTTP_ADDR` (`:8086`), `_ACCOUNTS_GRPC_ADDR`, `_PACKS_DIR`;
+      - `_OBJECT_STORAGE_ENDPOINT`, `_PUBLIC_ENDPOINT`, `_ACCESS_KEY`, `_SECRET_KEY`, `_BUCKET` (`contacts`), `_USE_TLS`, `_PUBLIC_USE_TLS`, `_REGION`;
+      - `_CLAMAV_ADDR`, `_FILES_KMS_KEY`, `_DOWNLOAD_KEY` (base64 of 32 bytes each), `_DOWNLOAD_BASE_URL`;
+      - `_MAX_UPLOAD_BYTES` (20 MB), `_FILE_RETENTION` (48h), `_WORKER_POLL` (2s), `_SWEEP_INTERVAL` (1m).
+  - **Gateway:** `GATEWAY_CONTACTS_BASE_URL` (**new, required**) and `_OPENAPI_PATH`; `/v1/contacts` with the session and spec validation, the download public by the spec; the audit log names its route template, never the token.
+  - **Fakes:** `tools/fakes/contactaccess` (contacts' copy of the access fake); `clamd.StartAt`, to bring the fake back on an address.
+  - **Tests:**
+    - **domain:**
+      - **16 KE and international formats to E.164, 17 refusals** with their reasons; a country with no mobile prefixes;
+      - **a fuzz test** that normalising twice changes nothing and always gives E.164 (20s, about 6 million inputs);
+      - attribute keys and the 4 types (11 accepted, 14 refused, blank as no value); contact fields;
+      - header matching (aliases, attributes by label, unknown columns, no or two number columns);
+      - **every pair of the §8 status table**.
+    - **accounts:** the matrix with the contacts columns; the seeded roles match the code (it failed without the migration).
+    - **app** (Postgres as `contacts_app`, SeaweedFS, the clamd fake, the access fake, a fake clock):
+      - **contacts:**
+        - create, then the same number in another format merges;
+        - refusals (landline, letters, unknown attribute, a number that isn't one, an email with a name) write nothing;
+        - PATCH clears and removes; deleting an attribute removes its values; no number reaches the logs;
+        - paging newest first across 3 pages, another account's left out, 3 bad pages refused;
+        - groups: case-insensitive names, an unknown member adding nothing, repeats skipped, removal and deletion, contacts kept;
+        - the attribute limit (the 51st refused), duplicates, an unknown key;
+      - **who:** a reader reads but 7 writes are refused, a stranger finds nothing, another account's contact isn't found, nothing written, accounts down fails closed;
+      - **the CSV import, end to end:**
+        - through the signed form, confirmed (twice is VAL-4023), processed: `completed_with_errors`, 4 valid, 2 failed, 7 read;
+        - **a duplicate within the file merged** (later cells win, earlier ones kept where the later is empty), an existing contact merged, the group filled;
+        - errors by row with their codes, paged, never repeating a value;
+        - the error report and the original downloaded through links; the stored file in ciphertext;
+        - the event valid and without numbers;
+        - another account can't link or read it;
+        - no row data in the logs;
+      - **XLSX** (built with excelize, a numeric cell included);
+      - **duplicates across two imports merged** (3 contacts, both imports' fields);
+      - **6 file failures** (infected VAL-4009, a PNG as CSV VAL-4007, no number column and two VAL-4022, an empty file VAL-4022), each failed with its code in the error and the event and no contacts; and a non-UTF-8 row failing only that row;
+      - nothing uploaded fails;
+      - **the scanner down:** the import waits, isn't swept even 30 days on, then goes through once clamd is back on the same address;
+      - **the form expired:** confirming is VAL-4023, `ExpireImports` ends it `expired` with its event, a second pass does nothing;
+      - **retention:**
+        - nothing a second before `delete_after`;
+        - at it, no new link is signed, then the sweep deletes the file and report and marks `deleted_at`, keeping the counts and errors;
+        - a link afterwards is VAL-4024; a second sweep does nothing;
+        - a link signed a minute before deletion answers VAL-4024 after; bad tokens not found;
+      - **a worker dying after its second batch** leaves 6 rows counted; the next pass ends with 9 valid, 1 failed, 9 contacts and 1 error: exactly one run's result;
+      - **two workers at once** on 4 imports: each completed once, 4 events;
+      - **the row limit** (3): 5 rows stop at 3 with a row-0 error; exactly 3 completes;
+      - **1,000,000 rows** (16.2 MB of short rows, numbers under country code 999) **in 20 seconds with peak heap growth of 15.9 MB** (targets: 5 minutes, 64 MB).
+    - **API:**
+      - **spec-driven `TestTenantOperations_NeedContactsPermissions`:** all 22 tenant operations are 401 with no user, VAL-4003 for a stranger, AUTH-4024 with no permission; a reader reads and may ask for a download link, and every other write is AUTH-4024. It fails if an operation has no case.
+      - **the flow:**
+        - a contact in E.164 with a number attribute as a JSON number; a merge 200; VAL-4020 and VAL-4021;
+        - a PATCH removing an attribute;
+        - an import, confirm again 409, its errors;
+        - a link and the download with its headers; a bad token VAL-4003;
+        - two days on, VAL-4024 for a new link and the old one, and the import kept.
+    - **gateway:** `TestGatewayBackends_Contacts`:
+      - the session's user forwarded, the spoof replaced, no token;
+      - **a null attribute passing the spec** (OpenAPI 3.1 `[string, "null"]`);
+      - 4 invalid requests refused before contacts;
+      - no session 401;
+      - the download public with a spoofed user stripped;
+      - no fall-through to identity.
+    - **service:** **`Run` as production wires it:** `/readyz`; an import created over HTTP, uploaded through its form and confirmed, then processed by the service's own loop, with `contact_import.finished` read off NATS; a clean shutdown. **7 bad settings refused.**
+    - **Order of work:**
+      - the domain and import tests were seen failing against stubs, then passed on their first run with the code;
+      - **the contacts, groups and attributes code was written before its tests**, against the rule; those tests passed on their first run, and the mutations below stand in for seeing them fail;
+      - the API, gateway and service tests came with their code (the gateway's was seen failing with the config but no route).
+    - **Test fixes while writing them:**
+      - the event assertion compared JSON text, but jsonb stores `"status": "completed"`, so it now parses (4.6's lesson);
+      - a BOM literal needed escaping (also 4.6's).
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no merge within a batch;
+      - a resume that skips nothing;
+      - the advisory lock ignored;
+      - the row limit off by one;
+      - every route public;
+      - no attachment header.
+      - **Two first survived and the tests were strengthened:** a link at `delete_after` before the sweep had no case, and the sample CSV never had an earlier value a later row left empty. Both now fail.
+      - **Not mutation-checked:** the SQL merge's `coalesce` (it needs regenerating sqlc); the duplicates-across-imports test asserts its effect.
+  - **`make check`:** green first time. Lint 0 issues; 50 runs fresh (`contacts/app` 430s, mostly the 1M-row and file-failure tests; `gateway` 147s; `identity/api` 138s), 50 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **`make test-int` now has `-timeout 25m`** (`INTEGRATION_TIMEOUT`): `contacts/app` at 430s was close to Go's 10-minute default, and CI's runners are slower. That was Next up's item 6.
+  - **Docs:** data model §10 (imports as built: the JSON batch, `rows_total` as progress, row numbers, the country open point); the event's `rows_total` wording; ROADMAP 6.2 ticked.
+  - **Deployment notes** (for the dev server after Phase 6):
+    - **the gateway needs `GATEWAY_CONTACTS_BASE_URL`**;
+    - contacts needs the `CONTACTS_*` settings above, a `contacts_service` grant for its login role, and its HTTP port reachable only from the gateway;
+    - **object storage needs a public endpoint and CORS** allowing POST from the dashboard's origin;
+    - clamd keeps its defaults (20 MB is under its 25 MB);
+    - `vaspro-all` and `env.example` gain the variables;
+    - `docs/api/API.md` is regenerated.
+  - **Not in 6.2:** segments (6.3), consent (6.4, 6.5), the v3 importer (6.6), an import's country for a second pack, and cancelling an import (`cancelled` has no route yet).
+
+- 6.3 Segments (data model §10, OQ-26).
+  - **Contracts:**
+    - **API:** 7 operations under `/v1/contacts/tenants/{tenantId}/segments`: list, create (201), read, PATCH (name and/or filter), delete (204), `count`, and `contacts` (cursor-paged, newest first). The filter is passed through as raw JSON (`x-go-type: json.RawMessage`), so a number's digits are never read as a float.
+    - **New code VAL-4025** (422): the filter isn't valid, or names an attribute or group the account doesn't have or has since deleted; the detail names the problem.
+    - **sqlc:** `ListSegments`, `UpdateSegment`, `DeleteSegment`, `CountGroupsByIDs`, and **the one fixed evaluation query** in two forms, `CountSegmentContacts` and `ListSegmentContacts`. Each contact is a JSON document (fields, email lower-cased, `created_at` as a date in the account's zone, attributes, group IDs when the filter needs them) matched by `jsonb_path_match` against the compiled path and its variables. No migration.
+  - **Rules** (`domain.CompileSegment`):
+    - the top is `all` or `any`; groups nest two levels; at most 20 conditions; at most 16 KB; unknown keys refused;
+    - fields and operators by type as §10 lists them; values checked per type (text 1–255 characters, numbers as decimal text with no exponent, dates `YYYY-MM-DD`, true/false, group IDs; `in`/`not_in` 1–100 values, deduplicated; `between` two, lower first);
+    - **attribute keys reach the path only after the key pattern and a definition match**; every value is a variable `$v1…`.
+    - **Changed from §10:** `like_regex` takes no variable, so `contains` puts its value in the path as a JSON-quoted literal read literally (flag `q`). Recorded in §10.
+    - **Chosen while building** (in §10 now): text is case-sensitive except email; `neq` and comparisons need a value; `not_in` matches a contact in no group; a deleted group, like a deleted attribute, is refused when a segment is used.
+  - **App:** create and update check the filter in the client's transaction (its attributes, and that every group is its own); count and list recompile the saved filter against the account as it is now. `contacts:read` reads, counts and lists; `contacts:manage` writes.
+  - **Tests:**
+    - **domain:** 19 filters to their exact path and variables (each operator and type, the data model's example, `any` at the top); a long decimal's digits kept; **41 refusals** (an injected key, three levels, 21 conditions, each type's wrong operators and values, a backwards `between`, over 16 KB); exactly 20 conditions over two levels; **a value carrying path syntax ends up only in the variables**.
+    - **app** (a second account whose contacts match every filter, so a leak would show):
+      - **32 filters** counted and paged (2 per page, each contact once), including `contains` with dots, stars, quotes, a backslash, brackets and a bar, email ignoring case, **a 22:30 UTC contact on the next day in Nairobi and 20:59:59 UTC on the same day**, and `not_in` covering contacts in no group;
+      - saved and changed: names unique ignoring case (another account may reuse one); 6 refusals saving nothing (another account's group among them); read and list; a change re-checked and counted at once; a new contact counted at once; **an attribute or group deleted since is VAL-4025 when used**; delete;
+      - who: a reader reads, counts and lists but can't write; another account and a stranger find nothing; 3 bad pages.
+      - **1,000,000 contacts:** an attribute filter counted in **0.6s** and a group filter in **0.8s**, first pages of 100 in about 5ms (the test's limit is 10s).
+        - **Found while measuring:** the group filter first took 3.2s, looking up each contact's groups. Counting now takes them from one grouped join. The join made a first page take 0.8s, so pages keep the per-contact lookup, which stops early.
+    - **API:** the spec-driven permission test covers the 7 new operations (29 in all); `TestSegmentsAPI`: create, count, a page, a long number kept in the filter, VAL-4025 with its reason, VAL-4000 for a duplicate name, VAL-4025 after the attribute is deleted.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs (the app's fixture built, then every case failed with "not built"); both passed on their first run with the code;
+      - the spec-driven test failed on the new operations until their cases were added;
+      - `TestSegmentsAPI` came with the handlers; the mutations below stand in.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - `contains` without flag `q` (dots and brackets match as a pattern);
+      - three levels allowed; 21 conditions allowed;
+      - email not lower-cased;
+      - another account's group accepted;
+      - a saved filter not re-checked when used;
+      - `created_at` in UTC;
+      - `not_in` without its negation;
+      - VAL-4025 not mapped (API).
+      - Two of these first didn't compile (an unused variable, an unused import) and were redone; the results above are the redone runs.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 75 runs fresh (the new error code reaches every package that imports `problem`: `contacts/app` 559s, `identity/app` 335s, `identity/api` 170s, `gateway` 170s), 25 from the cache; no container retries.
+    - **Then `gofmt -l` named three contacts test files** (lint doesn't check them): `segments_test.go`, `segments_integration_test.go`, and 6.2's `contacts_integration_test.go`. Formatted, then `make check` again: green, 4 runs fresh (`contacts/app` 478s), 96 cached. `gofmt -l` also names `platform/httpx`'s `requestid_test.go` and `timeout_test.go` and `platform/money/money.go`, which this phase hasn't touched; left alone.
+    - gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+    - **`contacts/app` is now 8 to 9 minutes** (the 1M-row import and 1M-contact segment tests), within `make test-int`'s 25-minute timeout.
+  - **Not in 6.3:** previewing an unsaved filter's count (the dashboard can save, count and change); `ExpandAudience` with consent applied (6.5); a gateway test of its own (the `/v1/contacts` route and spec validation are 6.2's, unchanged).
+
+- 6.4 Consent, opt-out keywords, suppressions and the preference centre (data model §10, OQ-26).
+  - **A gap from 6.2, fixed first:** webhooks never consumed `CONTACTS_EVENTS`, so `contact_import.finished` reached neither clients' endpoints nor ClickHouse. Webhooks' fan-out and sink now include it. `TestService_DeliversABusEventEndToEnd` publishes a contacts event; it failed before the change.
+  - **Contracts:**
+    - **API**, 7 operations:
+      - `recordConsent`: one number, channel and purpose, with evidence;
+      - `lookupConsent`: a POST so the number stays out of the URL; needs `contacts:read`;
+      - `listSuppressions`, `addSuppression` (201, or 200 with the existing entry);
+      - `removeSuppression`: a POST, number and channel in the body;
+      - `issuePreferenceLink` (201);
+      - the public `getPreferences` and `updatePreferences` under `/v1/contacts/preferences/{token}`.
+    - **New code VAL-4026** (409): the person withdrew this consent themselves.
+    - **Event `consent.withdrawn`** (sent to clients): tenant, `contact_id` when the number is a contact, channel, purpose, actor, source, time; never the number. Webhooks' client list has it (23); the contract test failed without it.
+    - **sqlc:** `ListConsentsForPhone`, `GetConsentForUpdate`, `ListRecentConsentEvents`, `GetSuppression`, `DeleteSuppression`, `ListSuppressions`, `TouchPreferenceLink`; `AddSuppression` now skips a repeat. No migration: 6.1's tables, trigger and grants cover it.
+  - **Rules** (`domain/consent.go`):
+    - **`DecideConsent`**, §10's table: invalid number, then suppression (the channel or every channel), then withdrawal, then no consent where promotional needs opt-in.
+    - **`ClientConsentChange`:** over a person's own withdrawal, a client grant is `ErrSubjectWithdrew` and a client withdrawal writes nothing.
+    - **`WithdrawalIsNews`:** an event only when consent becomes withdrawn.
+    - **`MatchKeyword`:** whole replies; case, surrounding and repeated spaces and one trailing `.,!?` ignored.
+    - **Preference tokens:** 12 characters from 62 by rejection sampling (unbiased), stored as SHA-256; anything not that shape is refused before the database.
+  - **App** (`app/consent.go`):
+    - every change locks the consent row, then writes it, its history row and any event in one tenant transaction;
+    - `RecordConsent`, `LookupConsent` (decisions for all 10 channel and purpose pairs, last 50 changes), `AddSuppression`, `ListSuppressions`, `RemoveSuppression`;
+    - **`RecordReplyKeyword`** (STOP/START on the reply's channel, promotional, as the person) and **`IssuePreferenceLinkFor`** take no user: messaging calls them over gRPC in 6.5;
+    - **the preference centre:** `IssuePreferenceLink` (90 days, replacing the earlier link); `GetPreferences` and `UpdatePreferences` find the link as `contacts_system`, refuse unknown, replaced and expired links alike (VAL-4003), record the person's choice (`preference_centre`) and stamp `last_used_at`.
+    - **Chosen while building** (in §10 now):
+      - the page offers SMS and WhatsApp;
+      - "receiving" is the promotional decision, so a suppressed channel shows off;
+      - work with no user reads the one loaded pack, as imports do;
+      - a pack without `opt_out` is treated as opt-in (fails closed).
+  - **The page** `/p/{token}`:
+    - server-rendered with `html/template`, its script and stylesheet under `/p/static/`;
+    - payments' CSP, `nosniff`, `no-referrer`, `DENY`, `no-store`;
+    - the number masked (`+254 7•• ••• 501`), a checkbox per channel, saved by PUT.
+    - **The gateway** sends `/p/*` to contacts with no session, like `/pay/`; the token is logged as "unmatched", never as the path.
+    - **Open point:** the page doesn't name the client. Contacts has no account's display name, and the page acts for no user. Recorded in §10.
+  - **Tests:**
+    - **domain:**
+      - the 12 rows of §10's table;
+      - **every channel × purpose × state × suppression × country model × number validity (480 cases)** against the rules stated again;
+      - the client-change table (8);
+      - when a withdrawal is news (5);
+      - **25 keyword variants** (` Stop. `, `STOP!`, `stop  all` match; `STOP!!`, `stopped`, `please stop`, `STÖP`, `ST0P` don't);
+      - tokens: 1,000 distinct, a fixed source's exact output, a short source refused, 6 malformed shapes;
+      - the channel and purpose lists.
+    - **app** (real Postgres, the KE pack):
+      - **the client:** nothing recorded allows all 10; a withdrawal blocks SMS promotional only and is published once (with `contact_id`), not again on repeat; a grant again; a number that isn't a contact (no `contact_id`); deleting the contact keeps its consent; 6 refusals writing nothing.
+      - **keywords:** 4 non-matches write nothing; `" Stop. "` withdraws SMS promotional as the person, transactional and WhatsApp still allowed; **the client can't grant over it** (VAL-4026, nothing written), and withdrawing again changes nothing; STOP twice publishes once; **START gives it back**, after which the client's own withdrawal is the client's to undo; a bad number or channel refused; no number in the logs.
+      - **suppressions:** every channel beats a grant on all 10; one channel only; adding twice returns the first; paged one at a time in order; another account sees none and can't remove; removal and a second removal not found; 4 refusals.
+      - **the preference centre:** the link's token stored only as its hash; the masked number and both channels; **turning SMS off is the person's withdrawal** (VAL-4026 for the client, the event, `last_used_at`); back on; 3 refused changes; **every single-character change to the token, and 5 malformed tokens, find nothing**; reissuing kills the old link; **valid a second before 90 days, gone at 90 days**; a link issued for messaging.
+      - **who:** a reader looks up and lists but can't record, suppress, unsuppress or issue; another account sees nothing of it; a stranger not found.
+    - **API:**
+      - the spec-driven permission test covers 34 tenant operations (a reader may POST a lookup);
+      - `TestConsentAPI`: record, suppress twice (201 then 200), list, look up, remove twice (204 then VAL-4003), VAL-4020, a link;
+      - **the page:** headers, the masked number and no full number, exactly one script and it's the file, both assets' types; a tampered link is 404 with no form; markup in the path not rendered;
+      - its API with no session: read, turn SMS off, then VAL-4026 for the client; a malformed token VAL-4003.
+    - **gateway** `TestGatewayBackends_PreferencePage`: the page and script reach contacts with no session and the spoofed user stripped; the public API read and change pass; a channel the page doesn't offer is refused by the spec; a consent lookup still needs a session; **the token isn't in the gateway's log**. It failed (400) before the route.
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs, then passed on their first run with the code;
+      - the permission test failed on the new operations until their cases were added;
+      - the gateway test failed before its route;
+      - `TestConsentAPI` came with the handlers.
+      - **A test fix while writing them:** the page test looked for `+254`, which `html/template` writes as `&#43;254`; it now looks for the rest of the masked number.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - every-channel suppressions ignored;
+      - opt-in ignored;
+      - more than one trailing punctuation mark accepted;
+      - the client allowed over the person's withdrawal;
+      - an event on every withdrawal;
+      - link expiry ignored;
+      - the preference centre recorded as the client;
+      - the public preference API behind a session;
+      - the page without its CSP.
+      - One first didn't compile (an unused variable) and was redone.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 40 runs fresh (`contacts/app` 566s, `identity/api` 201s, `gateway` 131s, `webhooks/app` 83s, `contacts/api` 68s), 60 from the cache; no container retries.
+    - **gitleaks 8.30.1** (through Docker, from the repository root) then found the gateway test's made-up preference token. It's now marked `gitleaks:allow` with its reason, as the repo's other example tokens are, and the tree scans clean. That's a comment-only change after the `make check` above.
+  - **Deployment notes:**
+    - the gateway serves `/p/` publicly;
+    - webhooks now reads `CONTACTS_EVENTS` (it retries until the stream exists);
+    - links are `<CONTACTS_DOWNLOAD_BASE_URL>/p/<token>`, the gateway's public URL.
+  - **Not in 6.4:**
+    - the gRPC calls (`CheckConsent`, `ExpandAudience`, `RecordReplyKeyword`, `IssuePreferenceLink`), in 6.5;
+    - naming the client on the page (open point);
+    - a suppression list across clients (OQ-26, deferred);
+    - transactional choices on the page (§10 open point).
+
+- 6.5 Contacts' gRPC API for messaging (data model §10, OQ-26 questions 8 and 9).
+  - **Contract** `proto/contacts/v1` (`ContactsService`), contacts' first gRPC service:
+    - **`CheckConsent`:** a tenant, channel, purpose and up to 10,000 numbers; one answer per number in order (E.164, allowed, reason; `invalid_number` for one that isn't);
+    - **`ExpandAudience`:** a group or segment, streamed in pages of recipients (contact ID and number) with blocked counts by reason, the last page marked;
+    - **`RecordReplyKeyword`** and **`IssuePreferenceLink`**, over 6.4's app methods.
+    - Errors: INVALID_ARGUMENT (bad tenant, channel, purpose, number, over 10,000, page size), NOT_FOUND, FAILED_PRECONDITION (a segment whose attribute or group was deleted), INTERNAL logged.
+    - buf lint renamed the stream's message `ExpandAudienceResponse`.
+  - **sqlc** `ConsentForNumbers`: every distinct number's consent for the channel and purpose, and whether it's suppressed there or everywhere, in one query.
+  - **App** (`app/audience.go`):
+    - `CheckConsent` normalises each number, answers invalid ones without the database, and decides the rest with `domain.DecideConsent`;
+    - `ExpandAudience` reads one page (a group's contacts, or a segment through 6.3's query, now shared as `segmentPage`) and decides it, in one tenant transaction.
+    - Both trust the tenant, with no user, as the ledger's gRPC API does.
+  - **Service:**
+    - **`CONTACTS_GRPC_ADDR`** (`:9093`, new), plaintext until Phase 17;
+    - `Run` serves it beside HTTP (4 MB messages) and stops it gracefully.
+  - **Tests** (`internal/contacts/grpc`, bufconn, real Postgres):
+    - **agreement with the domain rule:**
+      - 20 numbers covering no consent, the client's grant or withdrawal and the person's START or STOP, each with no suppression, an SMS or WhatsApp suppression, or every channel;
+      - another account withdrawing and suppressing all of them;
+      - asked in local, `254…` and `+254 …` spellings, a repeat, and two non-numbers;
+      - **all 230 answers over every channel and purpose equal `LookupConsent`'s decisions** (the per-number path), and the outcomes include allowed, opted out and suppressed.
+    - **refusals:** exactly 10,000 answered; none answered empty; 10,001, an unknown channel or purpose, and a missing or malformed tenant are INVALID_ARGUMENT.
+    - **`ExpandAudience`:**
+      - a group in pages of 2 (3 pages: 3 allowed, 2 opted out, 1 suppressed);
+      - transactional ignores promotional withdrawals;
+      - a segment in pages of 1;
+      - an empty group is one last page;
+      - another account's group or segment NOT_FOUND;
+      - no audience, a bad ID, a bad channel and pages of 5,001 INVALID_ARGUMENT;
+      - FAILED_PRECONDITION after the segment's attribute is deleted.
+    - **keywords and links** over gRPC: `Stop!` recorded as the person's; other text matches nothing; a bad number INVALID_ARGUMENT; a link whose page shows SMS off.
+    - **Latency, the exit gate's box:** 200,000 consents and 20,000 suppressions; 10,000 numbers, 50 calls after 3 warm-ups. **p50 46ms, p95 49ms, max 54ms** (target p95 under 200ms).
+    - **service:** the end-to-end test now dials `Run`'s gRPC port and checks an imported number (allowed) and a non-number.
+    - **Order of work:**
+      - the gRPC tests were seen failing against stub app methods (INTERNAL), then passed on their first run;
+      - the service test's gRPC call came with its wiring.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - every-channel suppressions ignored in the query;
+      - the batch limit off by one;
+      - opt-in always on;
+      - blocked contacts sent as recipients;
+      - every page marked last.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 8 runs fresh (`contacts/app` 554s, `contacts/api` 67s, `contacts/grpc` and `contacts` among them), 93 from the cache; no container retries. `gofmt -l` is clean for the packages this task touched. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Deployment notes:**
+    - **contacts needs `CONTACTS_GRPC_ADDR`** reachable only from VASPRO services (messaging, Phase 7);
+    - messaging needs it as a client setting then.
+  - **Not in 6.5:**
+    - **a user-free lookup of an account's country** in accounts (imports, keywords, the preference page and these calls use the one loaded pack, an open point in §10; it would also give the page the client's name);
+    - mTLS (Phase 17).
+
+- 6.6 v3 contacts importer: **designed, not built** (ADR 0013, OQ-26 question 11). No v3 export or anonymised copy exists (OQ-02), as for 2.11 and 3.10.
+  - **ADR 0013:**
+    - **The subcommand:** `migrate-v3 contacts`, after ADR 0009's `accounts-clients` for the wave; tenants from `v3_client_map` through accounts' app.
+    - **Inputs:** CSVs with assumed columns, and an operator file for any extra columns, which become typed attributes; unmapped ones are dropped and counted.
+    - **Groups:**
+      - one per list, through a new `contacts.v3_list_map` so a re-run finds them;
+      - names unique ignoring case, a clash renamed and flagged.
+    - **Contacts:**
+      - numbers normalised by the KE pack; invalid ones flagged by v3 ID and reason;
+      - one contact per number in each of its groups;
+      - fields merged in v3's update order, as imports merge;
+      - written through contacts' app on the import worker's batch path, `source = 'v3'`.
+    - **Opt-outs:**
+      - withdrawn promotional SMS consent recorded as the client's (v3 may not say the person did it), or suppressions with a flag;
+      - STOP replies v3 records as such become the person's own;
+      - no grants imported.
+    - **No events** (they'd flood clients' webhooks with history).
+    - **The dry run:** per-list v3 counts against group sizes plus invalid and duplicate rows; this is the exit gate's check.
+    - **Personal data:** the export stays on the operator's machine; logs carry counts and v3 IDs only.
+    - **Cut-over:** per wave, with a repeatable re-run before it.
+  - **OQ-27** holds what the export must confirm: the tables and columns, how opt-outs were recorded, extra columns, and lists of resellers' clients.
+  - **Docs:** data model §10's "From v3" points to the ADR; ROADMAP 6.6 is `[>]`, and the v3 dry-run gate box notes it waits for the build.
+  - No code. **`make check`:** green (lint 0 issues; 3 runs fresh, the rest from the cache: nothing but docs changed). gitleaks found no leaks.
+
+- **Phase 6 exit gate** (2026-11-17):
+  - **Consent latency, ticked in 6.5:** `TestCheckConsent_Latency`, p95 49ms for 10,000 numbers (target 200ms).
+  - **The 1,000,000-row import, ticked:** `TestPhase6ExitGate_MillionRowImport` (6.2's 1M-row test, renamed and extended):
+    - **through the signed upload:** created, posted through the signed form to SeaweedFS, confirmed, then scanned, sealed and processed by the worker;
+    - **1,000,000 rows (16.2 MB) in 14s, with peak heap growth of 17.7 MB** (targets: 5 minutes, 64 MB);
+    - the stored file is the upload: a download link, streamed and decrypted, has the upload's SHA-256, and the quarantine copy is gone;
+    - **a second before 2 days the sweep leaves the file; at 2 days it deletes it.** The import keeps its status and counts, the 1,000,000 contacts stay, and a new link is VAL-4024.
+    - **It passed on its first run,** so it was checked by breaking things, each failing it, then restored:
+      - transient retention of 47 hours;
+      - the sweeper deleting the wrong key.
+  - **The v3 dry run, open:** waits for 6.6's build and a v3 export (ADR 0013, OQ-27), like Phases 2 and 3's. The phase's heading stays unticked while it's open.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 4 runs fresh (`contacts/app` 558s), 97 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+
+## Design update: uploaded files and retention (2026-11-16)
+Applied before 6.2, as asked, in place of replacing `ROADMAP.md` and `data-model.md` with the exported copies (`docs/vaspro-v4-roadmap (2).md`, `docs/design/VASPRO v4 Data Model.md`). Those exports lacked every ROADMAP tick and its evidence (1 ticked box against 73), the webhooks section, and the tables and columns added in Phases 1–5. Your call, 16 Nov: apply the update to the current files. The exports and the update file are deleted.
+- **Data model:** new §8 "Uploaded files and retention" (rules, retention classes, `contacts.imports` and `import_errors`, statuses, flow, open points), copied as given; its row in the decisions table. Webhooks is now §9 with a note that code comments and the Phase 5 migrations cite it as §8 (merged migrations aren't edited); "Next parts" is §10.
+- **ROADMAP:** D-23; OD-23 (KYB and account-record retention, Phase 17, default: kept while active, rejected or replaced documents deleted after 30 days, closed accounts with counsel); `uploads/` in the platform layout; the object storage row (SeaweedFS, `platform/uploads`); the new Phase 6 section (6.2a, upload, retention and isolation tests, the 1M-row exit-gate box); 7.11, 13.4 and its test, 17.3, 17.5, and the F3 row. Every tick is kept (73). A2's note now says §9.
+- **ADR 0012** "Uploaded files are temporary", with OD-23's default.
+- **6.1** isn't on `main`, so `imports` and `import_errors` go into its migration.
+- **Nothing contradicted an ADR or merged code.** KYB documents (2.8) keep going through the gateway, as §8 says; statement imports (4.6) keep their in-memory CSV.
+
+## Phase 5 plan (agreed 2026-11-12)
+Your answers are OQ-23. Data model Part 4 (Stage A A2) isn't written, so 5.0 drafts its webhooks section first. The order changed from ROADMAP: the signer (5.3) and the snippets (5.7) come before endpoints, because they depend only on each other.
+
+| # | Task | Tests first |
+|---|---|---|
+| 5.0 | Data model: the webhooks section (tables, events, open points); ROADMAP A2 marked done for webhooks only; `x-vaspro-webhook` on the client-facing schemas | a schema test: every `docs/events/` schema says whether it's sent to clients |
+| 5.1 | `webhooks` migration: endpoints, endpoint secrets (sealed), subscriptions, deliveries (exact body bytes, lease, `replay_of`), delivery attempts; outbox, processed events, idempotency keys; roles; sqlc | goose round trip; RLS on every client table; every CHECK and key (one delivery per endpoint and event, replays excepted); column-limited updates; no deletes |
+| 5.3 | Signer (`domain/signature.go`): `v1=` HMAC-SHA256 over `timestamp.body`, both signatures during a rotation | round trip; any changed byte of body, timestamp or secret refused; stale and future timestamps; rotation |
+| 5.7 | Snippets in Go, PHP, Node and Python (`docs/webhooks/verify/`) | golden vectors from our signer, checked by each language in its official Docker image (`make test-contract`) |
+| 5.2 | Endpoints: `credentials:manage` + step-up; `whsec_…` shown once; the verification challenge; rotation with 24h overlap; HTTPS, no private addresses (checked at connect), no redirects; VAL-4018, VAL-4019 | echo verifies, wrong echo/timeout/500 don't; each refused URL kind, including DNS resolving to loopback; both secrets during rotation, only the new after 24h; no secret in rows or logs; Viewer, stranger, stale step-up refused |
+| 5.4 | Consumer (the four services' streams, `processed_events`, deliveries for matching active endpoints in one transaction) and worker (`SKIP LOCKED` lease, bounded pool, per-endpoint cap, 10s timeout, 2xx only); 10 retries then dead; disabled after 72h failing, with `webhook_endpoint.disabled`; replay | 500 then 200 succeeds once at the configured gaps; **a slow endpoint times out while another's 50 deliveries go through**; a redelivered event makes no second delivery; two workers never send one attempt; dead after the last; disabled at 72h, reset by a success; **a replay has the same ID and body**; internal and other tenants' events never sent; redirects not followed |
+| 5.5 | Delivery log API under `/v1/webhooks/tenants/{tenantId}/` (endpoints, verify, rotate, test event, deliveries with filters and cursor, attempts, replay, re-enable); `GATEWAY_WEBHOOKS_BASE_URL` | spec-driven tenant test; every attempt shown with its response; gateway routing |
+| 5.6 | ClickHouse: `clickhouse-go/v2`, `testkit.StartClickHouse`, goose migrations in `migrations/clickhouse/`; events table (ReplacingMergeTree on event ID); batched sink acknowledging after insert; daily activity, top-ups by rail, events per type; `getDailyActivity` | **the same event twice counted once**, before and after a merge; reports on a fixed event set; tenant isolation |
+| Gate | Gateway e2e with real accounts, ledger, payments and webhooks | KYC pass, dev top-up, token purchase and an STK top-up reach a test endpoint, verified by the Go snippet; the log shows every attempt |
+
+**Not in Phase 5:** separate sandbox and live endpoints (Phase 8); retention of attempt bodies (30 days proposed); the portal inspector (8.4); email or SMS for a disabled endpoint (Phase 16); ordering guarantees (clients deduplicate by `id`).
+
+## Done in Phase 5
+- **Merged to `main`** (2026-11-16): PR #8 `p5/phase-5` (merge `a12ed94`), after its CI was green, with your confirmation. The servers are updated after Phase 6 (your call).
+- 5.0 The webhooks design (OQ-23). Data model Part 4 (Stage A A2) wasn't written, so its webhooks part was drafted from the agreed plan, ahead of the other Part 4 services. Docs and one contract test; no service code.
+  - **Data model §8** (new; "Next parts and open points" is now §9, and nothing referred to the old §8):
+    - **Tables:** `endpoints`, `endpoint_secrets` (sealed with `Envelope`), `subscriptions`, `deliveries` (the exact body bytes, a lease, `replay_of`), `delivery_attempts` (the response capped at 4 KB), with their CHECKs and indexes;
+    - one delivery per endpoint and event, except replays (`deliveries_once`); at most one current secret per endpoint;
+    - `webhooks_system` for the worker across clients; no deletes except subscriptions and idempotency keys;
+    - endpoints (who, the secret, the challenge, allowed URLs), the signature headers and body, delivery (fan-out, attempts, the retry schedule, disabling, replay, test events);
+    - the ClickHouse `events` table (a ReplacingMergeTree, read with `FINAL`) and the first reports;
+    - the event `webhook_endpoint.disabled`; v3's `pushUrl` and other callback URLs;
+    - **open points:** fields meant for staff in events sent to clients (sent as published for now), retention (30 and 90 days proposed), sandbox and live endpoints (Phase 8), 16 endpoints per client (proposed).
+  - **Event catalogue:** every schema in `docs/events/` now has `"x-vaspro-webhook"`. 21 are sent to clients (`tenant.*`, `service.*`, `kyc.check_decided`, `membership.*`, `wallet.credited`, `tokens.purchased`, `autobuy.triggered`, `usage.posted`, `payment_intent.*`, `collection_notice.matched`, `reversal.posted`, `reversal.paid_back`) and 13 stay internal. None of the 21 carries a phone number or a name.
+  - **Test:** `test/contract/events_catalogue_test.go` (`make test-contract`; `test/contract/doc.go` lets `go list` find the package):
+    - every schema's title is its file name;
+    - it says true or false;
+    - one sent to clients requires `tenant_id`;
+    - it compiles.
+    - **Mutation-checked:** a missing marker, and `user.registered` (no tenant) marked for clients, each failed it, then were restored.
+  - **ROADMAP:** A2 notes webhooks done.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 13 packages fresh (the integration packages that validate events against the changed schemas, and `test/contract`), 69 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+- 5.1 `webhooks` schema, RLS, roles and sqlc (OQ-23). Like 4.1, no service code: a migration, starter queries and repository tests.
+  - **Migration** `migrations/webhooks/20261112090000_init.sql`: data model §8's five tables, copied exactly, plus `outbox_events`, `processed_events` (webhooks consumes every service's events) and `idempotency_keys`.
+  - **Changed in §8 while building it** (§8 is 5.0's draft, not yet on `main`, so it was corrected rather than deviated from):
+    - **children reference their parent by `(id, tenant_id)`**, `replay_of` included. A foreign key check ignores RLS, so with a plain reference a client that learned another client's endpoint ID could attach a secret, subscription or delivery to it;
+    - **added CHECKs:**
+      - a URL starts `http://` or `https://` (the app allows `http` only in development) and is at most 2,048 characters;
+      - event types are `family.name`, with `*` only as a whole subscription;
+      - a lease only while pending;
+      - a success needs an attempt;
+      - `error` exactly for the outcomes with no response;
+      - truncated only with a body.
+  - **Roles:**
+    - **`webhooks_service`:** updates are column-limited, so a delivery's body, event and endpoint, a secret's ciphertext and every attempt are never rewritten. Only subscriptions and idempotency keys are ever deleted; an endpoint is deleted by `deleted_at`.
+    - **`webhooks_system`** (NOLOGIN, `WITH INHERIT FALSE`, `WithRoleTx` only) is the delivery worker. Across clients, it reads endpoints, secrets, deliveries and attempts; moves deliveries; records attempts; disables endpoints; and writes the outbox. It can't create endpoints or change secrets.
+  - **RLS:** the standard policy on all five tables; `webhooks_system`'s reads and writes across clients as above.
+  - **sqlc** (a fifth `sqlc.yaml` entry):
+    - **endpoints:** create, get, list, `MarkEndpointVerified`, and `ListEndpointsForEvent` (the fan-out: active, undeleted, subscribed to the type or `*`);
+    - **secrets:** create, `ExpireCurrentEndpointSecret` (rotation), `ListValidEndpointSecrets` (current first);
+    - **subscriptions:** `AddSubscription` (repeat-safe), list;
+    - **deliveries:**
+      - `InsertDelivery` (`ON CONFLICT DO NOTHING`: a redelivered event is `pgx.ErrNoRows`);
+      - `CreateReplay` (copies the event and body);
+      - get;
+      - **`ClaimDueDeliveries`**, a lease taken with `FOR UPDATE SKIP LOCKED`;
+    - **attempts:** create, list.
+  - **Tests** (`internal/webhooks/store/*_integration_test.go`, run as `webhooks_app`, whose only privileges come from `webhooks_service`; constraint cases as the owner in rolled-back transactions):
+    - **schema:** a goose Down-to-0-then-Up round trip (schema and both roles gone).
+    - **RLS:** `AssertRowLevelSecurity` on all five tables, each case counting only the rows it inserted (the tenant also sees the parents the owner seeded).
+    - **keys:** a client can't attach a secret, subscription, delivery, attempt or replay to another client's rows, even inside its own transaction (23503).
+    - **`webhooks_system`:**
+      - sees both clients' endpoints, secrets and deliveries;
+      - leases deliveries, records attempts, and disables an endpoint;
+      - can't create endpoints or change secrets;
+      - is hidden outside `WithRoleTx`, checked by behaviour and in `pg_auth_members`.
+    - **grants:** 18 cases, plus the worker can't rewrite a body either.
+    - **constraints:** 79 cases across the five tables, both ways.
+    - **sqlc:**
+      - rotation (two valid secrets, then one);
+      - subscribing twice;
+      - fan-out only once verified, and only for the subscribed type;
+      - a redelivered event is `ErrNoRows`;
+      - a replay keeps the event ID and body;
+      - **two workers at once: one holding 4 uncommitted, the other claims exactly the other 6**;
+      - a lease isn't claimed again until it runs out;
+      - attempts read back by the client.
+    - 120 subtests in all.
+    - **Order of work:**
+      - the schema, RLS, key, grant and constraint tests were seen failing with no migration (goose found none), then passed on the first run with it;
+      - the sqlc test came after `make gen`.
+    - **A test fix while writing it:** the sqlc test first expired the old secret through the owner's connection, which can't see the tenant transaction's uncommitted row, so a second current secret broke the unique index. It now rotates in the same transaction, through the new `ExpireCurrentEndpointSecret`.
+    - **Mutation-checked**, each failing its intended test, then restored from a backup:
+      - a plain foreign key on subscriptions;
+      - `webhooks_system` granted with inheritance;
+      - a full UPDATE grant on deliveries;
+      - no worker read policy on secrets;
+      - no lease-only-while-pending CHECK;
+      - the redelivery index widened so it never matches.
+    - **Not mutation-checked:** dropping `SKIP LOCKED`. The second claimer would then block on the first's rows, and the test would hang until its timeout rather than fail.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues; 4 packages fresh (`webhooks/store` 25s), 79 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Deployment notes:** the service's login role is granted `webhooks_service` (with inheritance) and must not own the tables; it reaches `webhooks_system` through it.
+  - **Not in 5.1:** the service skeleton (5.2, where `Run` first has work); ClickHouse's events table (5.6).
+
+- 5.3 The signer (OQ-23). Pure domain code, no service yet: `internal/webhooks/domain/signature.go`.
+  - **Your answer of 13 Nov:** the secret is `whsec_` and the base64url of 32 random bytes without padding (49 characters), and **the HMAC key is that whole string, prefix included**, so a client uses it exactly as shown. Added to OQ-23 and data model §8 (which also now says lower-case hex, the current secret's signature first, and other schemes ignored).
+  - **Rules:**
+    - `GenerateSecret` (crypto/rand by default) and `ValidSecret` (the prefix, 49 characters, strict base64url decoding to 32 bytes, so only the canonical spelling);
+    - **`Sign(secrets, at, body)`:** `Timestamp` is Unix seconds; `Value` is `v1=<hex HMAC-SHA256(secret, timestamp "." body)>` per secret, current first, space-separated. One or two secrets, never the same twice, each valid; otherwise `ErrInvalidSecret`;
+    - **`Verify(secret, timestamp, signature, body, now)`**, the receiver's check the 5.7 snippets mirror: the timestamp is plain decimal digits within 5 minutes either way (`ErrBadTimestamp`); any `v1=` value matching through `crypto.HMACVerify` (constant time) passes; other schemes and malformed hex are skipped; no match is `ErrBadSignature`;
+    - the three header names as constants.
+  - **Tests** (`signature_test.go`, no containers):
+    - **a golden vector computed outside Go** with `openssl dgst -sha256 -hmac`, pinning the whole-string key;
+    - the round trip;
+    - **every single-byte change refused:** each byte of the body, a byte added at either end or removed, each digit of the timestamp (checked at that timestamp, so the signature refuses it, not the clock), each character of the secret, each hex digit of the signature;
+    - timestamps exactly 5 minutes late or early accepted, a second more refused either way; 9 malformed timestamps (empty, letters, signs, spaces, a decimal, hex, overflow);
+    - **rotation:** two values, the current first; a client with either secret accepts; a third secret doesn't; after the overlap the old secret no longer matches;
+    - 10 refused secret sets, including a non-canonical spelling of a valid secret;
+    - 9 malformed signature headers; unknown schemes beside a good `v1` and upper-case hex still pass;
+    - secrets: 100 generated, all valid and distinct; a fixed source gives the expected string; a failing or short source errors.
+    - **Order of work:** all 8 tests were seen failing against a stub, then passed with the implementation.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no check on future timestamps;
+      - only the first secret signing during a rotation;
+      - the timestamp left out of what's signed;
+      - **non-strict base64 for secrets.** This one first survived; the non-canonical-secret case was added and now fails it.
+  - **`make check`** (after staging, dev stack down): green first time. Lint 0 issues (after marking the three made-up test secrets for gosec G101 and gitleaks); 5 runs fresh (`webhooks/domain` unit and integration, `testkit` both, `tools/scaffold`), 80 from the cache; no container retries. gitleaks 8.30.1 through Docker found no leaks.
+  - **Not in 5.3:** sending (5.4), sealing secrets with `Envelope` (5.2).
+
+- 5.7 Verification snippets for clients (OQ-23). Docs and contract tests; no service code.
+  - **Snippets** (`docs/webhooks/verify/`): one standard-library file per language, each with a handler example in its header comment, plus a README with the scheme and the rules for receivers.
+    - The rules: the raw body; the secret used whole as the key; dedupe by `Vaspro-Webhook-Id`; 2xx within 10 seconds.
+    - **Go 1.22+:** `go/vasprowebhook/verify.go`. Its own `go.mod`, so the main module's build and lint don't see it, and clients can copy it.
+    - **PHP 8.1+:** `php/VasproWebhook.php`.
+    - **Node 18+:** `node/vaspro-webhook.js`.
+    - **Python 3.8+:** `python/vaspro_webhook.py`.
+  - **One algorithm in all four:**
+    - the timestamp is ASCII digits only and within 300 seconds either way;
+    - the expected value is the lower-case hex HMAC-SHA256 of `ts "." body`;
+    - the header is split on spaces, and each `v1=` value is lower-cased and compared in constant time;
+    - any match passes.
+    - The traps each language needed:
+      - **PHP's** regex needs `/D`, or `$` matches before a trailing newline;
+      - **Python** needs a regex rather than `isdigit()`/`int()`, which accept other scripts' digits;
+      - **Node's** `timingSafeEqual` throws on different lengths, so it checks the length first.
+    - `now` is an optional argument, so the vectors can pin it.
+  - **Golden vectors** (`docs/webhooks/verify/testdata/vectors.json`): 42, written by `TestWebhookVectors_MatchOurSigner` from `domain.Sign` (some signed by hand where our signer never would, for a key or timestamp it doesn't use).
+    - Our own `domain.Verify` must give each case's declared outcome, and the file must equal what the test generates (`-update` rewrites it).
+    - **The cases:**
+      - one signature;
+      - a rotation, verified with each secret, a third secret, and two spaces between the values;
+      - another secret, one changed character of the secret, **signed with the decoded secret bytes**, and signed without the prefix;
+      - a changed body byte, a trailing newline, the JSON re-serialised;
+      - a changed timestamp digit, a changed hex digit, a truncated value;
+      - upper-case hex;
+      - other schemes beside `v1` and alone;
+      - malformed and non-ASCII values;
+      - an empty header and a bare `v1=`;
+      - **exactly 300 seconds either way accepted, 301 refused**;
+      - a leading zero accepted;
+      - **12 malformed timestamps** (empty, letters, signs, a space, **a trailing newline**, a decimal, hex, milliseconds, overflow, **Arabic-Indic and full-width digits**);
+      - non-ASCII UTF-8, CRLF and empty bodies.
+  - **Test** `TestWebhookSnippets_VerifyOurVectors` (`make test-contract`):
+    - each language's `check_vectors` runs in its official image through `testcontainers-go`, with the directory copied in (`WithFiles`; bind mounts are deprecated there);
+    - it must exit 0 and report 42/42;
+    - the Go one also runs `gofmt -l` and `go vet`;
+    - the images are `golang:1.26.11-alpine`, `php:8.4.27-cli-alpine`, `node:22.23.5-alpine` and `python:3.13.18-alpine`;
+    - about 4 seconds once pulled.
+    - `github.com/moby/moby/api` is now a direct dependency, for `container.Config` (same version, already indirect).
+  - **Order of work:** the vectors and runners first, with stub snippets refusing everything. All four were seen failing (15/42, only the bad-signature cases), then passed on the first run with the implementations.
+  - **Mutation-checked**, each failing its intended vectors, then restored:
+    - Node without the length check (3 vectors throw);
+    - Node checking only the first value (4 vectors);
+    - Python with `isdigit()` (both non-ASCII digit cases);
+    - PHP without `/D` (the trailing newline);
+    - Go without the future-timestamp check (2 vectors);
+    - a hand-edited vector (the golden test).
+  - **gitleaks:** the vectors carry 5.3's made-up test secrets, which JSON can't mark `gitleaks:allow`. A new `.gitleaks.toml` (the default rules, extended) allowlists that one path. Without it there were 42 findings; with it, the tree scans clean (gitleaks 8.30.1 through Docker).
+  - **`make check`** (after staging; the dev stack down): green first time. Lint 0 issues; 5 runs fresh (`test/contract`, `gateway`, `testkit` both, `tools/scaffold`), 80 from the cache; no container retries.
+  - **Docs:** data model §8 points to `docs/webhooks/verify/`; ROADMAP 5.7 is ticked. ROADMAP's phase test "the snippets in every language verify signatures produced by our signer" is this test.
+  - **Not in 5.7:** published packages (npm, Packagist, PyPI, a Go module path for clients); the portal page that shows the snippets (Phase 8).
+
+- 5.2 Endpoints: registration, the verification challenge and secret rotation (OQ-23). The webhooks service's first code. Your answers of 16 Nov: **the HTTP API and gateway route stay in 5.5**, and **the cap of 16 endpoints per client is enforced**.
+  - **Contracts:**
+    - **codes:** **VAL-4018** (422, verification failed) and **VAL-4019** (422, URL not allowed);
+    - **no migration;**
+    - **sqlc** (5.1's uncommitted queries, adjusted):
+      - `GetEndpointForUpdate`, `CountEndpoints`, `LockTenantEndpoints` (a transaction advisory lock per client);
+      - `UpdateEndpointURL` (back to pending, verification and disabling cleared), `UpdateEndpointDescription`, `DeleteEndpoint` (sets `deleted_at`);
+      - `ExpireOverlappingSecrets`, `DeleteSubscriptions`;
+      - **`MarkEndpointVerified` now takes the version the challenge was sent at** and accepts any status;
+    - **`domain.ClientEventTypes`:** the 21 types sent to clients. A new contract test (`TestEventCatalogue_WebhooksListMatchesTheMarkers`) keeps it equal to the `x-vaspro-webhook: true` schemas.
+    - **No events:** §8 names none for endpoint changes.
+  - **Rules** (`domain/endpoint.go`):
+    - **`CheckURL`:** https (http only with the development setting), a host, no user information or fragment, at most 2,048 characters, and a literal address that `AddressAllowed` accepts.
+    - **`AddressAllowed`** refuses:
+      - unspecified, loopback, private (RFC 1918 and unique-local, so `fd00:ec2::254`), link-local (so 169.254.169.254), multicast;
+      - 0/8, CGNAT 100.64/10, 192.0.0/24, 198.18/15, 240/4 (and broadcast), local NAT64, IPv6 documentation;
+      - an IPv4-mapped address is judged as its IPv4 address.
+    - `CheckSubscriptions` (client types or `*`; sorted, deduplicated, `*` alone); `NewChallenge`; `VerificationBody` (§8's body shape, type `webhook.verification`); `ChallengeEchoed` (a JSON object whose exact key `challenge` has the value, nothing after).
+  - **Adapters:**
+    - **`Sender`** (`adapters/sender.go`, which 5.4's worker will use too):
+      - no proxy; **redirects never followed** (a 3xx is an answer, not success); a 10s timeout; TLS 1.2+; at most 4 KB of the answer kept, with truncation reported;
+      - **every dialled address goes through `AddressAllowed` in the dialer's `Control`**, after DNS, so a name resolving inward (`localhost`, rebinding) is refused;
+      - its outcomes are `delivery_attempts.outcome`'s;
+      - its errors never name the URL (url.Error's text does, so it's unwrapped).
+    - `Accounts` (`CheckTenantAccess`, error only) and `Identity` (`IsStepUpFresh`) over gRPC.
+    - **New fake** `tools/fakes/tenantperms` (each service's adapter has its own errors); step-up reuses `staffcheck`.
+  - **App** (`app/endpoints.go`):
+    - **`CreateEndpoint`:**
+      - `credentials:manage` and a fresh step-up; the URL, events and description (at most 255 characters) checked;
+      - then, in one tenant transaction under the client's advisory lock: the cap, the endpoint (`pending_verification`), its subscriptions, and its secret;
+      - the secret is `domain.GenerateSecret`, sealed with `Envelope` under `webhooks-endpoint-secrets`, with an HMAC fingerprint, and **returned this once**;
+      - it sends no challenge: the client must first configure the secret.
+    - **`VerifyEndpoint`:**
+      - `credentials:manage`, no step-up;
+      - the endpoint and its valid secrets are read, then **the signed challenge goes out with no transaction open**;
+      - a 2xx echo marks it verified **only at the version it was sent for**;
+      - a refused address is VAL-4019; anything else is a `*VerificationFailure` (VAL-4018) with the outcome and status, and no URL, secret or challenge.
+      - **Changed from the plan:** it also re-checks an **active** endpoint, which stays active either way. A client can test the connection, and a failed check doesn't disable (deliveries do). From disabled, passing it re-enables.
+    - **`UpdateEndpoint`:** a new URL needs step-up and goes back to pending; the description and events need `credentials:manage` only; events are replaced as a set.
+    - **`RotateEndpointSecret`:** step-up; the row locked; a secret still in an earlier overlap ends now; the current one gets 24h; a new current one, returned once.
+    - **`GetEndpoint`, `ListEndpoints`** (`credentials:read`, never a secret) and **`DeleteEndpoint`** (`deleted_at`; 5.4 ends its pending deliveries).
+    - **`signingSecrets`** opens the valid secrets, current first, for 5.4's worker.
+    - Accounts or identity down fails closed. The logs name endpoint and tenant IDs only.
+  - **Service:**
+    - `internal/webhooks/webhooks.go`, `cmd/webhooks`, registered in `vaspro-all`;
+    - `Run` ensures `WEBHOOKS_EVENTS`, relays the outbox on `webhooks.<event>`, and serves `/healthz` and `/readyz` (the API is 5.5's);
+    - **config:**
+      - `WEBHOOKS_DATABASE_URL`, `_NATS_URL`, `_HTTP_ADDR` (`:8085`);
+      - `_ACCOUNTS_GRPC_ADDR`, `_IDENTITY_GRPC_ADDR` (dialled lazily);
+      - `_SECRETS_KMS_KEY`, `_SECRET_FINGERPRINT_KEY` (base64 of 32 bytes);
+      - `_ALLOW_INSECURE_URLS` (default false, warned about when on);
+      - `_MAX_ENDPOINTS` (16).
+  - **Tests:**
+    - **domain:** 28 `CheckURL` cases, 22 addresses, 10 subscription sets, the body, challenges, and 11 echo cases.
+    - **`Sender`** (httptest TLS servers):
+      - **loopback refused without the development setting, including `localhost` resolving to it, and the server never reached**; plain http refused;
+      - 2xx with the body and headers as given; 500 with its body; 4 KB kept (5,000 truncated, exactly 4,096 not);
+      - a slow endpoint timing out at the configured limit; nothing listening is `connect`; an untrusted certificate is `tls`;
+      - **a 302 not followed** (the target never hit);
+      - the error doesn't name the path or query.
+    - **app** (real Postgres as `webhooks_app`, a TLS receiver, a fake clock):
+      - created pending with a valid secret and the events; nothing sent; read and listed; **the ciphertext doesn't contain the secret, the fingerprint matches, and the logs don't contain it**;
+      - **an echo activates it, and the challenge verifies with `domain.Verify` and the secret**; its body and ID header; the challenge not in the logs; checked again, it stays active, and a failed re-check leaves it active;
+      - **a wrong echo, a bare challenge, a 500, a 302 and a timeout each leave it pending**, with the outcome reported and no attempt written;
+      - **a URL changed while the challenge is out isn't marked verified**;
+      - refused URLs (8 kinds) write nothing; **`localhost` passes creation's check but is refused when connecting**, never reaching the server; a URL change is checked too;
+      - **rotation:** both secrets sign, the new one first; a second rotation inside the overlap leaves the newest two; after 24h only the current one signs; no rotated secret in the logs;
+      - updates: events replaced and the description cleared without step-up; an internal type refused, changing nothing; a new URL back to pending; **a disabled endpoint re-enabled by the challenge**;
+      - delete: gone from reads, the row kept, a second delete not found;
+      - **who:** a Viewer reads but is refused all six changes; a stranger finds nothing; a stale step-up can't create, change the URL or rotate; another account's endpoint isn't found from one's own; **all of that writes nothing and reaches nothing**; identity or accounts down fails closed;
+      - refusals (no events, an internal event, a long description) write nothing;
+      - **the cap:** the 4th of 3 refused, another client unaffected, a deletion frees a place; **20 concurrent creates at 16 give exactly 16** (the pool warmed first).
+    - **contract:** the list equals the markers.
+    - **service:** `Run` as production wires it, `/readyz`, an endpoint created and verified through the service's own KMS, keys and `Sender`, and a clean shutdown; bad keys and a zero cap refused.
+    - **Order of work:**
+      - the domain, contract, `Sender` and app tests were seen failing against stubs (the app's first run hit Docker Desktop not running; it was started, and they then failed on the stubs);
+      - the app tests then passed on their first run against the implementation, and twice more with `-race`;
+      - the service test came with `webhooks.go`.
+    - **A test fix while writing it:** a fail-closed assertion first had a condition that could never fail; it's now "an error, and not a plain step-up refusal".
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no address check in the dialer (`localhost`);
+      - redirects followed;
+      - no version guard on verify;
+      - rotation not ending the earlier overlap;
+      - no step-up on rotation;
+      - no advisory lock on the cap (20 of 20 created).
+      - Two of these first went in wrong (one didn't compile, one left the check in place) and were redone; the results above are the redone runs.
+  - **`make check`** (after staging; Docker Desktop started for it, with five other projects' containers it restarted running alongside): green first time. Lint 0 issues; 37 runs fresh (`gateway` 93s, `webhooks/app` 25s, `webhooks/store` 23s), 52 from the cache; no container retries. gitleaks 8.30.1 through Docker, run from the repository root, found no leaks. Run as `dir /repo` it reports 42: the vectors' allowlist is a relative path (`^docs/…`), so it must be scanned from the root.
+  - **Docs:** data model §8 (verification, re-enabling, re-checking, the limits; the cap is no longer an open point); ROADMAP 5.2 ticked.
+  - **Deployment notes:**
+    - the login role is granted `webhooks_service` and doesn't own the tables;
+    - the HTTP port is gateway-only once 5.5 adds the API;
+    - **`WEBHOOKS_ALLOW_INSECURE_URLS` must stay false outside development**;
+    - `vaspro-all` needs the `WEBHOOKS_*` variables, and `ops/dev-environment`'s `env.example` and compose file gain them after the merge.
+  - **Not in 5.2:** the HTTP API, test events and the gateway route (5.5); deliveries and disabling (5.4); a client disabling an endpoint itself (5.5).
+
+- 5.4 The fan-out consumer and the delivery worker (OQ-23). Your answers of 16 Nov:
+  - **11 attempts**: one at once, then after 30s, 2m, 10m, 30m, 1h, 3h, 6h, 12h, 24h and 24h (about 71h). Data model §8 said 10 attempts and nine waits; it's corrected to OQ-23.
+  - **Deliveries for an endpoint waiting for verification again are held**, not ended.
+  - **Contracts:**
+    - **event** `webhook_endpoint.disabled` (sent to clients): `tenant_id`, `endpoint_id`, `reason` (`failing`), `failing_since`, `disabled_at`, `dead_deliveries`. `domain.ClientEventTypes` is now 22 (the contract test checks it).
+    - **no migration:** 5.1's grants already cover the worker.
+    - **sqlc, the worker's** (run as `webhooks_system`):
+      - `RecordDeliveryResult` (only from the attempt count claimed), `EndDelivery`, `PostponeDelivery`, `KillPendingDeliveries`;
+      - `GetEndpointForDelivery` (deleted included), `MarkEndpointFailing` (`coalesce`, so it keeps the first failure), `ClearEndpointFailing`, `DisableFailingEndpoint` (only while active and past the cutoff).
+  - **Rules** (`domain/delivery.go`):
+    - `DefaultSchedule`, `MaxAttempts` (waits + 1), `ParseSchedule`;
+    - `NextAttempt` (the wait after the attempts made, varied by ±jitter; none once every wait is spent);
+    - `ShouldDisable` (at exactly the limit);
+    - `DeliveryBody` (the envelope without `trace_id`);
+    - **`Recipient`:** a client event type whose envelope `tenant_id` is set and equals the data's `tenant_id`; otherwise nobody, so a mislabelled event never reaches the wrong client.
+  - **App:**
+    - **`HandleEvent`:**
+      - malformed, internal or inconsistent events are acknowledged with nothing written (a client type whose tenants disagree is logged);
+      - otherwise, in the client's transaction: `inbox.MarkProcessed`, then one delivery per active endpoint subscribed to the type or `*`, due now, carrying the exact body bytes;
+      - a database error is returned, so the bus redelivers.
+    - **`DeliverDue`:**
+      1. claims up to `BatchSize` due deliveries as `webhooks_system` with a lease;
+      2. sends each on its own goroutine, which takes **its endpoint's slot first, then a worker slot**, so one waiting for a busy endpoint never holds a worker;
+      3. per delivery:
+         - a deleted or disabled endpoint makes it dead (`endpoint_deleted`, `endpoint_disabled`) with no attempt;
+         - one pending verification holds it a minute;
+         - otherwise it's signed now with the valid secrets (both during a rotation) and sent;
+      4. one transaction records the attempt (the headers sent, signature included, never the secret; status, headers and up to 4 KB of the answer; outcome; duration) and moves the delivery: succeeded, retried after the next wait, or dead `attempts_exhausted`;
+         - **a unique violation on the attempt, or a delivery no longer at the claimed count, rolls the record back** (another worker took it after the lease ran out);
+         - a success clears `failing_since`; a failure sets it if unset;
+         - **past `DisableAfter`, the endpoint is disabled (`failing`), every pending delivery to it is dead `endpoint_disabled`, and `webhook_endpoint.disabled` goes to the outbox**, in that same transaction.
+    - **`ReplayDelivery`:** `credentials:manage`; the delivery must be the tenant's and its endpoint active (VAL-4000 otherwise); a new delivery with `replay_of`, the same event ID and body, due now, signed afresh when sent.
+  - **Service:**
+    - `Run` starts one durable `webhooks-fanout` consumer on each of `ACCOUNTS_EVENTS`, `LEDGER_EVENTS`, `PAYMENTS_EVENTS` and `WEBHOOKS_EVENTS` (filtered to `webhooks.webhook_endpoint.>`, so dead letters aren't consumed);
+    - **a stream that doesn't exist yet is retried, never created by webhooks**;
+    - 10 deliveries per event, then `webhooks.dead_letter.fanout`;
+    - a loop runs `DeliverDue` every poll, back to back while there's work;
+    - `Run` now cancels and waits for its background loops however it ends.
+    - **New config:** `WEBHOOKS_RETRY_SCHEDULE`, `_RETRY_JITTER` (0.1), `_DISABLE_AFTER` (72h), `_WORKERS` (16), `_PER_ENDPOINT` (4), `_BATCH_SIZE` (100), `_LEASE` (5m), `_POLL_INTERVAL` (1s), `_REQUEST_TIMEOUT` (10s), `_STREAM_RETRY` (5s). `New` refuses settings that can't work, **including a lease shorter than a batch for one endpoint takes**.
+  - **Tests:**
+    - **domain:**
+      - the default schedule is OQ-23's, with 11 attempts;
+      - the parse (7 bad inputs);
+      - exact waits, and nothing after the last;
+      - ±10% over 1,000 draws, spreading both ways;
+      - disabling at 72h minus a second, exactly, and plus a second;
+      - the body's keys and time format;
+      - 7 `Recipient` cases.
+    - **fan-out** (real Postgres):
+      - only the active endpoints subscribed by type or `*` get one, due now: not pending, deleted, disabled or unsubscribed endpoints, nor another client's;
+      - the body is exactly `DeliveryBody`, with no trace;
+      - **the same event four times is still one delivery per endpoint, processed once**;
+      - 5 events that aren't for a client are acknowledged with nothing written;
+      - an event with no endpoints is still recorded as processed.
+    - **worker** (TLS receivers, the fake clock, no jitter):
+      - **500 then 200:** retried exactly at 30s (not a second early), succeeded once, never claimed again; both attempts recorded with their status and the signature header; both requests have the event ID and body, and verify with the secret; the secret isn't in the logs;
+      - **the whole schedule:** due exactly at each wait, never a second early, then dead `attempts_exhausted` after 11 requests, and 71h of failure doesn't disable;
+      - **a slow endpoint doesn't hold up others:** 12 deliveries to an endpoint that never answers (more than the 8 workers) and 50 to another. All 50 arrive before the slow endpoint's first timeout ends, and 12 timeouts are recorded;
+      - **two `DeliverDue`s at once** (the pool warmed): 30 claimed between them, 30 requests, 30 attempts, each delivery succeeded once;
+      - **disabled at 72h:**
+        - a second short leaves it active;
+        - at 72h it's disabled (`failing`), both its deliveries are dead `endpoint_disabled`, and `webhook_endpoint.disabled` matches its schema with the right IDs, `failing_since` and 2 dead;
+        - **that event, fed back through `HandleEvent`, reaches only the client's other endpoint**;
+        - passing the challenge re-enables it with `failing_since` cleared;
+      - **a success resets `failing_since`**, and a second failure keeps the first one's time;
+      - **deleted:** dead with no request; **waiting for verification:** held a minute with no attempt and no request, then sent once verified;
+      - **a redirect isn't followed:** one request, a 302 `http_status` attempt;
+      - **during a rotation:** the new secret's signature first, then the old one's;
+      - **replay:** the same `Vaspro-Webhook-Id` and body bytes, a new timestamp, verifying; a Viewer refused, another client's and an unknown delivery not found, a disabled endpoint VAL-4000, and none of the refusals write anything.
+    - **service:**
+      - **`Run` as production wires it:** an endpoint verified through its own wiring, then a `wallet.credited` published on `ledger.wallet.credited` (**the ledger's stream created only after startup**) reaches it through the consumer and the worker loop, signed and verifying, with the data and no trace;
+      - **8 new bad settings refused** (a malformed schedule, jitter of 1 or below 0, no workers, more per endpoint than workers, a short lease, no timeout, no disabling time).
+    - **Order of work:**
+      - the domain and app tests were seen failing against stubs;
+      - **one domain test passed against the stub only because the stub's schedule was empty**; it now uses its own schedule;
+      - the app tests then passed on their first run, and twice more with `-race`;
+      - the service test came with its code.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - no `MarkProcessed` (the duplicate);
+      - no lease check and no `SKIP LOCKED` (two workers);
+      - no per-endpoint cap (the slow endpoint);
+      - the waits off by one (domain and the schedule tests);
+      - `failing_since` reset on every failure;
+      - a disable leaving pending deliveries;
+      - a replay with a new event ID.
+      - **The slow-endpoint test was strengthened first:** with 6 slow deliveries and 8 workers, removing the cap couldn't fill the pool, so it now uses 12.
+      - Three mutations first went in so they didn't compile, and were redone; the results above are the redone runs.
+  - **`make check`** (after staging):
+    - the first run stopped at lint on one gosec G404: the jitter test's seeded `math/rand`, which is there so the draws repeat. It's now marked `nolint` with the reason.
+    - The second run was green: lint 0 issues; 11 runs fresh (`webhooks/app` 104s, mostly the slow-endpoint and schedule tests), 78 from the cache; no container retries.
+    - gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Docs:** data model §8 (fan-out, attempts, retries, endpoints not active); ROADMAP 5.4 ticked.
+  - **Deployment notes:**
+    - the service reads the accounts, ledger and payments streams; until each exists it logs and retries every `WEBHOOKS_STREAM_RETRY`;
+    - each replica sends; the lease must cover a batch for one endpoint, which `New` enforces;
+    - **attempts and their answers are kept with no limit yet** (30 days is proposed in §8's open points).
+  - **Not in 5.4:** the delivery log and replay over HTTP, test events, client disabling, the gateway route (5.5); ClickHouse (5.6); the email or SMS alert for a disabled endpoint (Phase 16).
+
+- 5.5 The webhooks API, the gateway route, and one-time credentials kept out of idempotency records (OQ-23, OQ-24). Your answers of 16 Nov:
+  - **a stored idempotency response never holds a secret:** a retry with the same key gets it as `null`;
+  - **identity fixed in the same task.** I extended it, as the plan said, to every one-time credential identity shows, not just API clients.
+  - **Contracts:**
+    - **`docs/api/webhooks.yaml`**, 12 operations under `/v1/webhooks/tenants/{tenantId}/`:
+      - endpoints: list, create (201, `secret` once), get, update (PATCH `url`/`description`/`events`), delete (204);
+      - `verification` (also re-enables), `secret-rotations` (201, `secret` and `previous_valid_until`), `disable`, `test-events` (202);
+      - `deliveries` (filters `endpoint_id`, `status`, `event_type`, `event_id`; `cursor`, `limit` 1–100, default 50), `deliveries/{id}` (the body and `attempt_log`), `deliveries/{id}/replays` (202);
+      - `additionalProperties: false` on the request bodies.
+    - **`platform/idempotency`:** `Middleware(store, ttl, opts ...Option)` (every existing caller unchanged) and **`WithRedactedFields(match, fields...)`**. For a matching request's 2xx JSON-object response, the stored copy has those fields (top-level names or dotted paths) as `null`; the live response is untouched.
+    - **sqlc:** `ListDeliveries` (filters, a `(created_at, id)` cursor, newest first) and `DisableEndpointByClient`.
+    - **domain:** `TestEventBody` (`webhook.test`, data `endpoint_id` and a message).
+    - **`RotateEndpointSecret`** now returns a `Rotation` (the secret and `PreviousValidUntil`).
+    - **identity's spec:** `secret`, `password`, `url` and `recovery_codes` are `[string, "null"]` (or array), documented as null on a replay; the generated code changed only in comments.
+    - **open-questions OQ-24** records the exposure and the answer.
+  - **App:**
+    - **`ListDeliveries`** (credentials:read; a bad cursor, an unknown status or a limit over 100 is VAL-4000);
+    - **`GetDelivery`** (the body and every attempt with request headers, response status, headers and body, outcome, error);
+    - **`SendTestEvent`** (credentials:manage; active endpoints only; a delivery due now, through the worker and the log, never the bus);
+    - **`DisableEndpoint`** (credentials:manage, no step-up; `client`; pending deliveries dead `endpoint_disabled` in the same transaction; a repeat changes nothing).
+  - **API** (`internal/webhooks/api`, payments' pattern):
+    - `requireCaller` (the gateway's user and session), the strict server, and a 1 MB limit;
+    - the idempotency middleware redacting `secret` on POST `…/endpoints` and `…/secret-rotations`;
+    - `toProblem` maps not found, permission, step-up, VAL-4019, VAL-4018 and VAL-4000;
+    - a response body that isn't UTF-8 is base64 with `response_body_encoding`.
+    - `webhooks.go` now serves `api.Routes` (health included).
+  - **Identity:** `routes.go` redacts:
+    - `secret.secret` on POST `/v1/auth/api-clients`;
+    - `secret` on `…/api-clients/{id}/secrets`;
+    - `password` on `/v1/auth/smpp-accounts` and `…/{id}/password`;
+    - `url` and `recovery_codes` on `/v1/auth/totp-enrollments`.
+  - **Gateway:** `GATEWAY_WEBHOOKS_BASE_URL` (**new, required**) and `GATEWAY_WEBHOOKS_OPENAPI_PATH`; `/v1/webhooks` with the session and spec validation; its routes join the audit templates.
+  - **Tests:**
+    - **platform/idempotency:**
+      - the stored copy has the fields null while the live response keeps them, and the replay gets the stored copy with the same status;
+      - a nested field is nulled alone, its siblings kept;
+      - another route, an error answer, a non-object body and a body without the field are stored as-is.
+    - **domain:** the test event's shape; `webhook.test` isn't a client event type.
+    - **app:**
+      - **the log:** an account's six deliveries newest first, another account's excluded; by endpoint, status, type and event; **pages of one, every row once**; a bad cursor, a limit of 101 and an unknown status VAL-4000; a stranger not found; a Viewer reads;
+      - **detail:** the body and both attempts (500 then 200) with status, response body and headers, and the request's signature header; another account's and an unknown delivery not found;
+      - **test events:** delivered signed and verifying, with the endpoint's ID, in the log; a pending endpoint VAL-4000, a Viewer refused, an unknown endpoint not found;
+      - **client disable:** a Viewer refused; no step-up needed; queued delivery dead; a repeat keeps the first time; no delivery while disabled; verifying re-enables it.
+    - **API** (real Postgres, a TLS receiver):
+      - **spec-driven `TestTenantOperations_NeedCredentialPermissions`:** all 12 operations are 401 with no user, VAL-4003 for a stranger, AUTH-4024 with no permission, and a reader reads but every write is AUTH-4024. It fails if an operation has no case.
+      - **step-up:** create, a URL change and rotation are AUTH-4012 with a stale step-up; a description change isn't.
+      - **the flow:** create → verify → test event → worker → detail with the attempt and response → replay → the log paged by type → rotate → disable → delete (404), with the delivery log still readable.
+      - **codes:** VAL-4019 (user information), VAL-4000 (an internal event), VAL-4018 (a wrong echo, the URL not in the detail), a test event to a pending endpoint, and 5 bad log queries.
+      - **retries with the same key:** create and rotate return the same endpoint or rotation time with `secret: null`; 1 endpoint and 2 secrets exist; **no stored idempotency record contains `whsec_`**.
+    - **identity API:** `TestOneTimeCredentials_NotKeptForReplays`. API client create and rotate, SMPP create and reset, and TOTP enrolment, each retried: the same object back with the credential `null`, one client only, and **no stored response holds any of the 13 credentials shown**.
+    - **gateway:** `TestGatewayBackends_Webhooks`:
+      - the user and session forwarded, the spoof replaced, no token;
+      - a log query forwarded as is;
+      - **four invalid requests refused before webhooks** (no events, an unknown field, an unknown status, a limit of 500);
+      - a write with no key refused at the edge;
+      - no session 401;
+      - no fall-through to identity.
+    - **service:** the end-to-end test now registers and verifies the endpoint **over the HTTP API**, then the bus event arrives signed.
+    - **Order of work:**
+      - the platform, domain, app and identity tests were seen failing first. Identity's failure showed the exposure: each replay returned the API client secret, the SMPP password and the TOTP secret again.
+      - the webhooks API and gateway tests came with their code and passed on their first run; the mutations below stand in.
+      - **Code changes made while writing them:**
+        - `DeliveryDetail`'s attempt list is `AttemptLog`, since `Attempts` (the count) is embedded from `Delivery`;
+        - the redaction hook gained dotted paths, because identity's create-client response nests the secret (`secret.secret`), and nulling the whole object would also have hidden its ID and last4.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - the redaction ignored (the webhooks and identity tests);
+      - the log read without `credentials:read` (the spec-driven test);
+      - no step-up on create (the step-up test);
+      - the cursor's order reversed (the app paging test and the API flow);
+      - a client disable leaving pending deliveries;
+      - `/v1/webhooks` proxied to identity (the gateway test).
+      - The gateway mutation first didn't compile and was redone.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 24 runs fresh (`identity/api` 146s, `gateway` 113s, `webhooks/app` 61s), 66 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks (the spec's example secrets are marked `gitleaks:allow`).
+  - **Docs:** data model §8's API paragraph; OQ-24; ROADMAP 5.5 ticked.
+  - **Deployment notes:**
+    - **the gateway needs `GATEWAY_WEBHOOKS_BASE_URL`**;
+    - webhooks' HTTP port must be reachable only from the gateway;
+    - `vaspro-all` and `ops/dev-environment`'s `env.example` gain it after the merge, and `docs/api/API.md` is regenerated there;
+    - **identity's `idempotency_keys` rows written before this keep their credentials until they expire (24h)**; nothing is rewritten.
+  - **Not in 5.5:** the portal's inspector screen (8.4); retention of attempts (an open point); separate sandbox and live endpoints (Phase 8).
+
+- 5.6 ClickHouse: the events table, the batched sink, the first reports, and `getDailyActivity` (OQ-23). Your answers of 16 Nov:
+  - **the rail goes on `wallet.credited`**;
+  - **report days are in the account's country's time zone**;
+  - **`getDailyActivity` is in webhooks' API with `billing:read`**.
+  - **Dependencies:**
+    - **`clickhouse-go/v2` v2.50.0** (26 Oct; v2.51.0 is only 7 days old). It was already indirect at v2.49.0 through goose.
+    - **`testcontainers-go/modules/clickhouse` v0.44.0**, matching the other modules.
+    - That module's `go.mod` moved two indirect dependencies up by Go's minimum version selection: `moby/go-archive` v0.2.0 → v0.3.0 and `moby/sys/user` v0.4.0 → v0.4.1.
+    - Checked with a diff; `go mod tidy` moved nothing else.
+  - **Contracts:**
+    - **`migrations/clickhouse/20261116090000_events.sql`:** data model §8's `events` table exactly (ReplacingMergeTree(ingested_at), by month, ordered by `(tenant_id, type, occurred_at, id)`).
+    - **`make migrate`:** skips that folder in the Postgres loop and runs it with `goose … clickhouse "$CLICKHOUSE_URL"`, skipped if unset.
+    - **`wallet.credited` gains an optional `rail`:** the provider-clearing account the posting draws on (`mpesa_ke`; `sandbox` for dev top-ups); none for a match out of suspense. Additive; the catalogue test passes.
+    - **`getDailyActivity`:** `GET /v1/webhooks/tenants/{tenantId}/reports/daily-activity?from&to` (dates, inclusive, at most 92 days). It returns the time zone and, per day and currency, `credited_minor`, `topups`, `token_purchases_minor`, `usage_minor` and `usage_events`.
+    - **`platform/bus.ConsumeBatch`** (and `BatchConfig`, `Message`): a durable pull consumer that fetches up to `Max` or what arrived in `Wait`. It **acks the batch only after the handler returns nil**; otherwise it naks each message, or dead-letters one on its last allowed delivery. `Consume` now shares that dead-letter helper.
+    - **data model:** §5's events table notes `rail`; §8 describes the sink and the three reports.
+  - **Code:**
+    - **`testkit.StartClickHouse(t, WithClickHouseMigrations(dir))`:** the compose image (`24.3-alpine`), a 60s start, a ping for readiness, the retry wrapper, and goose's clickhouse dialect.
+    - **`adapters.ClickHouse`:**
+      - `InsertEvents`: one batch insert through `database/sql`;
+      - `DailyActivity`, `TopupsByRail` and `EventsPerType`, read with `FINAL`. Days use `toDate(occurred_at, zone)` with the zone as a bound argument, and amounts come from `JSONExtract*`.
+    - **`app/reports.go`:**
+      - **`SinkEvents`:** a malformed message is logged and skipped, `source` is the subject's first part, and the batch is one insert. An insert error is returned, so the whole batch comes back.
+      - **`DailyActivity`:** billing:read, the country from accounts, the zone from the pack, the range checked.
+      - **`TopupsByRail`, `EventsPerType`:** for staff; tested, no API.
+    - **`adapters.Accounts.TenantAccess`** now returns `TenantInfo{CountryCode}`. The `tenantperms` fake defaults to KE, with `SetCountry`.
+    - **Service:**
+      - `WEBHOOKS_CLICKHOUSE_URL` (**new, required**), `WEBHOOKS_PACKS_DIR` (`packs`), `WEBHOOKS_SINK_BATCH` (1000), `WEBHOOKS_SINK_WAIT` (1s);
+      - **`New` refuses a packs directory with no packs**, found by the new bad-config case: an empty folder loaded nothing and every report would have failed later;
+      - `Run` runs a `webhooks-clickhouse` batch consumer on each of `IDENTITY_EVENTS`, `ACCOUNTS_EVENTS`, `LEDGER_EVENTS`, `PAYMENTS_EVENTS` and `WEBHOOKS_EVENTS` (its events only, not dead letters);
+      - each waits for its stream; dead letters go to `webhooks.dead_letter.clickhouse`.
+    - **Ledger:** `writeWalletCredited` sets `rail` through `clearingRail`, the one provider-clearing rail in the wallet's currency, if exactly one.
+  - **Tests:**
+    - **bus:**
+      - five messages arrive as one batch, in order, with their subject, and aren't redelivered past the ack wait;
+      - two messages arrive as a partial batch after the wait;
+      - **a failed batch comes back whole**;
+      - after `MaxDeliver` each message is dead-lettered (each tried exactly twice).
+      - The existing `Consume` tests pass with the shared helper.
+    - **testkit:** `SELECT 1`; the migration creates a ReplacingMergeTree `events`.
+    - **ledger:** an STK-shaped top-up's and the direct payments top-up's `wallet.credited` have `rail: mpesa_ke`; a dev top-up's is `sandbox`; **the match out of suspense has none**.
+    - **webhooks app** (real ClickHouse and Postgres, a fixed set of 9 events for two clients):
+      - **the same event, in another batch and twice in one, is counted once, before and after `OPTIMIZE TABLE events FINAL`**;
+      - **daily activity:**
+        - 10 Nov: 152,000 credited in 2 top-ups plus a refund, 80,000 of tokens, 3,000 of usage over 5 events;
+        - **a top-up at 22:30 UTC is 11 Nov in Nairobi**;
+        - another client's 999,999 never appears;
+        - a narrower range;
+        - refusals: credentials:read only (AUTH-4024), a stranger, not a date, to before from, 93 days, empty; exactly 92 days passes.
+      - **staff reports:** top-ups by rail (mpesa_ke 2 for 1,099,999 across both clients, sandbox 1, `unattributed` 1); events per type (5 credits, and one each of the others, internal and tenantless included); an unknown zone refused.
+      - **a malformed message and an empty envelope are skipped while the good event lands**, with `source` `ledger`.
+    - **webhooks API:**
+      - the spec-driven test covers 13 operations; `getDailyActivity` refuses a credentials reader and answers a billing reader;
+      - **`TestGetDailyActivity`:** the 22:30 UTC top-up as 11 Nov in Africa/Nairobi; 4 bad queries VAL-4000.
+    - **service:** the end-to-end test now also checks that **the bus event published twice is two rows in ClickHouse but one with `FINAL`**, with source `ledger` and the right tenant. The ledger's stream is created after startup, so the sink's retry is exercised too. Two new bad-config cases.
+    - **Order of work:**
+      - the bus, testkit, ledger, webhooks app and contract tests were seen failing first (stubs, or no rail);
+      - the API and service tests came with their code; the mutations below stand in.
+      - **Test fixes while writing them:**
+        - the suspense-match assertion first took the newest event for the wallet, but the fake clock gives both events one time, so it now picks the match's event by its amount;
+        - it had also first taken `Lines[1]`, which isn't the main wallet for that posting.
+    - **Mutation-checked**, each failing its intended test, then restored:
+      - daily activity read without `FINAL` (counted twice before the merge);
+      - acking before the insert (the failed batch never came back);
+      - no tenant filter (isolation);
+      - UTC days (the 22:30 top-up);
+      - no rail on `wallet.credited` (both ledger tests).
+  - **Also:** gofmt formatted this phase's webhooks, bus, testkit, idempotency and ledger-test files (import order, alignment); lint didn't check them, so nothing else changed.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 39 runs fresh (testkit changed, so every integration package reran: `identity/app` 270s, `identity/api` 133s, `accounts/app` 126s, `ledger/app` 119s, `gateway` 92s, `webhooks/app` 73s), 51 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
+  - **Deployment notes:**
+    - **webhooks needs `WEBHOOKS_CLICKHOUSE_URL`** and a packs directory;
+    - run `make migrate` with `CLICKHOUSE_URL` set;
+    - the URL's user owns the table for now (ClickHouse roles: Phase 17);
+    - `vaspro-all` and `ops/dev-environment`'s `env.example` gain the new variables after the merge.
+  - **Not in 5.6:**
+    - staff APIs for the two cross-client reports (the console, Phase 10);
+    - retention of ClickHouse events (no limit set, §8);
+    - `/readyz` doesn't check ClickHouse (the sink retries; reports answer SYS-9000 while it's down).
+
+- **Phase 5 exit gate** (2026-11-17), both boxes ticked in ROADMAP: `TestGateway_Phase5ExitGate_EndToEnd` (`internal/gateway/phase5_gate_integration_test.go`).
+  - **Setup:**
+    - **real services behind the in-process gateway:** identity, accounts (the KYC vendor fake), the ledger (`LEDGER_DEV_TOPUPS=true`), payments (the Daraja fake, callbacks back through the gateway, `127.0.0.1/32` as the callback range) and webhooks (ClickHouse, plain-http test URLs, retries after 1s and 1s);
+    - **accounts, the ledger, payments and webhooks share one NATS**, so webhooks consumes their real streams;
+    - a generic `startService` helper builds and runs `./cmd/<name>`.
+  - **What it does:**
+    - **staff:** two members granted with the real `vaspro identity grant-staff`;
+    - **VASPRO's paybill set up with the real ops CLI:** `vaspro payments add-rail-account`, `set-rail-credential` ×3 (secrets on stdin) and `verify-rail-account` against the fake;
+    - **the client's endpoint:** created through the gateway with step-up, its secret shown once;
+    - **`docs/webhooks/verify/go/testreceiver`** (new; standard library only, in the snippet's module) is started with that secret. It **verifies every request with `vasprowebhook.Verify`**, echoes the challenge, deduplicates by ID, and fails the first `wallet.credited` with 500. The endpoint then passes the challenge.
+    - **Phase 2:** individual KYC passes through the vendor's webhook → `kyc.check_decided` and `tenant.tier_changed`;
+    - **Phase 3:**
+      - a dev top-up by staff (`wallet.credited`, rail `sandbox`);
+      - a list price entered by one staff member and approved by the other with step-up;
+      - the client buys 10,000 SMS tokens for 8,000.00 (`tokens.purchased`);
+    - **Phase 4:** an STK top-up of 1,500.00 to the Daraja fake, its callback through the gateway, credited by the ledger (`payment_intent.succeeded`, `wallet.credited` rail `mpesa_ke`).
+  - **What it checks:**
+    - **the endpoint verified all six events and refused none**;
+    - **the delivery log through the gateway:** every delivery succeeded; every attempt has its response; the failed first `wallet.credited` shows 500 then success; exactly one delivery was retried; both rails appear in the bodies;
+    - **`getDailyActivity` for today in Nairobi:** 14,500.00 credited in 2 top-ups and 8,000.00 of tokens;
+    - **no endpoint secret or session token in the gateway's log**.
+  - **Passed on its first run (about 33s)**, so it was checked by breaking things, each failing it and then restored:
+    - the receiver not failing its first delivery (no retry in the log);
+    - `tokens.purchased` dropped from the client event list (the event never reaches the endpoint).
+  - **Also:** ROADMAP 5.1's box, never ticked, is now ticked (it's recorded done above).
+  - **PR #8's Security job failed on govulncheck** (17 Nov): two dependencies the ClickHouse client made reachable.
+    - **GO-2026-6888:** `andybalholm/brotli` v1.2.6, fixed in v1.2.7 (23 Oct);
+    - **GO-2026-6865:** `klauspost/compress` v1.20.1, fixed in v1.20.2 (12 Oct; `main` has v1.20.1 too, but nothing there reaches the bug).
+    - Both bumped; `go mod tidy` moved nothing else. govulncheck v1.9.0 now finds 0 vulnerabilities the code reaches. `make check` green first time (lint 0 issues; 39 runs fresh, since the bump touched modules most packages use; 51 from the cache; no container retries). Committed on `p5/phase-5` as a second commit, as the Go 1.26.11 fix was in Phase 4.
+  - **Not covered by the gate:** Phase 1's events. Identity publishes no client events (OQ-23's allowlist), so Phase 1 reaches the endpoint only through the account and KYC events built on it.
+  - **`make check`** (after staging): green first time. Lint 0 issues; 5 runs fresh (`gateway` 94s with the gate; `test/contract`, whose Go snippet check now also runs gofmt and vet over `testreceiver`), 85 from the cache; no container retries. gitleaks 8.30.1 through Docker, from the repository root, found no leaks.
 
 ## Phase 4 plan (agreed 2026-11-11)
 Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adapter (4.2) come first, as the kickoff asks, because they need no schema.
@@ -27,6 +1156,13 @@ Your answers are OQ-22. The order changed from ROADMAP: the Daraja fake and adap
 - STK amounts in whole shillings.
 
 ## Done in Phase 4
+- **Merged to `main`** (2026-11-11):
+  - **PR #6** `p3/go-1.26.11` (merge `036b0b9`): Go 1.26.11 for GO-2026-6859, below.
+  - **PR #7** `p4/phase-4` (merge `f4cd4b7`): the seven task commits, the merge of `main` and the STATUS note.
+  - Each was merged after its CI was green on its head commit, with your confirmation.
+  - `p3/go-1.26.11` is deleted; `p4/phase-4` is deleted when Phase 5 is first pushed (your call).
+- **On the dev environment** (2026-11-11): `main` merged into `ops/dev-environment` and payments added to the stack (that branch's STATUS has the details). It's live on the dev server.
+  - Payments takes no M-Pesa money there yet: VASPRO's paybill needs Daraja sandbox credentials, and `PAYMENTS_DARAJA_CALLBACK_CIDRS` needs Safaricom's published ranges.
 - **Go 1.26.11** (2026-11-11, before the Phase 4 PR). CI's Security job had failed on `main` since Phase 3 merged: govulncheck reported GO-2026-6859 (an HTTP/1 server crash from a `MaxBytesReader` header race in `net/http`, fixed in go1.26.11), published between #5's passing PR run and its merge. gitleaks and trivy, later steps in the same job, were skipped behind it.
   - `go.mod` `go 1.26.10` → `go 1.26.11` (CI reads its Go version from it); PR #6, merged `036b0b9`, then `main` merged into `p4/phase-4`.
   - Checked: govulncheck v1.9.0 finds nothing the code calls; `make check` green (71 packages fresh); #6's CI green, the Security job's gitleaks included.
@@ -1414,6 +2550,30 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
       - `mpesa_ke` was synced from the pack.
   - **Not checked:** the whole stack (identity, accounts, ledger and the gateway with payments) on the host, and any Daraja sandbox call (no credentials here).
   - **On the dev host:** `git pull`, `deploy/compose/dev-secrets.sh --add-missing`, set `PAYMENTS_CALLBACK_BASE_URL=https://<API_DOMAIN>` in `.env`, then `make dev-up`.
+- **Phases 5 and 6 brought in (18 Nov):** `main` (PR #8, Phase 5; PR #9, Phase 6, merge `2767420`) merged into `ops/dev-environment`. Your call of 16 Nov: the servers are updated for both phases together.
+  - **The merge,** two conflicts, each side kept:
+    - `.gitleaks.toml`: this branch's allowlist for the generated `API.md` and `main`'s for the webhook test vectors (5.7), both now in the `[[allowlists]]` form; gitleaks 8.30.1 finds no leaks;
+    - `internal/gateway/gateway.go`: this branch's `GATEWAY_TRUSTED_PROXIES` and `main`'s webhooks and contacts backends.
+    - **Found while merging:** the CORS tests built the gateway's config without webhooks' and contacts' URLs and specs, which the gateway now requires. Both added; the gateway's tests pass.
+  - **API reference** (`tools/apidocs`), two gaps:
+    - **webhooks and contacts were missing.** Both are listed now, and a new test fails if any `docs/api/*.yaml` spec isn't;
+    - **nullable types rendered wrong.** OpenAPI 3.1's `[array, "null"]` (identity's one-time credentials since 5.5) showed `recovery_codes` as a string, with no item rows. A new `schemaType` reads the list form, and a test covers a nullable list, a nullable list of objects and a nullable string.
+    - Both tests were seen failing first. `API.md` is regenerated: all six APIs.
+  - **`make check`: not green, on one test the merge doesn't touch.**
+    - `TestCheckConsent_Latency` (6.5's exit-gate check) measured p95 301ms, 283ms and 265ms in three full runs, against its 200ms limit; alone it passed at 149ms.
+    - Everything else passed: lint 0 issues, gen-check clean, every other package green.
+    - **The machine was loaded:** a load average of 21 on 10 cores, from Spotify, Chrome, Apple Intelligence, `mobileassetd` and Spotlight, plus two other projects' containers in a restart loop, which were stopped (`docker start survey-platform-api-1 survey-platform-worker-1` brings them back).
+    - **No contacts, contacts proto, contacts migration or `platform` code differs from `main`**, whose CI passed this test (PR #9), and it measured 49ms on 17 Nov.
+    - **Committed as it is, your call of 18 Nov.**
+    - To decide on `p7/phase-7`: moving the timing check out of the everyday `make check` into a benchmark run, so a busy machine can't fail an unrelated change.
+  - **Not deployable yet: the stack doesn't run webhooks, contacts or ClickHouse.** The gateway now needs `GATEWAY_WEBHOOKS_BASE_URL` and `GATEWAY_CONTACTS_BASE_URL` and won't start without them, so **don't `make dev-up` on the host until the stack additions land**. They are:
+    - webhooks and contacts Dockerfiles and services;
+    - ClickHouse;
+    - their database roles in `db-setup`;
+    - the `WEBHOOKS_*`, `CONTACTS_*` and gateway settings and secrets;
+    - object storage's public endpoint and CORS;
+    - nginx for `/p/`;
+    - ClickHouse migrations.
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.
@@ -1975,15 +3135,11 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - **Merged to `main`** (2026-10-29), each PR's own CI green (End to end included) before merging, merge commits throughout: #1 `p1/identity-schema` (Phase 0 + Phase 1, merge `531d2fe`), #2 `p1/totp-replay` (merge `7484ee6`), #3 `p1/pr-policy` (CLAUDE.md's GitHub PR policy, merge `db95bb3`). Every task branch, including the old local `p0/skeleton` (all 44 commits already on `main` under rebased IDs), is deleted. `main` has no branch protection: GitHub doesn't offer it for private repos on the free plan.
 
 ## Next up
-1. The PR of `p4/phase-4` to `main`, merged only after CI is green and you confirm.
-2. Add the `DARAJA_SANDBOX_*` secrets; the exit gate's sandbox-on-staging box waits for staging (Phase 8).
-3. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you).
-4. Still from Phase 3, on `ops/dev-environment`:
-   - `env.example` gains `LEDGER_REBUILD_AT`, `LEDGER_ACCOUNTS_GRPC_ADDR` and `LEDGER_DEV_TOPUPS`;
-   - the compose file gains the accounts address;
-   - `docs/api/API.md` is regenerated.
+1. Phase 6's PR: push `p6/phase-6`, open the PR, merge after its CI is green and you confirm; then delete `p5/phase-5`. Then the dev server and release for Phases 5 and 6 together (`env.example` for `GATEWAY_WEBHOOKS_BASE_URL`, `WEBHOOKS_*`, `CLICKHOUSE_URL`, `GATEWAY_CONTACTS_BASE_URL`, `CONTACTS_*` including `CONTACTS_GRPC_ADDR`; object storage's public endpoint and CORS; `make migrate` with `CLICKHOUSE_URL`; `API.md` regenerated).
+2. Add the `DARAJA_SANDBOX_*` repository secrets so the nightly sandbox job runs (you); the exit gate's sandbox-on-staging box waits for staging (Phase 8).
+3. On the dev server, for M-Pesa top-ups: set up VASPRO's paybill with sandbox credentials (runbook "Payments") and set `PAYMENTS_DARAJA_CALLBACK_CIDRS` to Safaricom's published ranges.
+4. Keep `ops/dev-environment` current after each merge to `main`: `env.example` and the compose file for new settings, `API.md` regenerated.
 5. 2.11's and 3.10's builds once a v3 export exists; finance's review of Phase 3.
-6. Add `-timeout` to `make test-int` (`identity/app` is near the 10-minute default).
 7. Still open from Phase 0: the clean-machine `make up` M0 check.
 
 ## Blockers
@@ -1992,7 +3148,8 @@ Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need 
 - Phase 3's "finance has reviewed the worked examples and the reversal rules" box needs finance's review, which only you can arrange. It was merged without it (your call, 2026-11-10).
 
 ## Decisions pending (see docs/ROADMAP.md §4.3)
-- (none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)
+- OD-23 (KYB and account-record retention) has its default recorded in ADR 0012 and is needed by Phase 17.
+- (otherwise none active — OD-01 is now formalized as `docs/decisions/0001-event-bus.md`; OD-16 as `docs/decisions/0006-v3-token-compatibility-route.md` (design only, per its own "Phase 1 design; Phase 18 enable" split); every other OD-xx in §4.3 isn't needed until a later phase)
 
 ## Notes for next session
 - **A Postgres role grant defaults to INHERIT, which silently defeats a "narrow, transaction-scoped elevated role" design (1.8, found by testing).** `GRANT identity_token_exchange TO CURRENT_USER` (no `WITH INHERIT FALSE`) made that role's extra RLS policy match on *every* query the granted connection ever ran — not just inside the one `db.Pool.WithRoleTx` transaction meant to scope it — because INHERIT makes a role's privileges ambiently active for any member, with no `SET ROLE` required at all. `SET ROLE`/`SET LOCAL ROLE` only matters for *non-inheriting* membership; with a default (inheriting) grant it's a no-op the privilege didn't need. Any future "narrow role reached only via an explicit SET ROLE" design needs `WITH INHERIT FALSE` on the grant, or the narrowing is fiction. Caught by a test asserting the *absence* of access outside the elevated-role block — the kind of negative assertion that's easy to skip when the happy path already passes.

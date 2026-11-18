@@ -72,3 +72,76 @@ func TestCleanDescription(t *testing.T) {
 		}
 	}
 }
+
+// Every spec in docs/api/ is in the reference: a new service's spec
+// can't be left out (webhooks and contacts were, until 2026-11-18).
+func TestSpecs_ListEverySpecInDocsAPI(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "docs", "api", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]bool{}
+	for _, s := range specs {
+		listed[s.Path] = true
+	}
+	n := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, ".oapi-codegen.yaml") {
+			continue
+		}
+		n++
+		if p := "docs/api/" + filepath.Base(f); !listed[p] {
+			t.Errorf("%s isn't in specs", p)
+		}
+	}
+	if n != len(specs) {
+		t.Errorf("%d specs in docs/api, %d listed", n, len(specs))
+	}
+}
+
+// OpenAPI 3.1 nullable types ([array, "null"]) render as their type:
+// a nullable list's example is a list, and its items are described.
+func TestGenerate_NullableTypes(t *testing.T) {
+	spec := []byte(`openapi: 3.1.0
+info: {title: T, version: "1"}
+paths:
+  /v1/things:
+    post:
+      operationId: createThing
+      summary: Create a thing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                codes:
+                  type: [array, "null"]
+                  items: {type: string}
+                parts:
+                  type: [array, "null"]
+                  items:
+                    type: object
+                    properties:
+                      label: {type: string}
+                url: {type: [string, "null"]}
+      responses:
+        "200": {description: OK}
+`)
+	out, err := Generate([]loadedSpec{{specFile: specFile{Path: "t.yaml", Title: "T"}, Data: spec}}, []byte("codes: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(out)
+	for _, want := range []string{
+		"| `codes` | array of string \\| null |",
+		"| `parts[].label` | string |",
+		"| `url` | string \\| null |",
+		`"codes": [`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("no %q in:\n%s", want, doc)
+		}
+	}
+}

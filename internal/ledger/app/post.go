@@ -222,6 +222,9 @@ func (s *Service) writeWalletCredited(ctx context.Context, tx pgx.Tx, req PostRe
 			"currency":         key.Currency,
 			"amount_minor":     delta,
 		}
+		if rail := clearingRail(deltas, key.Currency); rail != "" {
+			data["rail"] = rail
+		}
 		if req.ReferenceID != nil {
 			data["reference_type"] = req.ReferenceType
 			data["reference_id"] = *req.ReferenceID
@@ -239,6 +242,23 @@ func (s *Service) writeWalletCredited(ctx context.Context, tx pgx.Tx, req PostRe
 		}
 	}
 	return nil
+}
+
+// clearingRail is the rail of the provider-clearing account a posting
+// draws on in currency, if it draws on exactly one: where the money came
+// in (task 5.6's top-ups per rail).
+func clearingRail(deltas map[domain.AccountKey]int64, currency string) string {
+	rail := ""
+	for key := range deltas {
+		if key.Type != domain.ProviderClearing || key.Currency != currency {
+			continue
+		}
+		if rail != "" && rail != key.Rail {
+			return ""
+		}
+		rail = key.Rail
+	}
+	return rail
 }
 
 func keysOf(lines []domain.Line) []domain.AccountKey {

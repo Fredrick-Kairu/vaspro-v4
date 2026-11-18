@@ -69,6 +69,18 @@ type Config struct {
 	PaymentsBaseURL     string `env:"GATEWAY_PAYMENTS_BASE_URL,required"`
 	PaymentsOpenAPIPath string `env:"GATEWAY_PAYMENTS_OPENAPI_PATH" envDefault:"docs/api/payments.yaml"`
 
+	// WebhooksBaseURL receives everything under /v1/webhooks/ (clients'
+	// endpoints and the delivery log, task 5.5), after the gateway has
+	// checked the session.
+	WebhooksBaseURL     string `env:"GATEWAY_WEBHOOKS_BASE_URL,required"`
+	WebhooksOpenAPIPath string `env:"GATEWAY_WEBHOOKS_OPENAPI_PATH" envDefault:"docs/api/webhooks.yaml"`
+
+	// ContactsBaseURL receives everything under /v1/contacts/ (contacts,
+	// groups and imports, task 6.2), after the gateway has checked the
+	// session; its download links (security: []) need none.
+	ContactsBaseURL     string `env:"GATEWAY_CONTACTS_BASE_URL,required"`
+	ContactsOpenAPIPath string `env:"GATEWAY_CONTACTS_OPENAPI_PATH" envDefault:"docs/api/contacts.yaml"`
+
 	// RedisURL backs rate-limit counters (RedisRateLimiter) — the
 	// gateway's own connection, not identity's; it owns no schema to
 	// share a service's Redis namespace with.
@@ -119,6 +131,14 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, fmt.Errorf("gateway: parsing GATEWAY_TRUSTED_PROXIES: %w", err)
 	}
+	webhooksTarget, err := url.Parse(cfg.WebhooksBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_WEBHOOKS_BASE_URL: %w", err)
+	}
+	contactsTarget, err := url.Parse(cfg.ContactsBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parsing GATEWAY_CONTACTS_BASE_URL: %w", err)
+	}
 	identitySpec, identityRoutes, err := loadSpecAndRoutes(cfg.IdentityOpenAPIPath)
 	if err != nil {
 		return nil, err
@@ -135,6 +155,14 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	if err != nil {
 		return nil, err
 	}
+	webhooksSpec, webhooksRoutes, err := loadSpecAndRoutes(cfg.WebhooksOpenAPIPath)
+	if err != nil {
+		return nil, err
+	}
+	contactsSpec, contactsRoutes, err := loadSpecAndRoutes(cfg.ContactsOpenAPIPath)
+	if err != nil {
+		return nil, err
+	}
 
 	jwks := newJWKSCache(cfg.IdentityBaseURL+"/.well-known/jwks.json", clk)
 	limiter := NewRedisRateLimiter(c)
@@ -142,6 +170,8 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 	accountsProxy := newReverseProxy(accountsTarget)
 	ledgerProxy := newReverseProxy(ledgerTarget)
 	paymentsProxy := newReverseProxy(paymentsTarget)
+	webhooksProxy := newReverseProxy(webhooksTarget)
+	contactsProxy := newReverseProxy(contactsTarget)
 
 	r := chi.NewRouter()
 	if len(cfg.CORSAllowedOrigins) > 0 {
@@ -164,7 +194,7 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 
 	proxied := chi.NewRouter()
 	proxied.Use(stripForwardedIdentity)
-	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes, ledgerRoutes, paymentsRoutes}))
+	proxied.Use(audit(logger, []routers.Router{identityRoutes, accountsRoutes, ledgerRoutes, paymentsRoutes, webhooksRoutes, contactsRoutes}))
 	proxied.Use(rateLimit(limiter, rateLimitByIP, globalRateLimit, globalRateWindow))
 	proxied.Use(requireIdempotencyKeyHeader)
 
@@ -195,6 +225,27 @@ func New(cfg Config, c *cache.Cache, clk clock.Clock, logger *slog.Logger, prote
 		r.Use(requireSessionUnlessPublic(sessions, paymentsRoutes))
 		r.Use(requireValidRequestShape(paymentsSpec))
 		r.Handle("/*", paymentsProxy)
+	})
+
+	// webhooks: the same, against webhooks' spec (task 5.5).
+	proxied.Route("/v1/webhooks", func(r chi.Router) {
+		r.Use(requireSessionUnlessPublic(sessions, webhooksRoutes))
+		r.Use(requireValidRequestShape(webhooksSpec))
+		r.Handle("/*", webhooksProxy)
+	})
+
+	// contacts' preference page (task 6.4): HTML for anyone with a link,
+	// like /pay/ above. The audit log records the path as "unmatched",
+	// so the link's token is never logged.
+	proxied.Handle("/p/*", contactsProxy)
+
+	// contacts: the same, against contacts' spec (task 6.2). Its download
+	// links are public by the spec; the audit log records their route
+	// template, never the token.
+	proxied.Route("/v1/contacts", func(r chi.Router) {
+		r.Use(requireSessionUnlessPublic(sessions, contactsRoutes))
+		r.Use(requireValidRequestShape(contactsSpec))
+		r.Handle("/*", contactsProxy)
 	})
 
 	// identity: everything else. Identity checks its own sessions.

@@ -35,7 +35,7 @@ func TestPost_TopUpAndReplay(t *testing.T) {
 	}
 
 	data := assertEventValid(t, h, "wallet.credited", first.Lines[1].AccountID)
-	if data["amount_minor"].(float64) != 1300000 || data["transaction_type"] != "topup" {
+	if data["amount_minor"].(float64) != 1300000 || data["transaction_type"] != "topup" || data["rail"] != "mpesa_ke" {
 		t.Fatalf("wallet.credited = %v", data)
 	}
 

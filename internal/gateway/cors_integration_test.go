@@ -28,6 +28,10 @@ func newCORSGateway(t *testing.T, origins []string) (http.Handler, *recordingBac
 		LedgerOpenAPIPath:   filepath.Join(root, "docs/api/ledger.yaml"),
 		PaymentsBaseURL:     newRecordingBackend(t).URL,
 		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
+		WebhooksBaseURL:     newRecordingBackend(t).URL,
+		WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
+		ContactsBaseURL:     newRecordingBackend(t).URL,
+		ContactsOpenAPIPath: filepath.Join(root, "docs/api/contacts.yaml"),
 		CORSAllowedOrigins:  origins,
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, slog.Default(), nil, fakeSessions{})

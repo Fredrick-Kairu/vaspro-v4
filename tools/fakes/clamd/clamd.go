@@ -27,22 +27,36 @@ func EICAR() []byte {
 
 // Server is the fake clamd.
 type Server struct {
-	ln    net.Listener
-	wg    sync.WaitGroup
-	once  sync.Once
-	scans atomic.Int64
+	ln        net.Listener
+	wg        sync.WaitGroup
+	once      sync.Once
+	scans     atomic.Int64
+	maxLength atomic.Int64
 }
 
 // Scans is how many files the fake has scanned.
 func (s *Server) Scans() int64 { return s.scans.Load() }
 
+// DefaultStreamMaxLength is clamd's own default StreamMaxLength (25
+// MB): a longer stream is refused with "INSTREAM size limit exceeded".
+const DefaultStreamMaxLength = 25 << 20
+
+// SetStreamMaxLength changes the most the fake will scan, as clamd's
+// StreamMaxLength setting does.
+func (s *Server) SetStreamMaxLength(n int64) { s.maxLength.Store(n) }
+
 // Start listens on a free local port.
-func Start() (*Server, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+func Start() (*Server, error) { return StartAt("127.0.0.1:0") }
+
+// StartAt listens on addr: a test can bring clamd back where a scanner
+// already points.
+func StartAt(addr string) (*Server, error) {
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{ln: ln}
+	s.maxLength.Store(DefaultStreamMaxLength)
 	s.wg.Add(1)
 	go s.serve()
 	return s, nil
@@ -84,12 +98,12 @@ func (s *Server) handle(conn net.Conn) {
 		_, _ = conn.Write([]byte("PONG\x00"))
 	case "zINSTREAM":
 		s.scans.Add(1)
-		data, err := readStream(r)
+		found, err := readStream(r, s.maxLength.Load())
 		if err != nil {
 			_, _ = conn.Write([]byte("INSTREAM size limit exceeded. ERROR\x00"))
 			return
 		}
-		if bytes.Contains(data, EICAR()) {
+		if found {
 			_, _ = conn.Write([]byte("stream: Eicar-Test-Signature FOUND\x00"))
 			return
 		}
@@ -99,23 +113,42 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-// readStream reads INSTREAM's chunks: a 4-byte big-endian length, that
-// many bytes, until a zero length.
-func readStream(r io.Reader) ([]byte, error) {
-	var out bytes.Buffer
+// readStream reads INSTREAM's chunks (a 4-byte big-endian length, that
+// many bytes, until a zero length) and reports whether EICAR appears.
+// It keeps only the tail a match could start in, not the stream, so a
+// 100 MB scan doesn't grow the test's own memory.
+func readStream(r io.Reader, maxLength int64) (bool, error) {
+	eicar := EICAR()
+	var (
+		tail  []byte
+		total int64
+		found bool
+		buf   = make([]byte, 64<<10)
+	)
 	for {
 		var size uint32
 		if err := binary.Read(r, binary.BigEndian, &size); err != nil {
-			return nil, err
+			return false, err
 		}
 		if size == 0 {
-			return out.Bytes(), nil
+			return found, nil
 		}
-		if out.Len()+int(size) > 25<<20 {
-			return nil, errors.New("too large")
+		total += int64(size)
+		if total > maxLength {
+			return false, errors.New("too large")
 		}
-		if _, err := io.CopyN(&out, r, int64(size)); err != nil {
-			return nil, err
+		for remaining := int(size); remaining > 0; {
+			n, err := io.ReadFull(r, buf[:min(remaining, len(buf))])
+			if err != nil {
+				return false, err
+			}
+			remaining -= n
+			window := append(tail, buf[:n]...)
+			if !found && bytes.Contains(window, eicar) {
+				found = true
+			}
+			keep := min(len(window), len(eicar)-1)
+			tail = append(tail[:0], window[len(window)-keep:]...)
 		}
 	}
 }

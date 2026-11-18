@@ -15,6 +15,7 @@ This is the v4 data model. Part 1 sets the rules every service schema follows, a
 | Payouts leave from the client's own shortcode, like collections | No payout float in the ledger. Payments stores each client's rail accounts and encrypted credentials, and VASPRO's fee on each payout is held and settled in the client's payments token wallet like any other usage. |
 | Allocating money to a service is final for the client (21 Oct) | No transaction type moves tokens back to the main wallet. Only an approved reversal can claw back unused tokens, for fraud, a chargeback or closing an account. |
 | Code, shortcode and sender ID rentals are billed by invoice (21 Oct) | Rentals stay in Billing's billable assets register and monthly invoices, paid by auto-pay from the main wallet or by Pay now. They are not token purchases. USSD sessions and SMS still draw on their token wallets. |
+| Uploaded files are temporary (16 Nov) | Contact and campaign files are deleted 2 days after processing ends, payout files 30 days after. The rows taken from them are the record. See §8. |
 
 ## 1. Shared rules
 
@@ -92,7 +93,7 @@ Each of the 14 services owns one schema; only high-volume event data and short-l
 | Verify and lookup | `verify` | Verifications, lookups | Redis | Part 4 |
 | Journeys and AI agents | `journeys` | Flows, runs, conversations | — | Part 4 |
 | Surveys and rewards | `surveys` | Surveys, questions, responses, incentives | — | Part 4 |
-| Webhooks and reporting | `webhooks` | Endpoints, deliveries | ClickHouse: reports | Part 4 |
+| Webhooks and reporting | `webhooks` | Endpoints, deliveries | ClickHouse: reports | Part 4 (section 8) |
 | Monitoring and alerting | `monitoring` | Rules, incidents, notifications | Prometheus, ClickHouse | Part 4 |
 
 ## 3. Identity and access (`identity`)
@@ -771,7 +772,7 @@ Buying tokens (steps 2 and 5) carries no VAT, because it only moves the client's
 
 | Event | When |
 | --- | --- |
-| `wallet.credited` | A top-up or refund lands in the main wallet |
+| `wallet.credited` | A top-up or refund lands in the main wallet. Carries `rail`, the provider-clearing account it draws on, when there is one (task 5.6) |
 | `tokens.purchased` | Main wallet to service wallet, manual or auto-buy |
 | `tokens.low`, `tokens.depleted` | Service wallet below the client's alert level, or at zero |
 | `usage.posted` | A settlement batch posted, with tokens used and VAT |
@@ -1464,13 +1465,566 @@ CREATE TABLE payments.provider_floats (          -- VASPRO's prepaid balance wit
 | utilities\_transactions | payouts with kind airtime, data or bill |  |
 | utility\_provider\_float | provider\_floats |  |
 
-## 8. Next parts and open points
+## 8. Uploaded files and retention
+
+An uploaded file is a temporary input: the rows taken from it are the record, and the file itself is deleted soon after processing ends. Contact files go 2 days after processing; payout files go after 30 days (decided 16 Nov 2026).
+
+**Rules**
+
+- **Each service owns its uploads** in its own schema (`contacts.imports` now, campaign and payout uploads later), so the one-schema-per-service rule holds. The shared mechanics live in `platform/uploads`: signed upload and download links, the quarantine-to-final move, scanning, encryption and the sweeper.
+- **Files never pass through the gateway.** The client gets a signed link and uploads straight to a quarantine area in object storage. The service then reads the file, checks it, encrypts it under its final key and deletes the quarantine copy. Downloads come back through the service: stored files are encrypted, so a link straight to storage would only hand out ciphertext. The service signs a short-lived link to its own route, then decrypts the file and streams it through the gateway (decided 16 Nov 2026, task 6.2a, OQ-25).
+- **Same protection as KYB documents:** type checked from the content (not the name), ClamAV scan, SHA-256, envelope encryption. An infected file fails and is deleted at once, not after 2 days.
+- **Object keys are built from the tenant and the upload's ID**, never from anything the client sends: `uploads/<class>/<tenant>/<id>`.
+- **Processing streams the file** in batches and never loads it whole, with progress counts the dashboard can show.
+- **The clock starts at a final status**, and files that are abandoned or never uploaded expire too, so nothing stays forever.
+- **Two separate states:** how far processing has got (`status`), and whether the file still exists (`delete_after`, `deleted_at`). After deletion the row, its counts and its per-row errors stay; only the files are gone.
+
+| Retention class | Used for | Files deleted | Data kept |
+| --- | --- | --- | --- |
+| `transient` | Contact imports, campaign recipient files, and the error reports made from them | 2 days after a final status | Contacts until the client deletes them; messages per decision 9 |
+| `financial` | Payout batch files and their result reports; paybill statement files if kept | 30 days after a final status | Payout and statement rows in the database, for as long as finance and tax rules require |
+| Records (not in this scheme) | KYB documents | Kept while the account is active; see open points | — |
+
+```sql
+-- contacts.imports carries the columns every upload table uses. Payments adds the same
+-- file columns to payments.payout_batches in Phase 13, with retention_class 'financial'.
+CREATE TYPE contacts.import_status AS ENUM
+  ('awaiting_upload', 'scanning', 'validating', 'processing',
+   'completed', 'completed_with_errors', 'failed', 'cancelled', 'expired');
+
+CREATE TABLE contacts.imports (
+  id                 uuid PRIMARY KEY,
+  tenant_id          uuid NOT NULL,
+  group_id           uuid,                         -- add the imported contacts to this group, if set
+  status             contacts.import_status NOT NULL DEFAULT 'awaiting_upload',
+  file_name          text NOT NULL,                -- shown back to the client; never used in a path
+  content_type       text NOT NULL CHECK (content_type IN ('text/csv',
+                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')),
+  size_bytes         bigint CHECK (size_bytes > 0),  -- known after upload; capped by config
+  sha256             bytea,                        -- of the plaintext
+  object_key         text NOT NULL UNIQUE,         -- uploads/transient/<tenant>/<id>
+  error_report_key   text,                         -- rejected rows as CSV; same retention as the upload
+  retention_class    text NOT NULL DEFAULT 'transient' CHECK (retention_class IN ('transient', 'financial')),
+  rows_total         int,
+  rows_valid         int NOT NULL DEFAULT 0,
+  rows_failed        int NOT NULL DEFAULT 0,
+  upload_expires_at  timestamptz NOT NULL,         -- end of the signed upload link
+  finished_at        timestamptz,                  -- reached a final status
+  delete_after       timestamptz NOT NULL,         -- set at creation, reset at the final status
+  deleted_at         timestamptz,                  -- files removed; the row and its results stay
+  created_by         uuid NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  version            bigint NOT NULL DEFAULT 0,
+  CHECK ((finished_at IS NULL) = (status IN ('awaiting_upload', 'scanning', 'validating', 'processing')))
+);
+CREATE INDEX imports_tenant ON contacts.imports (tenant_id, created_at DESC);
+CREATE INDEX imports_to_purge ON contacts.imports (delete_after) WHERE deleted_at IS NULL;
+
+CREATE TABLE contacts.import_errors (             -- one row per problem; no file needed to show them
+  import_id   uuid NOT NULL REFERENCES contacts.imports (id),
+  tenant_id   uuid NOT NULL,
+  row_no      int NOT NULL,
+  field       text NOT NULL DEFAULT '',
+  error_code  text NOT NULL,                       -- VAL-...
+  message     text NOT NULL,                       -- names the problem; never repeats the row's values
+  PRIMARY KEY (import_id, row_no, field, error_code)
+);
+```
+
+| Status | Meaning | Can move to |
+| --- | --- | --- |
+| `awaiting_upload` | Import created; signed upload link issued | `scanning`, `cancelled`, `expired` (link ran out) |
+| `scanning` | File arrived: size, type and virus checks, then encrypted to its final key | `validating`, `failed` |
+| `validating` | Headers matched to fields; format checked | `processing`, `failed` |
+| `processing` | Rows written in batches; counts update | `completed`, `completed_with_errors`, `failed` |
+| `completed`, `completed_with_errors`, `failed`, `cancelled`, `expired` | Final; `finished_at` and `delete_after` set | — |
+
+**Flow**
+
+1. The client creates an import with the file's name, type and size, and gets a signed upload link (valid 15 minutes) to the quarantine area. `delete_after` is set to the link's end plus 2 days, in case the upload never happens.
+2. The browser uploads the file straight to storage, then tells the API the upload is complete.
+3. The service checks, scans and encrypts the file, deletes the quarantine copy and starts processing.
+4. At a final status the service sets `finished_at`, resets `delete_after` (2 or 30 days by class) and publishes `contact_import.finished`, which clients can receive by webhook.
+5. Until `delete_after`, the client can download the original and the error report through short-lived signed links. After it, the download returns a clear "file deleted" error and the dashboard shows the date.
+6. A sweeper in each service deletes the files of every row past `delete_after`, then sets `deleted_at`. It is safe to repeat.
+7. Backstops: storage expiry rules on the quarantine area (1 day) and, where the store supports them, on each class's prefix. Backups of upload prefixes are kept no longer than the files.
+
+What stays as it is: KYB documents keep their own table and rules (§4). Paybill statement imports send their CSV in the request body, parse it in memory and keep no file.
+
+**Open points**
+
+- How long to keep KYB documents and other account records after an account closes, and rejected or replaced documents (proposed: 30 days after rejection). Needs counsel; the Data Protection Act requires keeping personal data no longer than needed. (Roadmap OD-23.)
+- Size and row limits: proposed defaults of 100 MB and 1,000,000 rows per contact import, both configurable. *(17 Nov: the size cap is **20 MB**, under ClamAV's default 25 MB stream limit; no client is expected to need more. A 1,000,000-row file fits only with short rows, about 20 bytes each, such as a number and a first name, or as XLSX, which is compressed. The row limit is still to confirm with 6.2.)*
+- Confirm whether SeaweedFS supports expiry rules for the backstop, or rely on the sweeper alone. *(16 Nov, task 6.2a: SeaweedFS 4.48 accepts a bucket expiry rule; whether it enforces one isn't tested yet, so the sweeper stays the deleter.)*
+
+## 9. Webhooks and reporting (webhooks)
+
+> Numbered §8 until 16 Nov 2026, when §8 became uploaded files and retention. Code comments and the Phase 5 migrations written before then cite this section as "data model §8".
+
+> **Drafted for Phase 5 (12 Nov 2026, OQ-23)** from the plan agreed for that phase, ahead of the rest of Part 4. To be reviewed with Phase 5's pull request.
+
+Webhooks turns the events every service already publishes into signed HTTP calls to the client's own endpoints, and copies every event into ClickHouse for reports. It reads only the event bus, never another service's schema. Each event is sent at least once and may arrive more than once or out of order, so clients deduplicate by the event ID and order by `occurred_at`.
+
+**Which events reach clients.** Each schema in `docs/events/` says whether it is sent to clients (`"x-vaspro-webhook": true` or `false`), and a contract test fails if one doesn't say. An event sent to clients must carry `tenant_id`: it goes only to that client's endpoints. Events with no client, and those for staff and operations (reconciliation, the nightly rebuild, rail accounts, reversal requests and decisions, suspense), stay internal. The payload is the event's `data` as published.
+
+```sql
+CREATE SCHEMA webhooks;
+
+CREATE TABLE webhooks.endpoints (
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL,
+  url              text NOT NULL,            -- https; the address is checked again at every connection
+  description      text,
+  status           text NOT NULL DEFAULT 'pending_verification'
+                   CHECK (status IN ('pending_verification', 'active', 'disabled')),
+  verified_at      timestamptz,              -- the last passed challenge; cleared when the URL changes
+  failing_since    timestamptz,              -- the first failed attempt since the last success; NULL when healthy
+  disabled_at      timestamptz,
+  disabled_reason  text CHECK (disabled_reason IN ('failing', 'client')),
+  created_by       uuid NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  deleted_at       timestamptz,              -- kept so the delivery log still names it
+  version          int NOT NULL DEFAULT 1,
+  CHECK (status <> 'active' OR verified_at IS NOT NULL),
+  CHECK ((status = 'disabled') = (disabled_at IS NOT NULL)),
+  CHECK ((status = 'disabled') = (disabled_reason IS NOT NULL)),
+  CHECK (url ~ '^https?://\S+$' AND char_length(url) <= 2048),  -- the app allows http only in development
+  UNIQUE (id, tenant_id)                     -- children reference (id, tenant_id), so they share its tenant
+);
+CREATE INDEX endpoints_tenant ON webhooks.endpoints (tenant_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE webhooks.endpoint_secrets (
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL,
+  endpoint_id  uuid NOT NULL,
+  ciphertext   bytea NOT NULL,               -- platform/crypto.Envelope: signing needs the secret back, so not a hash
+  kms_key_id   text NOT NULL,
+  fingerprint  bytea NOT NULL,               -- HMAC of the secret under a separate key, to recognise it without decrypting
+  created_by   uuid NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz,                  -- NULL while current; rotation sets it 24 hours ahead
+  FOREIGN KEY (endpoint_id, tenant_id) REFERENCES webhooks.endpoints (id, tenant_id)
+);
+CREATE UNIQUE INDEX endpoint_secrets_current ON webhooks.endpoint_secrets (endpoint_id) WHERE expires_at IS NULL;
+
+CREATE TABLE webhooks.subscriptions (
+  tenant_id    uuid NOT NULL,
+  endpoint_id  uuid NOT NULL,
+  event_type   text NOT NULL,                -- an event sent to clients, or '*' for all of them
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (endpoint_id, event_type),
+  FOREIGN KEY (endpoint_id, tenant_id) REFERENCES webhooks.endpoints (id, tenant_id),
+  CHECK (event_type = '*' OR event_type ~ '^[a-z][a-z_]*\.[a-z][a-z_]*$')
+);
+
+CREATE TABLE webhooks.deliveries (
+  id               uuid PRIMARY KEY,
+  tenant_id        uuid NOT NULL,
+  endpoint_id      uuid NOT NULL,
+  event_id         uuid NOT NULL,            -- the bus event's ID, sent as Vaspro-Webhook-Id
+  event_type       text NOT NULL,
+  occurred_at      timestamptz NOT NULL,
+  body             bytea NOT NULL,           -- the exact bytes sent; every attempt and every replay sends them again
+  status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'dead')),
+  dead_reason      text CHECK (dead_reason IN ('attempts_exhausted', 'endpoint_disabled', 'endpoint_deleted')),
+  attempts         int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at  timestamptz,
+  leased_until     timestamptz,              -- a worker's claim; an expired lease is claimed again
+  replay_of        uuid,                     -- the delivery this replays, same tenant
+  replayed_by      uuid,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  completed_at     timestamptz,
+  CHECK ((status = 'pending') = (next_attempt_at IS NOT NULL)),
+  CHECK ((status = 'pending') = (completed_at IS NULL)),
+  CHECK ((status = 'dead') = (dead_reason IS NOT NULL)),
+  CHECK ((replay_of IS NULL) = (replayed_by IS NULL)),
+  CHECK (event_type ~ '^[a-z][a-z_]*\.[a-z][a-z_]*$'),
+  CHECK (leased_until IS NULL OR status = 'pending'),
+  CHECK (status <> 'succeeded' OR attempts >= 1),
+  UNIQUE (id, tenant_id),
+  FOREIGN KEY (endpoint_id, tenant_id) REFERENCES webhooks.endpoints (id, tenant_id),
+  FOREIGN KEY (replay_of, tenant_id) REFERENCES webhooks.deliveries (id, tenant_id)
+);
+CREATE UNIQUE INDEX deliveries_once ON webhooks.deliveries (endpoint_id, event_id) WHERE replay_of IS NULL;
+CREATE INDEX deliveries_due ON webhooks.deliveries (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX deliveries_log ON webhooks.deliveries (tenant_id, created_at DESC, id DESC);
+CREATE INDEX deliveries_event ON webhooks.deliveries (tenant_id, event_id);
+
+CREATE TABLE webhooks.delivery_attempts (
+  id                  uuid PRIMARY KEY,
+  tenant_id           uuid NOT NULL,
+  delivery_id         uuid NOT NULL,
+  attempt             int NOT NULL CHECK (attempt >= 1),
+  started_at          timestamptz NOT NULL,
+  duration_ms         int NOT NULL CHECK (duration_ms >= 0),
+  request_headers     jsonb NOT NULL,        -- as sent, signature included; never the secret
+  outcome             text NOT NULL CHECK (outcome IN ('succeeded', 'http_status', 'timeout', 'connect', 'tls', 'refused_url')),
+  response_status     int,
+  response_headers    jsonb,
+  response_body       bytea CHECK (octet_length(response_body) <= 4096),  -- the first 4 KB
+  response_truncated  boolean NOT NULL DEFAULT false,
+  error               text,                  -- what went wrong when there was no response
+  UNIQUE (delivery_id, attempt),
+  CHECK ((outcome IN ('succeeded', 'http_status')) = (response_status IS NOT NULL)),
+  CHECK (outcome <> 'succeeded' OR response_status BETWEEN 200 AND 299),
+  CHECK (outcome <> 'http_status' OR response_status NOT BETWEEN 200 AND 299),
+  CHECK ((outcome IN ('timeout', 'connect', 'tls', 'refused_url')) = (error IS NOT NULL)),
+  CHECK (NOT response_truncated OR response_body IS NOT NULL),
+  FOREIGN KEY (delivery_id, tenant_id) REFERENCES webhooks.deliveries (id, tenant_id)
+);
+```
+
+Plus `outbox_events`, `idempotency_keys` and `processed_events` (webhooks consumes every service's events). The standard tenant policy goes on all five tables. A child row references its parent by `(id, tenant_id)`, because a foreign key check ignores row-level security: with a plain reference, a client that learned another client's endpoint ID could attach a secret, subscription or delivery to it. A `webhooks_system` role (NOLOGIN, granted `WITH INHERIT FALSE`, used only through `WithRoleTx`) lets the delivery worker claim due deliveries, read their endpoints and secrets, and record attempts across clients. Updates are limited to status, scheduling and lease columns. Nothing is deleted except subscriptions and idempotency keys: a deleted endpoint keeps its row and log.
+
+**Endpoints**
+
+- **Who:** creating an endpoint, changing its URL and rotating its secret need `credentials:manage` and a fresh step-up (system design §3 lists changing callback URLs). Reading needs `credentials:read`.
+- **Secret:** `whsec_` plus the base64url of 32 random bytes, without padding (49 characters), shown once when the endpoint is created or rotated. On rotation the old secret stays valid for 24 hours and both signatures are sent. Rotating again inside those 24 hours expires the older one at once, so no more than two are ever valid.
+- **Verification:** VASPRO POSTs a signed `webhook.verification` body with a random `challenge`. The endpoint must answer 2xx within 10 seconds with `{"challenge": "<the same value>"}`. Until it does, the endpoint is `pending_verification` and receives nothing. Creating an endpoint doesn't send the challenge (the client must first configure the secret it was just shown); the client asks for it, with `credentials:manage` and no step-up. A new URL sends the endpoint back to `pending_verification`. A disabled endpoint is re-enabled by passing the challenge, and an active one can be checked again (a failed check leaves it active: deliveries, not checks, disable). The endpoint is marked verified only if it wasn't changed while the challenge was out. A failure is VAL-4018. A challenge isn't a delivery, so it writes no attempt.
+- **Limits:** at most 16 undeleted endpoints per client (configurable); a description of at most 255 characters; subscriptions are event types sent to clients, or `*`, replaced as a set when changed.
+- **Allowed URLs:** `https` only, with no user information in the URL. Every connection (the challenge included) refuses private, loopback, link-local, multicast and cloud-metadata addresses after DNS resolution, so a name that later resolves inward is still refused. Redirects are never followed. A refused URL is VAL-4019. Plain `http` and private addresses are allowed only behind a development and test setting.
+
+**Signature**
+
+Every request carries:
+
+| Header | Value |
+| --- | --- |
+| `Vaspro-Webhook-Id` | The event ID; the same on every attempt and every replay |
+| `Vaspro-Webhook-Timestamp` | Unix seconds when this attempt was signed |
+| `Vaspro-Webhook-Signature` | `v1=` and the lower-case hex HMAC-SHA256, keyed by the endpoint's whole secret string (`whsec_` included, nothing decoded), of the timestamp as sent, a full stop and the body. During a rotation, two such values separated by a space, the current secret's first |
+
+The body is the event envelope without its trace ID: `{"id", "type", "version", "tenant_id", "occurred_at", "data"}`. Clients compare the signature in constant time, accept any listed `v1=` value (ignoring other schemes, which a later version may add), and refuse a timestamp more than 5 minutes from their clock. Snippets for Go, PHP, Node and Python, in `docs/webhooks/verify/`, are tested against VASPRO's signer through golden vectors (`make test-contract`).
+
+**Delivery**
+
+- **Fan-out:** for each event sent to clients, one delivery per active, undeleted endpoint of that client subscribed to its type, written in the same transaction as `processed_events`. A redelivered event makes no second delivery. Webhooks consumes the accounts, ledger and payments streams, and its own for `webhook_endpoint.disabled`. An event is sent only when its envelope's `tenant_id` is set and equals its data's; anything else is acknowledged and dropped.
+- **Attempts:** only a 2xx answer is success. Each request has a 10-second timeout. Workers claim up to a batch of due deliveries with `FOR UPDATE SKIP LOCKED` and a lease (5 minutes, longer than a batch for one endpoint takes), and send them on a bounded pool (16) with a limit per endpoint (4), so one slow endpoint can't hold up others. Every replica runs them. An attempt is recorded only from the attempt count it was claimed at, and the attempt number is unique per delivery, so a lease that ran out can't make two records of one attempt. Each attempt keeps the request headers as sent (the signature, never the secret) and the first 4 KB of the answer.
+- **Retries:** 11 attempts: one at once, then after waits of 30s, 2m, 10m, 30m, 1h, 3h, 6h, 12h, 24h and 24h (about 71 hours in all; OQ-23), each varied by up to ±10%. After the last one the delivery is `dead` (`attempts_exhausted`). The schedule, jitter, pool and lease are configuration.
+- **Endpoints not active:** a delivery to a deleted endpoint is `dead` (`endpoint_deleted`) and to a disabled one `dead` (`endpoint_disabled`), with no attempt. A delivery to an endpoint waiting for verification again (its URL changed) is held: still pending, no attempt counted, looked at again each minute, and sent once the new URL passes the challenge.
+- **Disabling:** an endpoint whose attempts have all failed for 72 hours is disabled (`failing`). Its pending deliveries become `dead`, and `webhook_endpoint.disabled` is published. Any success clears `failing_since`. Clients can also disable an endpoint themselves (`client`).
+- **Replay:** a client can replay any delivery to an active endpoint. A replay is a new delivery with `replay_of` set, the same event ID and the same body, signed with a new timestamp.
+- **Test events:** a client can send a `webhook.test` event to an endpoint. It goes through the ordinary delivery path and log.
+
+**API** (`docs/api/webhooks.yaml`, task 5.5)
+
+Under `/v1/webhooks/tenants/{tenantId}/`, through the gateway with a dashboard session: endpoints (list, create, read, change, delete), `verification` (also re-enables), `secret-rotations`, `disable` (the client's own, `client`; its pending deliveries end as `endpoint_disabled`), `test-events` (to an active endpoint; data names the endpoint), and the delivery log: `deliveries` newest first with filters by endpoint, status, event type and event ID and a cursor, one delivery with its body and every attempt and its answer (a body that isn't UTF-8 is base64), and `replays`. Reads need `credentials:read` and writes `credentials:manage`. Creating, changing a URL and rotating also need a fresh step-up. A secret is never stored in the idempotency record: a retry with the same key gets `secret: null` (OQ-24).
+
+**ClickHouse**
+
+Every event on the bus, sent to clients or not, is copied into one table. Inserts are batched and acknowledged only after they land, so an event can be inserted twice, and the table collapses copies by event ID. Report queries read it with `FINAL`.
+
+```sql
+CREATE TABLE events (
+  id           UUID,
+  type         LowCardinality(String),
+  version      UInt16,
+  tenant_id    UUID,                          -- the nil UUID for events with no client
+  source       LowCardinality(String),        -- the publishing service
+  occurred_at  DateTime64(3, 'UTC'),
+  data         String,                        -- the event's data as JSON
+  ingested_at  DateTime64(3, 'UTC') DEFAULT now64(3)
+) ENGINE = ReplacingMergeTree(ingested_at)
+PARTITION BY toYYYYMM(occurred_at)
+ORDER BY (tenant_id, type, occurred_at, id);
+```
+
+**The sink** (task 5.6): webhooks reads every stream (identity, accounts, ledger, payments, and its own events, not its dead letters) with a durable batch consumer per stream. Up to 1,000 events, or what arrived within a second, go in one insert, and the batch is acknowledged only after it lands; a failed insert sends the whole batch again, and after 10 tries each event goes to `webhooks.dead_letter.clickhouse`. A message that isn't an event is skipped. `source` is the subject's first part. Migrations are goose's in `migrations/clickhouse/`.
+
+**The first reports**, each read with `FINAL`:
+
+- **A client's daily wallet activity** (`getDailyActivity`, `billing:read`, at most 92 days), per day and currency, in the time zone of the client's country from its pack:
+  - money credited (`wallet.credited`) and how many were top-ups;
+  - what token purchases cost (`tokens.purchased.cost_minor`);
+  - the value and count of usage (`usage.posted`).
+- **Top-ups per rail per day** across clients: `wallet.credited` of type `topup` by its `rail`, `unattributed` for one with none (a staff match out of suspense, whose money came in on the paybill). For staff; no API yet.
+- **Events per type per UTC day.** For staff; no API yet.
+
+**Events**
+
+| Event | When |
+| --- | --- |
+| webhook\_endpoint.disabled | An endpoint failed for 72 hours and was disabled. Sent to the client's other endpoints; monitoring's client alerts (Phase 16) turn it into email or SMS |
+
+`webhook.verification` and `webhook.test` appear only in webhook bodies, never on the bus.
+
+**From v3**
+
+| v3 | v4 | Notes |
+| --- | --- | --- |
+| client\_mpesa\_paybill.pushUrl | `endpoints`, subscribed to `payment.received` | As section 7 says. Imported in Phase 18, and verified with the challenge before anything is sent |
+| Other callback URLs (DLR, MO, USSD) | `endpoints` | To be listed from the v3 export (OQ-02) |
+
+**Open points**
+
+- **Fields meant for staff:** some events sent to clients carry staff user IDs and reasons (`matched_by` and `reason` on `collection_notice.matched`, `changed_by` on tier changes, `reviewed_by` on KYC decisions). They are sent as published for now. A client-facing projection per event is the alternative.
+- **Retention:** attempts and their responses kept 30 days, deliveries 90 days (proposed, not yet enforced). ClickHouse events are kept for reports, with no limit set.
+- **Sandbox and live:** one set of endpoints per client until Phase 8 adds environments to events.
+
+## 10. Contacts and consent (contacts)
+
+> **Drafted for Phase 6 (17 Nov 2026, OQ-26)** from the answers to the Phase 6 plan, ahead of the rest of Part 3. To be reviewed with Phase 6's pull request.
+
+Contacts holds each client's address book (contacts with typed attributes, groups and segments), the consent every send is checked against, and the files clients import contacts from. Messaging (Phase 7) asks it two things over gRPC: may these numbers get this message, and who is in this group or segment. It reads no other service's schema; a tenant's country, which decides how numbers are read and which opt-out words apply, comes from accounts' `CheckTenantAccess`.
+
+**Rules**
+
+- **One contact per number per client.** A contact is keyed by its E.164 number; adding the same number again, by API or import, merges into the existing contact. Every number is normalised with the client's country pack before it's stored or checked (below). Email-only contacts, and other channel IDs (WhatsApp, Telegram), wait for those channels.
+- **Consent belongs to the number, not the contact.** It is kept per client, number, channel and purpose, so it holds for sends to numbers that aren't contacts, and it survives the contact being deleted. Deleting a contact deletes the contact, its attributes and its group memberships; its consent and suppressions stay as the record of what the person chose (OQ-26).
+- **The person's own choice wins.** A withdrawal made by the person (a reply keyword, the preference centre) can only be undone by the person (a start keyword, the preference centre), never by the client's API or an import. A trigger enforces it, as well as the app.
+- **No phone numbers in events.** Every event is copied into ClickHouse and kept for reports (§9), so events name contacts by ID and never carry a number.
+- **Personal data** (for the data catalogue): `contacts.phone_e164`, `first_name`, `last_name`, `email`, `attributes`; `consents.phone_e164` and `evidence`; `consent_events.phone_e164` and `evidence`; `suppressions.phone_e164` and `note`; `preference_links.phone_e164`; `imports.file_name`. Logs carry IDs, never a whole number.
+
+**Numbers.** A number is read in the client's country unless it starts with `+` or `00`. Spaces, hyphens, dots and brackets are dropped. A local number is the trunk prefix and the national significant number (`0712…`), the number alone (`712…`), or the country code and number with or without `+` (`254712…`, `+254712…`). It must have the pack's length and start with one of the pack's `mobile_prefixes` (KE: `7` and `1`), since only mobiles receive messages. A number with another country code is kept if it's valid E.164 (7 to 15 digits); whether it can be sent to is messaging's call. Anything else is refused with a reason (not digits, wrong length, not a mobile), which an import reports with its row.
+
+**Consent decisions.** For a number, channel and purpose:
+
+| Suppressed (this channel or all) | Recorded consent | Transactional | Promotional, opt-out country (KE) | Promotional, opt-in country |
+| --- | --- | --- | --- | --- |
+| Yes | any | blocked: `suppressed` | blocked: `suppressed` | blocked: `suppressed` |
+| No | withdrawn | blocked: `opted_out` | blocked: `opted_out` | blocked: `opted_out` |
+| No | granted | allowed | allowed | allowed |
+| No | none | allowed | allowed | blocked: `no_consent` |
+
+Channels: `sms`, `whatsapp`, `email`, `telegram`, `rcs`. Purposes: `transactional` (OTPs, alerts, receipts) and `promotional` (marketing). The pack's `opt_out.promotional_requires_opt_in` picks the last two columns; KE is opt-out, with STOP enforced (a legal call, OQ-26). An invalid number is `invalid_number`, whatever else holds.
+
+**Opt-out keywords.** A reply that is only one of the pack's `stop` words withdraws the sender's consent to promotional messages on the channel it arrived on; a `start` word gives it back. Both are recorded as the person's own choice (`actor = 'subject'`). Matching ignores case, surrounding and repeated spaces, and one trailing `.`, `,`, `!` or `?`; anything more is not a match (`stop`, ` Stop. ` and `STOP!` match, `stopped` and `please stop` don't). KE: `STOP` and `START`. Contacts exposes this as a gRPC call taking the client, channel, number and text; messaging calls it for replies from Phase 7, and decides which client a reply to a shared sender belongs to.
+
+**Preference centre.** A link `<public base>/p/<token>` lets a person see and change their promotional consent per channel for one client, with no sign-in. The token is 12 characters from 62 (about 71 bits), stored only as its SHA-256; there is one per client and number, it lasts 90 days, and issuing it again replaces it. Messaging asks for one when it builds a promotional message; a client can issue one by API. The page and its API are public, served by contacts through the gateway with a content security policy like `/pay/` (4.8).
+
+*As built (task 6.4):*
+- **Recording consent:** the client records a grant or withdrawal per number, channel and purpose, with optional evidence (at most 500 characters). Over a person's own withdrawal, a client grant is VAL-4026 and a client withdrawal changes nothing. `consent.withdrawn` is published when a consent becomes withdrawn, not when it already was. Each change is a `consent_events` row; a lookup shows the last 50.
+- **Lookup:** the number goes in a POST body (`consent-lookups`), never the URL, and needs `contacts:read`. It returns the consents, suppressions, the decision for every channel and purpose, and the history.
+- **Suppressions:** added per channel or for every channel (adding one already there returns it), listed by number then channel with a cursor, and removed by number and channel in a POST body.
+- **The preference page** offers SMS and WhatsApp, the channels VASPRO sends promotional messages on; email, Telegram and RCS join with those channels. It shows the number masked (`+254 7•• ••• 501`), and receiving is the decision for promotional messages, so a suppressed channel shows as off. **It doesn't name the client** (open point below). Viewing or changing stamps `last_used_at`.
+- **Work done for no user** (reply keywords, the preference page, links messaging asks for) reads numbers and keywords with the one loaded pack, as imports do (open point).
+- **A pack without an `opt_out` block** has no keywords and is treated as opt-in, failing closed.
+
+**Segments.** A segment is a saved filter over a client's contacts, evaluated when it's used, so it always reflects current contacts.
+
+```json
+{"all": [
+  {"field": "attributes.county", "op": "eq", "value": "Nairobi"},
+  {"any": [
+    {"field": "group", "op": "in", "value": ["<group id>"]},
+    {"field": "attributes.joined", "op": "after", "value": "2026-01-01"}
+  ]}
+]}
+```
+
+- **Fields:** `first_name`, `last_name`, `email`, `created_at`, `group`, and `attributes.<key>` for any attribute the client has defined.
+- **Operators** by type: text `eq`, `neq`, `in`, `contains`, `starts_with`, `exists`; number `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `between`, `exists`; date `eq`, `before`, `after`, `between`, `exists`; boolean `eq`, `exists`; group `in`, `not_in`.
+- **Limits:** `all` and `any` nest at most two levels, with at most 20 conditions. A value must suit its field's type.
+- **Matching:** text is compared exactly (case-sensitive), except `email`, which ignores case. `neq` and the comparisons need a value, so a contact without one doesn't match; `not_in` matches a contact in no group. `created_at` is compared as a date in the account's time zone. `between` is inclusive. Numbers are JSON numbers or decimal text, never floats.
+- **Evaluation:** the filter is checked against the client's attribute definitions and groups, then turned into a SQL/JSON path with every value passed as a variable, and run by one fixed query (`jsonb_path_match` over each contact's attributes, fields and group IDs). No SQL is built from client input, and attribute keys reach the path only after matching the key pattern and a definition. **One exception, task 6.3:** `like_regex` takes no variable, so a `contains` value goes into the path as a JSON-quoted string literal read literally (flag `q`); it's tested with quotes, backslashes and regular-expression characters. A segment whose attribute or group was since deleted is refused when used (VAL-4025); a refused filter is VAL-4025 too, its detail naming the problem.
+- **Performance** (task 6.3, the M4, 1,000,000 contacts in one account): counting reads every contact once, 0.6s for an attribute filter and 0.8s for a group filter (group IDs from one grouped join; a lookup per contact took 3.2s); the first page of 100 takes about 5ms (it looks groups up per contact, since it stops early). No materialised membership is needed yet.
+
+**Imports** follow §8: a signed upload, then `scanning` (`platform/uploads`), `validating` (headers matched to fields: `phone`, `msisdn`, `mobile`, `number` or `phone_number` for the number, case-insensitive; the contact fields; then attribute keys or labels; an unknown column is reported, as a row-1 error VAL-4021, and ignored; no number column, or two columns for one field, fails the import) and `processing`.
+- Rows are read as a stream and written in batches of 1,000. Each batch goes as one JSON array (`jsonb_to_recordset`) and is merged in one statement, with its errors and counts in the same transaction. A CSV's separator (comma, semicolon or tab) is taken from its header line, and a row that isn't UTF-8 is refused (VAL-4021); an XLSX is held in memory, within the 20 MB cap, and its first sheet streamed. *(Task 6.2: a JSON batch rather than the temporary table first planned, so the query stays sqlc's.)*
+- Within a file a later row wins. Against an existing contact, a non-empty cell replaces the stored value, an empty one leaves it, and attributes merge key by key.
+- `rows_valid`, `rows_failed` and `rows_total` (every data row read, blank ones too) advance with each batch. A worker holds a session advisory lock on the import while it works, so a worker that dies releases it, and the next one resumes after `rows_total` rows (merges are repeatable).
+- A problem with the whole file is an `import_errors` row with `row_no` 0; the header is row 1, and data rows count from 2, as a spreadsheet shows them.
+- **The country** whose pack reads an import's numbers is the one loaded pack's: the worker acts for no user, so it can't ask accounts' access check. A second country needs an accounts call for an account's country, or the country stored with the import (open point).
+- Limits: the file at most 20 MB (§8), at most 1,000,000 rows.
+- An import doesn't record consent.
+
+```sql
+CREATE SCHEMA contacts;
+
+CREATE TABLE contacts.contacts (
+  id            uuid PRIMARY KEY,
+  tenant_id     uuid NOT NULL,
+  phone_e164    text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  first_name    text CHECK (char_length(first_name) <= 100),
+  last_name     text CHECK (char_length(last_name) <= 100),
+  email         citext CHECK (char_length(email) <= 254),
+  attributes    jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(attributes) = 'object'),
+  source        text NOT NULL CHECK (source IN ('api', 'dashboard', 'import', 'v3')),
+  created_by    uuid,                          -- NULL for the v3 import
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  version       int NOT NULL DEFAULT 1,
+  UNIQUE (tenant_id, phone_e164),
+  UNIQUE (id, tenant_id)                       -- children reference (id, tenant_id), so they share its tenant
+);
+CREATE INDEX contacts_tenant_created ON contacts.contacts (tenant_id, created_at DESC, id DESC);
+CREATE INDEX contacts_attributes ON contacts.contacts USING gin (attributes jsonb_path_ops);
+
+CREATE TABLE contacts.attribute_definitions (   -- at most 50 per client
+  tenant_id   uuid NOT NULL,
+  key         text NOT NULL CHECK (key ~ '^[a-z][a-z0-9_]{0,39}$'),
+  label       text NOT NULL CHECK (char_length(label) BETWEEN 1 AND 100),
+  type        text NOT NULL CHECK (type IN ('text', 'number', 'date', 'boolean')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, key)
+);                                               -- a text value is at most 255 characters; numbers are decimal strings
+
+CREATE TABLE contacts.groups (
+  id          uuid PRIMARY KEY,
+  tenant_id   uuid NOT NULL,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  description text CHECK (char_length(description) <= 500),
+  created_by  uuid,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  version     int NOT NULL DEFAULT 1,
+  UNIQUE (id, tenant_id)
+);
+CREATE UNIQUE INDEX groups_name ON contacts.groups (tenant_id, lower(name));
+
+CREATE TABLE contacts.group_members (
+  tenant_id   uuid NOT NULL,
+  group_id    uuid NOT NULL,
+  contact_id  uuid NOT NULL,
+  added_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, contact_id),
+  FOREIGN KEY (group_id, tenant_id) REFERENCES contacts.groups (id, tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (contact_id, tenant_id) REFERENCES contacts.contacts (id, tenant_id) ON DELETE CASCADE
+);
+CREATE INDEX group_members_contact ON contacts.group_members (tenant_id, contact_id);
+
+CREATE TABLE contacts.segments (
+  id          uuid PRIMARY KEY,
+  tenant_id   uuid NOT NULL,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  filter      jsonb NOT NULL CHECK (jsonb_typeof(filter) = 'object'),
+  created_by  uuid,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  version     int NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX segments_name ON contacts.segments (tenant_id, lower(name));
+
+CREATE TYPE contacts.channel AS ENUM ('sms', 'whatsapp', 'email', 'telegram', 'rcs');
+CREATE TYPE contacts.purpose AS ENUM ('transactional', 'promotional');
+
+CREATE TABLE contacts.consents (                 -- the current state; consent_events is the history
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  channel      contacts.channel NOT NULL,
+  purpose      contacts.purpose NOT NULL,
+  status       text NOT NULL CHECK (status IN ('granted', 'withdrawn')),
+  actor        text NOT NULL CHECK (actor IN ('client', 'subject')),
+  source       text NOT NULL CHECK (source IN ('api', 'dashboard', 'keyword', 'preference_centre', 'v3')),
+  evidence     text CHECK (char_length(evidence) <= 500),   -- how the client obtained it, when the client records it
+  recorded_by  uuid,                            -- the client's user; NULL when the person acted
+  recorded_at  timestamptz NOT NULL,
+  version      int NOT NULL DEFAULT 1,
+  PRIMARY KEY (tenant_id, phone_e164, channel, purpose),
+  CHECK ((actor = 'subject') = (source IN ('keyword', 'preference_centre'))),
+  CHECK ((actor = 'client') = (recorded_by IS NOT NULL) OR source = 'v3')
+);
+-- A trigger refuses an update by actor 'client' of a row withdrawn by actor 'subject'.
+
+CREATE TABLE contacts.consent_events (           -- append-only
+  id           uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL,
+  channel      contacts.channel NOT NULL,
+  purpose      contacts.purpose NOT NULL,
+  status       text NOT NULL CHECK (status IN ('granted', 'withdrawn')),
+  actor        text NOT NULL CHECK (actor IN ('client', 'subject')),
+  source       text NOT NULL,
+  evidence     text,
+  recorded_by  uuid,
+  occurred_at  timestamptz NOT NULL
+);
+CREATE INDEX consent_events_number ON contacts.consent_events (tenant_id, phone_e164, occurred_at DESC);
+
+CREATE TABLE contacts.suppressions (             -- the client's own do-not-contact list
+  tenant_id    uuid NOT NULL,
+  phone_e164   text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  channel      contacts.channel,                -- NULL: every channel
+  reason       text NOT NULL CHECK (reason IN ('client_request', 'complaint', 'invalid', 'other')),
+  note         text CHECK (char_length(note) <= 500),
+  created_by   uuid NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (tenant_id, phone_e164, channel)
+);
+
+CREATE TABLE contacts.preference_links (
+  tenant_id     uuid NOT NULL,
+  phone_e164    text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
+  token_hash    bytea NOT NULL UNIQUE,          -- SHA-256 of the 12-character token
+  created_at    timestamptz NOT NULL,
+  expires_at    timestamptz NOT NULL,
+  last_used_at  timestamptz,
+  PRIMARY KEY (tenant_id, phone_e164),
+  CHECK (expires_at > created_at)
+);
+
+-- imports and import_errors: §8, exactly.
+-- outbox_events and idempotency_keys: §1. No processed_events until contacts consumes an event.
+```
+
+- **RLS:** the standard policy on every table above. `contacts_system` (NOLOGIN, `WITH INHERIT FALSE`, through `WithRoleTx` only) reads imports across clients to claim work and sweep files, and finds a preference link by its token hash; it can't read contacts outside a client's transaction.
+- **Grants:** updates are column-limited (a contact's tenant and number, a consent's key, an import's object key and file name are never rewritten). `consent_events` and `import_errors` take inserts only. Deletes only for contacts, group members, groups, segments, attribute definitions, suppressions and idempotency keys.
+
+**API** (`docs/api/contacts.yaml`, tasks 6.2 to 6.5). Under `/v1/contacts/tenants/{tenantId}/`, through the gateway with a dashboard session:
+- contacts (list with a cursor, create, read, change, delete);
+- attribute definitions;
+- groups and their members;
+- segments, with a count and a paged member list;
+- imports (create, confirm the upload, read, list, the errors, signed download links for the file and the error report);
+- consent (record a grant or withdrawal; look up a number's state, with the number in the body, never the path);
+- suppressions;
+- preference links.
+
+Reads need `contacts:read`, writes `contacts:manage` (new permissions in accounts' catalogue: `contacts:read` for all four built-in roles, `contacts:manage` for Admin and Developer; OQ-26). Public, with no session: file downloads by signed link, and the preference page and its API.
+
+**gRPC** (`proto/contacts/v1`), for messaging:
+- `CheckConsent`: a client, channel, purpose and up to 10,000 numbers, one answer per number in one query (target: p95 under 200 ms for 10,000 numbers on the reference machine);
+- `ExpandAudience`: a group or segment's numbers with consent applied, streamed in pages, with how many were blocked and why;
+- `RecordReplyKeyword`;
+- `IssuePreferenceLink`.
+
+*As built (task 6.5):* `CONTACTS_GRPC_ADDR` (`:9093`), plaintext until Phase 17's mTLS, trusting the tenant a request names.
+- **`CheckConsent`** answers in the request's order. A number that isn't valid is answered `invalid_number`, not an error. More than 10,000 numbers, or an unknown channel or purpose, is INVALID_ARGUMENT. One query (`ConsentForNumbers`) reads each distinct number's consent and suppression.
+- **Measured** on the reference machine: 10,000 numbers, in an account with 200,000 consents and 20,000 suppressions, have a p95 of 49ms over gRPC (target 200ms).
+- **`ExpandAudience`** streams pages (1,000 contacts by default, at most 5,000), newest first. Each page is read and checked in one tenant transaction, so a long stream sees contacts as they change. Each page carries its allowed recipients and blocked counts by reason, and the last is marked. An unknown group or segment is NOT_FOUND, and a segment whose attribute or group was deleted is FAILED_PRECONDITION.
+- **An account's country** for these calls is the one loaded pack's (the open point below).
+
+**Events**
+
+| Event | When |
+| --- | --- |
+| contact\_import.finished | An import reached a final status: its ID, status and counts. Sent to clients |
+| consent.withdrawn | A number's consent for a channel and purpose was withdrawn: the contact's ID when the number is a contact, the channel, purpose, source and actor, never the number. Sent to clients |
+
+**From v3** (task 6.6, designed in ADR 0013, built with the export; the v3 columns are unknown until an export exists, OQ-02 and OQ-27)
+
+| v3 | v4 | Notes |
+| --- | --- | --- |
+| Contact lists (`list_ids` in `VASPRO_BULK_COMPOSE`) | `groups` | One group per list |
+| Contacts in those lists | `contacts` with `source = 'v3'`, and `group_members` | Numbers normalised as above; invalid ones flagged, not imported |
+| Opt-outs or blacklists, if v3 keeps them | `consents` withdrawn (`source = 'v3'`) or `suppressions` | To find in the export |
+
+ADR 0013's choices:
+- lists map to groups through a new `v3_list_map`, so a re-run finds them;
+- numbers in several lists become one contact in each group;
+- an opt-out becomes the client's withdrawal of promotional SMS, or a suppression, unless v3 records it as the person's STOP reply;
+- extra columns come in only when an operator file maps them;
+- the import publishes no events.
+
+**Open points**
+
+- **Promotional consent model:** opt-out with STOP enforced for KE, set per pack; to confirm with counsel against the Data Protection Act's direct-marketing rules (OQ-26).
+- **What STOP covers:** promotional messages on the channel it arrives on. Whether a person can also stop transactional messages through the preference centre is open; for now only the client can, by suppressing the number.
+- **A suppression list across all clients** (complaints, a regulator's do-not-disturb list): deferred (OQ-26).
+- **Declared consent on imports,** for opt-in countries: not in Phase 6.
+- **`import_errors` references `imports (id)`** as §8 gives it, not `(id, tenant_id)`. Only the service writes it, from its own rows, so a client can't point one at another client's import.
+- **An import's country:** read from the one loaded pack until a second country exists (see Imports above). The same holds for reply keywords and the preference page (task 6.4) and the gRPC calls (task 6.5). Accounts' `CheckTenantAccess` needs a user; a user-free lookup of an account's country (and display name, for the preference page) would close all of these.
+- **The preference page doesn't name the client** whose messages it controls: contacts has no account's display name, and the page acts for no user, so it can't use accounts' access check. A public name lookup in accounts, or the name stored with the link, would fix it (task 6.4; to decide).
+- **Segment performance** on a million contacts: measured in 6.3 (above), under a second per count. A materialised membership stays the fallback if accounts grow well past that.
+
+## 11. Next parts and open points
 
 | Part | Services | Why in this order |
 | --- | --- | --- |
 | 2 | Billing and invoicing, Payments | Done: sections 6 and 7 |
-| 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow |
-| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3 |
+| 3 | Messaging, USSD, Contacts and consent, Applications | The core traffic, including the ClickHouse event tables and the ops-ticket workflow. Contacts done first, for Phase 6: section 10 |
+| 4 | Verify, Journeys, Surveys and rewards, Webhooks, Monitoring, sales and referrals | Built on top of Parts 1 to 3. Webhooks done first, for Phase 5: section 9 |
 
 **Open points raised by Part 1**
 

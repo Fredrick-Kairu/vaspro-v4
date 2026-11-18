@@ -71,9 +71,14 @@ gen-check: gen
 migrate:
 	@for dir in migrations/*/; do \
 		schema=$$(basename "$$dir"); \
+		[ "$$schema" = clickhouse ] && continue; \
 		echo "migrate: $$schema"; \
 		goose -dir "$$dir" postgres "$$DATABASE_URL_$$schema" up; \
 	done
+	@if [ -n "$$CLICKHOUSE_URL" ]; then \
+		echo "migrate: clickhouse"; \
+		goose -dir migrations/clickhouse clickhouse "$$CLICKHOUSE_URL" up; \
+	else echo "migrate: CLICKHOUSE_URL unset, skipping clickhouse"; fi
 
 lint:
 	@if [ -z "$(GO_PKGS)" ]; then echo "lint: no Go packages yet, skipping golangci-lint"; \
@@ -93,9 +98,13 @@ test:
 # `make test-int INTEGRATION_PARALLELISM=n`.
 INTEGRATION_PARALLELISM ?= 4
 
+# Go's default of 10 minutes per package is too close: contacts/app took
+# 430s locally in task 6.2, and CI's runners are slower.
+INTEGRATION_TIMEOUT ?= 25m
+
 test-int:
 	@if [ -z "$(GO_PKGS)" ]; then echo "test-int: no Go packages yet, skipping"; \
-	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) ./...; fi
+	else go test -tags=integration -p $(INTEGRATION_PARALLELISM) -timeout $(INTEGRATION_TIMEOUT) ./...; fi
 
 test-contract:
 	@if [ -z "$$(go list ./test/contract/... 2>/dev/null)" ]; then echo "test-contract: no packages under test/contract yet, skipping"; \

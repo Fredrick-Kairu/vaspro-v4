@@ -100,19 +100,93 @@ func (b *Bus) Consume(ctx context.Context, cfg ConsumeConfig, handle func(ctx co
 			return
 		}
 
-		if cfg.MaxDeliver > 0 {
-			if meta, metaErr := msg.Metadata(); metaErr == nil && meta.NumDelivered >= uint64(cfg.MaxDeliver) {
-				if cfg.DeadLetterSubject != "" {
-					_ = b.Publish(ctx, cfg.DeadLetterSubject, msg.Data())
-				}
-				_ = msg.Term()
-				return
-			}
-		}
-		_ = msg.Nak()
+		b.retryOrDeadLetter(ctx, cfg, msg)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bus: starting consume on %s: %w", cfg.Durable, err)
 	}
 	return cc, nil
+}
+
+// BatchConfig sizes ConsumeBatch's batches: up to Max messages, or
+// whatever arrived within Wait.
+type BatchConfig struct {
+	Max  int
+	Wait time.Duration
+}
+
+// Message is one message in a batch, with the subject it was published
+// on.
+type Message struct {
+	Subject string
+	Data    []byte
+}
+
+// ConsumeBatch runs a durable pull consumer per cfg until ctx ends,
+// handing handle up to batch.Max messages at a time (fewer once
+// batch.Wait has passed). handle returning nil acks the whole batch
+// only then, so a batch is never lost to a failed write; an error naks
+// every message for redelivery, except one on its last attempt allowed
+// by cfg.MaxDeliver, which goes to cfg.DeadLetterSubject (if set) and is
+// Term'd, as in Consume. It returns an error only if the consumer can't
+// be created (its stream doesn't exist, say).
+func (b *Bus) ConsumeBatch(ctx context.Context, cfg ConsumeConfig, batch BatchConfig, handle func(ctx context.Context, msgs []Message) error) error {
+	consumer, err := b.js.CreateOrUpdateConsumer(ctx, cfg.Stream, jetstream.ConsumerConfig{
+		Durable:       cfg.Durable,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       cfg.AckWait,
+		MaxDeliver:    cfg.MaxDeliver,
+		FilterSubject: cfg.FilterSubject,
+	})
+	if err != nil {
+		return fmt.Errorf("bus: creating consumer %s on %s: %w", cfg.Durable, cfg.Stream, err)
+	}
+	for ctx.Err() == nil {
+		fetched, err := consumer.Fetch(batch.Max, jetstream.FetchMaxWait(batch.Wait))
+		if err != nil {
+			// The server is unreachable for now; Fetch has no wait of
+			// its own on this path, so pause before trying again.
+			select {
+			case <-ctx.Done():
+			case <-time.After(batch.Wait):
+			}
+			continue
+		}
+		var msgs []jetstream.Msg
+		for m := range fetched.Messages() {
+			msgs = append(msgs, m)
+		}
+		if len(msgs) == 0 {
+			continue
+		}
+		out := make([]Message, len(msgs))
+		for i, m := range msgs {
+			out[i] = Message{Subject: m.Subject(), Data: m.Data()}
+		}
+		if err := handle(ctx, out); err == nil {
+			for _, m := range msgs {
+				_ = m.Ack()
+			}
+			continue
+		}
+		for _, m := range msgs {
+			b.retryOrDeadLetter(ctx, cfg, m)
+		}
+	}
+	return nil
+}
+
+// retryOrDeadLetter naks m for redelivery, or, on its last allowed
+// attempt, dead-letters and Terms it.
+func (b *Bus) retryOrDeadLetter(ctx context.Context, cfg ConsumeConfig, m jetstream.Msg) {
+	if cfg.MaxDeliver > 0 {
+		if meta, err := m.Metadata(); err == nil && meta.NumDelivered >= uint64(cfg.MaxDeliver) {
+			if cfg.DeadLetterSubject != "" {
+				_ = b.Publish(ctx, cfg.DeadLetterSubject, m.Data())
+			}
+			_ = m.Term()
+			return
+		}
+	}
+	_ = m.Nak()
 }

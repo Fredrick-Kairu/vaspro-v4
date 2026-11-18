@@ -1,7 +1,12 @@
-# gitleaks configuration: the default rules, plus one generated file.
+# gitleaks configuration: the default rules, plus paths whose "secrets"
+# are made up or generated from files scanned themselves.
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Generated from docs/api/*.yaml, which are scanned themselves; their example tokens carry gitleaks:allow there"
 paths = ['''(^|/)docs/api/API\.md$''']
+
+[[allowlists]]
+description = "Webhook test vectors (5.7): the made-up secrets from internal/webhooks/domain/signature_test.go, which JSON can't mark gitleaks:allow"
+paths = ['''^docs/webhooks/verify/testdata/vectors\.json$''']

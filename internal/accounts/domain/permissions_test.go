@@ -22,13 +22,14 @@ func TestBuiltinRoles_PermissionMatrix(t *testing.T) {
 		domain.PermMembersRead, domain.PermMembersManage,
 		domain.PermCredentialsRead, domain.PermCredentialsManage,
 		domain.PermBillingRead, domain.PermBillingManage,
+		domain.PermContactsRead, domain.PermContactsManage,
 	}
 	want := map[uuid.UUID][]bool{
-		//                              acct r  acct m  mem r  mem m  cred r  cred m  bill r  bill m
-		domain.BuiltinAdminRoleID:     {y, y, y, y, y, y, y, y},
-		domain.BuiltinDeveloperRoleID: {y, n, y, n, y, y, n, n},
-		domain.BuiltinFinanceRoleID:   {y, n, y, n, n, n, y, y},
-		domain.BuiltinViewerRoleID:    {y, n, y, n, y, n, y, n},
+		//                              acct r  acct m  mem r  mem m  cred r  cred m  bill r  bill m  cont r  cont m
+		domain.BuiltinAdminRoleID:     {y, y, y, y, y, y, y, y, y, y},
+		domain.BuiltinDeveloperRoleID: {y, n, y, n, y, y, n, n, y, y},
+		domain.BuiltinFinanceRoleID:   {y, n, y, n, n, n, y, y, y, n},
+		domain.BuiltinViewerRoleID:    {y, n, y, n, y, n, y, n, y, n},
 	}
 	if len(domain.Catalogue()) != len(perms) {
 		t.Fatalf("the catalogue has %d permissions, this matrix covers %d: add the new ones here", len(domain.Catalogue()), len(perms))

@@ -16,6 +16,8 @@ var specs = []specFile{
 	{Path: "docs/api/accounts.yaml", Title: "Accounts API"},
 	{Path: "docs/api/ledger.yaml", Title: "Ledger API"},
 	{Path: "docs/api/payments.yaml", Title: "Payments API"},
+	{Path: "docs/api/webhooks.yaml", Title: "Webhooks API"},
+	{Path: "docs/api/contacts.yaml", Title: "Contacts API"},
 }
 
 const catalogueFile = "docs/errors/catalogue.yaml"

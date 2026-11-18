@@ -415,6 +415,10 @@ func newTestGatewayWithAccounts(t *testing.T, identityBaseURL, accountsBaseURL s
 		// Nor payments (task 4.3); TestGatewayBackends_Payments covers it.
 		PaymentsBaseURL:     "http://127.0.0.1:1",
 		PaymentsOpenAPIPath: filepath.Join(root, "docs/api/payments.yaml"),
+		// Nor webhooks (task 5.5); TestGatewayBackends_Webhooks covers it.
+		WebhooksBaseURL:     "http://127.0.0.1:1",
+		WebhooksOpenAPIPath: filepath.Join(root, "docs/api/webhooks.yaml"),
+		ContactsBaseURL:     "http://127.0.0.1:1", ContactsOpenAPIPath: filepath.Join(root, "docs/api/contacts.yaml"),
 	}
 	svc, err := New(cfg, testkit.StartRedis(t), clock.Real{}, logger, protected, sessions)
 	if err != nil {

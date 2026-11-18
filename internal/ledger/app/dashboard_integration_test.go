@@ -383,7 +383,9 @@ func TestDevTopUp(t *testing.T) {
 	if got := systemBalance(t, h, sandbox); got != 500_000 {
 		t.Fatalf("sandbox clearing %d, want 500,000", got)
 	}
-	assertEventValid(t, h, "wallet.credited", balanceOf(t, h, tenant, mainKES).AccountID)
+	if data := assertEventValid(t, h, "wallet.credited", balanceOf(t, h, tenant, mainKES).AccountID); data["rail"] != "sandbox" {
+		t.Fatalf("a dev top-up's wallet.credited rail = %v, want sandbox (task 5.6)", data["rail"])
+	}
 	again, err := dev.DevTopUp(ctx, staff.user, req)
 	if err != nil || !again.Replayed || again.TransactionID != res.TransactionID {
 		t.Fatalf("replay: %+v, %v", again, err)

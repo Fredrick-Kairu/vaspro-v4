@@ -74,6 +74,15 @@ const (
 	VAL4015  Code = "VAL-4015"
 	VAL4016  Code = "VAL-4016"
 	VAL4017  Code = "VAL-4017"
+	VAL4018  Code = "VAL-4018"
+	VAL4019  Code = "VAL-4019"
+	VAL4020  Code = "VAL-4020"
+	VAL4021  Code = "VAL-4021"
+	VAL4022  Code = "VAL-4022"
+	VAL4023  Code = "VAL-4023"
+	VAL4024  Code = "VAL-4024"
+	VAL4025  Code = "VAL-4025"
+	VAL4026  Code = "VAL-4026"
 )
 
 var registry = map[Code]entry{
@@ -530,6 +539,78 @@ var registry = map[Code]entry{
 		Title:     "Statement already imported",
 		Cause:     "A statement for this paybill and day has already been imported and reconciled.",
 		Fix:       "Nothing to do; resolve its exceptions instead. A correction from the rail is a matter for its exceptions, not a second import.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4018: {
+		Status:    422,
+		Title:     "Webhook endpoint verification failed",
+		Cause:     "The endpoint didn't answer the signed verification request with a 2xx and the same challenge within 10 seconds.",
+		Fix:       "Make the endpoint answer the webhook.verification request with {\"challenge\": \"<the value sent>\"} and a 2xx status, then verify again.",
+		Retryable: true,
+		Billable:  false,
+	},
+	VAL4019: {
+		Status:    422,
+		Title:     "Webhook URL not allowed",
+		Cause:     "Webhook URLs must be https, carry no user name or password, and reach a public address. Private, loopback, link-local and metadata addresses are refused, after DNS too.",
+		Fix:       "Use a public https URL.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4020: {
+		Status:    422,
+		Title:     "Phone number not valid",
+		Cause:     "The number isn't a mobile number in the account's country, in any of its usual formats (07…, 01…, 254…, +254… in Kenya), or a valid international number starting with + or 00. The detail says whether it has letters, the wrong length, or isn't a mobile.",
+		Fix:       "Correct the number.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4021: {
+		Status:    422,
+		Title:     "Field value not valid",
+		Cause:     "A contact field or attribute value doesn't suit its type (a number, a date as YYYY-MM-DD, true or false, text of at most 255 characters), or names an attribute the account hasn't defined.",
+		Fix:       "Correct the value, or define the attribute first.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4022: {
+		Status:    422,
+		Title:     "Import file can't be read",
+		Cause:     "The file isn't a readable CSV or XLSX, has no column for the phone number, has two columns for one field, or is over the row limit.",
+		Fix:       "Check the file opens in a spreadsheet and has a phone, msisdn, mobile, number or phone_number column.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4023: {
+		Status:    409,
+		Title:     "Import not in a state for this",
+		Cause:     "The import isn't awaiting its upload, or its upload form has expired.",
+		Fix:       "Start a new import.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4024: {
+		Status:    410,
+		Title:     "File deleted",
+		Cause:     "Uploaded files and their error reports are deleted 2 days after the import finishes (data model §8). The import, its counts and its errors remain.",
+		Fix:       "Upload the file again if you need it processed again.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4025: {
+		Status:    422,
+		Title:     "Segment filter not valid",
+		Cause:     "The filter isn't an \"all\" or \"any\" group of conditions, nests more than two levels or has more than 20 conditions, uses an operator its field's type doesn't allow or a value that doesn't suit it, or names an attribute or group the account doesn't have. A saved segment whose attribute or group was deleted since is refused when it's used. The detail names the problem.",
+		Fix:       "Correct the filter, or change the segment to drop the deleted attribute or group.",
+		Retryable: false,
+		Billable:  false,
+	},
+	VAL4026: {
+		Status:    409,
+		Title:     "Consent withdrawn by the person",
+		Cause:     "The person withdrew this consent themselves, by replying with a stop word or on their preference page, and only they can give it back (data model §10).",
+		Fix:       "Ask the person to reply with the start word or use their preference page. Recording the withdrawal again is accepted and changes nothing.",
 		Retryable: false,
 		Billable:  false,
 	},

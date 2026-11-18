@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package contacts.v1;
+
+option go_package = "github.com/Fredrick-Kairu/vaspro-v4/proto/contacts/v1;contactsv1";
+
+// ContactsService is contacts' internal API for other VASPRO services
+// (data model §10, task 6.5); messaging is its caller. It is never
+// exposed to clients, and it trusts the tenant a request names, so its
+// port must be reachable only from VASPRO services.
+//
+// Numbers are read in the account's country unless they start with +
+// or 00. A number that isn't valid is answered invalid_number by
+// CheckConsent and is INVALID_ARGUMENT elsewhere.
+service ContactsService {
+  // CheckConsent answers, for up to 10,000 numbers, whether a message
+  // on a channel for a purpose may go to each: one answer per number,
+  // in the request's order, from one query (data model §10's decision
+  // table). More than 10,000 is INVALID_ARGUMENT.
+  rpc CheckConsent(CheckConsentRequest) returns (CheckConsentResponse);
+  // ExpandAudience streams a group's or segment's contacts with consent
+  // applied: each page has the recipients allowed and how many were
+  // blocked, by reason. The pages read the contacts as they are while
+  // the stream runs. An unknown group or segment is NOT_FOUND; a
+  // segment naming an attribute or group deleted since is
+  // FAILED_PRECONDITION.
+  rpc ExpandAudience(ExpandAudienceRequest) returns (stream ExpandAudienceResponse);
+  // RecordReplyKeyword records a reply that is only one of the pack's
+  // stop or start words as the person's own choice for promotional
+  // messages on the reply's channel. Messaging decides which client a
+  // reply belongs to. Any other text records nothing.
+  rpc RecordReplyKeyword(RecordReplyKeywordRequest) returns (RecordReplyKeywordResponse);
+  // IssuePreferenceLink issues a number's preference link for a
+  // promotional message, replacing any earlier one.
+  rpc IssuePreferenceLink(IssuePreferenceLinkRequest) returns (IssuePreferenceLinkResponse);
+}
+
+message CheckConsentRequest {
+  string tenant_id = 1;
+  string channel = 2;  // sms, whatsapp, email, telegram or rcs
+  string purpose = 3;  // transactional or promotional
+  repeated string numbers = 4;
+}
+
+message ConsentAnswer {
+  // The number in E.164, or as given when it isn't valid.
+  string number = 1;
+  bool allowed = 2;
+  // Why not: suppressed, opted_out, no_consent or invalid_number.
+  string reason = 3;
+}
+
+message CheckConsentResponse {
+  repeated ConsentAnswer answers = 1;
+}
+
+message ExpandAudienceRequest {
+  string tenant_id = 1;
+  oneof audience {
+    string group_id = 2;
+    string segment_id = 3;
+  }
+  string channel = 4;
+  string purpose = 5;
+  // Contacts read per page, 1 to 5,000; 1,000 when 0.
+  int32 page_size = 6;
+}
+
+message Recipient {
+  string contact_id = 1;
+  string number = 2;  // E.164
+}
+
+// ExpandAudienceResponse is one page of an audience.
+message ExpandAudienceResponse {
+  repeated Recipient recipients = 1;
+  // How many of this page's contacts were blocked, by reason.
+  map<string, int64> blocked = 2;
+  // True on the stream's last page.
+  bool last = 3;
+}
+
+message RecordReplyKeywordRequest {
+  string tenant_id = 1;
+  string channel = 2;
+  string number = 3;
+  string text = 4;
+}
+
+message RecordReplyKeywordResponse {
+  // stop, start, or empty when the reply isn't a keyword.
+  string matched = 1;
+}
+
+message IssuePreferenceLinkRequest {
+  string tenant_id = 1;
+  string number = 2;
+}
+
+message IssuePreferenceLinkResponse {
+  string url = 1;
+  int64 expires_at_unix = 2;
+}

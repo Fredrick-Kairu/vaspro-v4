@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.vaspro.io/events/usage.posted.schema.json",
   "title": "usage.posted",
+  "x-vaspro-webhook": true,
   "description": "Published by the ledger when it settles a service wallet's usage for one settlement window (data model §5's Events table, task 3.5): one batch, one usage posting that drew the captured tokens from the lots, oldest first, and split the value into revenue and VAT. holds names every hold the batch settled, so services can tag their per-message rows with batch_id. Money is in minor units; tokens are a decimal string. This is the envelope's data field, not the whole envelope (see platform/events.Envelope).",
   "type": "object",
   "required": ["tenant_id", "account_id", "batch_id", "transaction_id", "service_code", "currency", "window_start", "window_end",

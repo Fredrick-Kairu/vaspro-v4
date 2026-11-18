@@ -1,0 +1,2445 @@
+openapi: 3.1.0
+info:
+  title: VASPRO contacts API
+  version: '1'
+  description: >-
+    The contacts service's HTTP API (data model §8 and §10, OQ-26): an account's contacts with typed attributes,
+    groups, segments, imports from CSV and XLSX files, consent, suppressions and preference links. Every
+    operation but downloadImportFile, getPreferences and updatePreferences is reached through the gateway,
+    which checks the dashboard session (sessionBearer) first. Reads need contacts:read in the account
+    and writes contacts:manage (AUTH-4024 otherwise); an account the caller isn't a member of is VAL-4003,
+    as if it didn't exist.
+servers:
+- url: "/"
+paths:
+  "/v1/contacts/tenants/{tenantId}/contacts":
+    get:
+      operationId: listContacts
+      summary: The account's contacts
+      description: Newest first, cursor-paged; group_id lists one group's contacts. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/GroupFilter"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of contacts.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ContactList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: createContact
+      summary: Add a contact
+      description: >-
+        The number is read in the account's country (07…, 01…, 254… or +254… in Kenya) and stored in E.164.
+        A number already in the account merges into its contact: fields given replace the stored ones,
+        attributes merge, and the answer is 200 rather than 201. An invalid number is VAL-4020; an unknown
+        attribute, or a value that doesn't suit its attribute's type, VAL-4021. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ContactCreateRequest"
+      responses:
+        '201':
+          description: The new contact.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Contact"
+        '200':
+          description: The existing contact, merged.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Contact"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/contacts/{contactId}":
+    get:
+      operationId: getContact
+      summary: One contact
+      description: Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/ContactID"
+      responses:
+        '200':
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Contact"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    patch:
+      operationId: updateContact
+      summary: Change a contact
+      description: >-
+        Fields given replace the stored ones (an empty string clears one); attributes given are set, and
+        null removes one. The number can't change. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/ContactID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ContactUpdateRequest"
+      responses:
+        '200':
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Contact"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    delete:
+      operationId: deleteContact
+      summary: Delete a contact
+      description: >-
+        Deletes the contact, its attributes and its group memberships. Its number's consent and suppressions
+        stay (data model §10). Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/ContactID"
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/attribute-definitions":
+    get:
+      operationId: listAttributeDefinitions
+      summary: The account's contact attributes
+      description: By key. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      responses:
+        '200':
+          description: Every attribute.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AttributeDefinitionList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: createAttributeDefinition
+      summary: Define a contact attribute
+      description: >-
+        At most 50 per account, each key once (VAL-4000). The key is lower case: a letter, then letters,
+        digits and underscores, at most 40. The type is text, number, date or boolean. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AttributeDefinitionCreateRequest"
+      responses:
+        '201':
+          description: The attribute.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AttributeDefinition"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/attribute-definitions/{attributeKey}":
+    delete:
+      operationId: deleteAttributeDefinition
+      summary: Delete a contact attribute
+      description: Also removes its values from every contact. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/AttributeKey"
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/groups":
+    get:
+      operationId: listGroups
+      summary: The account's groups
+      description: By name, with how many contacts each has. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      responses:
+        '200':
+          description: Every group.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GroupList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: createGroup
+      summary: Create a group
+      description: Names are unique in an account, ignoring case (VAL-4000). Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupCreateRequest"
+      responses:
+        '201':
+          description: The group.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Group"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/groups/{groupId}":
+    get:
+      operationId: getGroup
+      summary: One group
+      description: With how many contacts it has. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/GroupID"
+      responses:
+        '200':
+          description: The group.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Group"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    patch:
+      operationId: updateGroup
+      summary: Rename or describe a group
+      description: Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/GroupID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupUpdateRequest"
+      responses:
+        '200':
+          description: The group.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Group"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    delete:
+      operationId: deleteGroup
+      summary: Delete a group
+      description: Its contacts stay. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/GroupID"
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/groups/{groupId}/members":
+    get:
+      operationId: listGroupMembers
+      summary: A group's contacts
+      description: Newest first, cursor-paged. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/GroupID"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of contacts.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ContactList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: addGroupMembers
+      summary: Add contacts to a group
+      description: >-
+        Up to 1,000 at once. One already in the group is skipped; an unknown contact is VAL-4003 and nothing
+        is added. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/GroupID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GroupMembersAddRequest"
+      responses:
+        '200':
+          description: How many were added.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GroupMembersAdded"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/groups/{groupId}/members/{contactId}":
+    delete:
+      operationId: removeGroupMember
+      summary: Remove a contact from a group
+      description: Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/GroupID"
+      - "$ref": "#/components/parameters/ContactID"
+      responses:
+        '204':
+          description: Removed, or it wasn't in the group.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/segments":
+    get:
+      operationId: listSegments
+      summary: The account's segments
+      description: By name. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      responses:
+        '200':
+          description: Every segment.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SegmentList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: createSegment
+      summary: Save a segment
+      description: >-
+        A filter over the account's contacts, checked against its attributes and groups (VAL-4025 if it
+        isn't valid). Names are unique ignoring case. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SegmentCreateRequest"
+      responses:
+        '201':
+          description: The segment.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Segment"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/segments/{segmentId}":
+    get:
+      operationId: getSegment
+      summary: One segment
+      description: Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/SegmentID"
+      responses:
+        '200':
+          description: The segment.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Segment"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    patch:
+      operationId: updateSegment
+      summary: Rename a segment or replace its filter
+      description: A new filter is checked as on creation. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/SegmentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SegmentUpdateRequest"
+      responses:
+        '200':
+          description: The segment.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Segment"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    delete:
+      operationId: deleteSegment
+      summary: Delete a segment
+      description: Its contacts are untouched. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/SegmentID"
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/segments/{segmentId}/count":
+    get:
+      operationId: getSegmentCount
+      summary: How many contacts a segment matches
+      description: >-
+        Evaluated now, so it reflects current contacts. A segment naming an attribute or group deleted
+        since is VAL-4025. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/SegmentID"
+      responses:
+        '200':
+          description: The count.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SegmentCount"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/segments/{segmentId}/contacts":
+    get:
+      operationId: listSegmentContacts
+      summary: A segment's contacts
+      description: >-
+        Evaluated now; newest first, cursor-paged. A segment naming an attribute or group deleted since
+        is VAL-4025. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/SegmentID"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of contacts.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ContactList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/imports":
+    get:
+      operationId: listImports
+      summary: The account's imports
+      description: Newest first, cursor-paged. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of imports.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ImportList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: createImport
+      summary: Start an import from a CSV or XLSX file
+      description: >-
+        Returns the import, awaiting its upload, and a signed form that works for 15 minutes: post its
+        fields, then the file in a field named "file", straight to storage, never through this API. Then
+        call confirmImportUpload. A file is at most 20 MB and 1,000,000 rows. It and its error report
+        are deleted 2 days after the import finishes (data model §8). Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ImportCreateRequest"
+      responses:
+        '201':
+          description: The import and its upload form.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ImportCreated"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/imports/{importId}":
+    get:
+      operationId: getImport
+      summary: One import, with its progress
+      description: Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/ImportID"
+      responses:
+        '200':
+          description: The import.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Import"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/imports/{importId}/upload-confirmation":
+    post:
+      operationId: confirmImportUpload
+      summary: Say the file is uploaded
+      description: >-
+        The import moves to scanning and is processed in the background; follow its status, or the contact_import.finished
+        event. An import not awaiting its upload, or whose form has expired, is VAL-4023. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/ImportID"
+      responses:
+        '202':
+          description: The import, scanning.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Import"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '409':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/imports/{importId}/errors":
+    get:
+      operationId: listImportErrors
+      summary: An import's rejected rows and columns
+      description: >-
+        By row; row 1 is the header, and row 0 the file as a whole. Each names the problem, never the
+        row's values. Kept after the file is deleted. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/ImportID"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of errors.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ImportErrorList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/imports/{importId}/download-links":
+    post:
+      operationId: createImportDownloadLink
+      summary: A link to download the original file or the error report
+      description: >-
+        The link works for 5 minutes, needs no session, and is answered by downloadImportFile. Once the
+        files are deleted this is VAL-4024 (410); errors for an import with no error report are VAL-4003.
+        Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/ImportID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/DownloadLinkRequest"
+      responses:
+        '201':
+          description: The link.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DownloadLink"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '410':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/consents":
+    post:
+      operationId: recordConsent
+      summary: Record the client's consent for a number
+      description: >-
+        A grant or withdrawal for one channel and purpose, recorded as the client's (source api), with
+        how it was obtained. The number may be any contact or not. A withdrawal the person made themselves
+        (a STOP reply or the preference centre) can only be undone by the person: granting over it is
+        VAL-4026, withdrawing again changes nothing. A new withdrawal publishes consent.withdrawn. Needs
+        contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ConsentRequest"
+      responses:
+        '200':
+          description: The consent as now recorded.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Consent"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '409':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/consent-lookups":
+    post:
+      operationId: lookupConsent
+      summary: A number's consent
+      description: >-
+        The number goes in the body, never the URL. Its recorded consents, suppressions, the decision
+        for every channel and purpose (data model §10), and the last 50 changes. Writes nothing. Needs
+        contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PhoneRequest"
+      responses:
+        '200':
+          description: The number's consent.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ConsentState"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/suppressions":
+    get:
+      operationId: listSuppressions
+      summary: The client's do-not-contact list
+      description: By number, then channel; cursor-paged. Needs contacts:read.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: A page of suppressions.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SuppressionList"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    post:
+      operationId: addSuppression
+      summary: Suppress a number
+      description: >-
+        On one channel, or every channel when channel is left out. A suppressed number gets nothing on
+        that channel, whatever its consent. Already there: 200 with the existing entry. Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SuppressionRequest"
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Suppression"
+        '200':
+          description: Already suppressed.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Suppression"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/suppression-removals":
+    post:
+      operationId: removeSuppression
+      summary: Take a number off the list
+      description: >-
+        For one channel, or the every-channel entry when channel is left out; the number in the body.
+        Needs contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SuppressionRemovalRequest"
+      responses:
+        '204':
+          description: Removed.
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/tenants/{tenantId}/preference-links":
+    post:
+      operationId: issuePreferenceLink
+      summary: Issue a number's preference link
+      description: >-
+        A link to a page where the person can turn promotional messages on or off per channel, with no
+        sign-in. It works for 90 days; issuing another replaces it. The token is shown only here. Needs
+        contacts:manage.
+      security:
+      - sessionBearer: []
+      parameters:
+      - "$ref": "#/components/parameters/TenantID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PhoneRequest"
+      responses:
+        '201':
+          description: The link.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PreferenceLink"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '422':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/preferences/{token}":
+    get:
+      operationId: getPreferences
+      summary: A preference page's choices
+      description: >-
+        Public: the link's token is the credential. The number, masked, and whether the person receives
+        promotional messages on each channel. A changed, replaced or expired link is VAL-4003.
+      security: []
+      parameters:
+      - "$ref": "#/components/parameters/PreferenceToken"
+      responses:
+        '200':
+          description: The choices.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Preferences"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+    put:
+      operationId: updatePreferences
+      summary: Change a preference page's choices
+      description: >-
+        Public. Recorded as the person's own choice (source preference_centre), which the client can't
+        undo. Turning a channel off publishes consent.withdrawn. A changed, replaced or expired link is
+        VAL-4003.
+      security: []
+      parameters:
+      - "$ref": "#/components/parameters/PreferenceToken"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PreferencesUpdateRequest"
+      responses:
+        '200':
+          description: The choices now.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Preferences"
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+  "/v1/contacts/downloads/{token}":
+    get:
+      operationId: downloadImportFile
+      summary: Download a file by its signed link
+      description: >-
+        Public: the signed token is the credential. The file is decrypted as it streams. A changed or
+        expired link is VAL-4003; a deleted file VAL-4024 (410).
+      security: []
+      parameters:
+      - "$ref": "#/components/parameters/DownloadToken"
+      responses:
+        '200':
+          description: The file.
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          "$ref": "#/components/responses/Problem"
+        '401':
+          "$ref": "#/components/responses/Problem"
+        '403':
+          "$ref": "#/components/responses/Problem"
+        '404':
+          "$ref": "#/components/responses/Problem"
+        '410':
+          "$ref": "#/components/responses/Problem"
+        default:
+          "$ref": "#/components/responses/Problem"
+components:
+  securitySchemes:
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        A dashboard session token from identity's sign-in. The gateway resolves it and forwards the user
+        and session to contacts.
+  parameters:
+    TenantID:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    ContactID:
+      name: contactId
+      in: path
+      required: true
+      schema:
+        type: string
+    GroupID:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+    SegmentID:
+      name: segmentId
+      in: path
+      required: true
+      schema:
+        type: string
+    ImportID:
+      name: importId
+      in: path
+      required: true
+      schema:
+        type: string
+    AttributeKey:
+      name: attributeKey
+      in: path
+      required: true
+      schema:
+        type: string
+    DownloadToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    PreferenceToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+      description: The 12-character token from the link.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Required on every write (.claude/rules/api.md).
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: The next_cursor of the page before.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+      description: 1 to 100; 50 when absent.
+    GroupFilter:
+      name: group_id
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Only this group's contacts.
+  responses:
+    Problem:
+      description: application/problem+json error (system design §8).
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+  schemas:
+    ContactCreateRequest:
+      type: object
+      required:
+      - phone
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          maxLength: 40
+          description: Any of the country's usual formats; stored in E.164.
+        first_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          maxLength: 254
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 255
+          description: 'Values as text, checked against each attribute''s type: "42", "2026-11-17", "true".'
+      example:
+        phone: 0700 000 001
+        first_name: Ann
+        last_name: Test
+        email: ann@example.com
+        attributes:
+          county: Nairobi
+          visits: '3'
+    ContactUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        first_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          maxLength: 254
+        attributes:
+          type: object
+          additionalProperties:
+            type:
+            - string
+            - 'null'
+            maxLength: 255
+          description: null removes an attribute.
+      example:
+        email: ''
+        attributes:
+          visits: '4'
+          county:
+    Contact:
+      type: object
+      required:
+      - id
+      - phone
+      - attributes
+      - source
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+        phone:
+          type: string
+          description: E.164.
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Text and dates as strings, numbers as JSON numbers, booleans as true or false.
+        source:
+          type: string
+          enum:
+          - api
+          - dashboard
+          - import
+          - v3
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      example:
+        id: '0193a1b2-7f00-7000-8000-0000000000c1'
+        phone: "+254700000001"
+        first_name: Ann
+        last_name: Test
+        email: ann@example.com
+        attributes:
+          county: Nairobi
+          visits: 3
+          joined: '2026-01-15'
+          vip: true
+        source: api
+        created_at: '2026-11-17T09:00:00Z'
+        updated_at: '2026-11-17T09:00:00Z'
+    ContactList:
+      type: object
+      required:
+      - contacts
+      properties:
+        contacts:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Contact"
+        next_cursor:
+          type: string
+      example:
+        contacts:
+        - id: '0193a1b2-7f00-7000-8000-0000000000c1'
+          phone: "+254700000001"
+          first_name: Ann
+          last_name: Test
+          email: ann@example.com
+          attributes:
+            county: Nairobi
+            visits: 3
+            joined: '2026-01-15'
+            vip: true
+          source: api
+          created_at: '2026-11-17T09:00:00Z'
+          updated_at: '2026-11-17T09:00:00Z'
+        next_cursor: MTc2MzM2OTYwMDAwMDAwMDAwMC4wMTkz
+    AttributeDefinitionCreateRequest:
+      type: object
+      required:
+      - key
+      - label
+      - type
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,39}$"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          enum:
+          - text
+          - number
+          - date
+          - boolean
+      example:
+        key: county
+        label: County
+        type: text
+    AttributeDefinition:
+      type: object
+      required:
+      - key
+      - label
+      - type
+      - created_at
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+          enum:
+          - text
+          - number
+          - date
+          - boolean
+        created_at:
+          type: string
+          format: date-time
+      example:
+        key: county
+        label: County
+        type: text
+        created_at: '2026-11-17T09:00:00Z'
+    AttributeDefinitionList:
+      type: object
+      required:
+      - attributes
+      properties:
+        attributes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/AttributeDefinition"
+      example:
+        attributes:
+        - key: county
+          label: County
+          type: text
+          created_at: '2026-11-17T09:00:00Z'
+    PhoneRequest:
+      type: object
+      required:
+      - phone
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          maxLength: 40
+          description: Any of the country's usual formats.
+      example:
+        phone: '0700000001'
+    ConsentRequest:
+      type: object
+      required:
+      - phone
+      - channel
+      - purpose
+      - status
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          maxLength: 40
+          description: Any of the country's usual formats.
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        purpose:
+          type: string
+          enum:
+          - transactional
+          - promotional
+        status:
+          type: string
+          enum:
+          - granted
+          - withdrawn
+        evidence:
+          type: string
+          maxLength: 500
+          description: How the client obtained or lost it.
+      example:
+        phone: '0700000001'
+        channel: sms
+        purpose: promotional
+        status: granted
+        evidence: Signed up for offers at the Westlands till, 14 Nov
+    Consent:
+      type: object
+      required:
+      - channel
+      - purpose
+      - status
+      - actor
+      - source
+      - recorded_at
+      properties:
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        purpose:
+          type: string
+          enum:
+          - transactional
+          - promotional
+        status:
+          type: string
+          enum:
+          - granted
+          - withdrawn
+        actor:
+          type: string
+          enum:
+          - client
+          - subject
+          description: 'subject: the person themselves, whose withdrawal only they can undo.'
+        source:
+          type: string
+          enum:
+          - api
+          - dashboard
+          - keyword
+          - preference_centre
+          - v3
+        evidence:
+          type: string
+        recorded_at:
+          type: string
+          format: date-time
+      example:
+        channel: sms
+        purpose: promotional
+        status: granted
+        actor: client
+        source: api
+        evidence: Signed up for offers at the Westlands till, 14 Nov
+        recorded_at: '2026-11-17T09:00:00Z'
+    ConsentDecision:
+      type: object
+      required:
+      - channel
+      - purpose
+      - allowed
+      properties:
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        purpose:
+          type: string
+          enum:
+          - transactional
+          - promotional
+        allowed:
+          type: boolean
+        reason:
+          type: string
+          enum:
+          - suppressed
+          - opted_out
+          - no_consent
+          - invalid_number
+    ConsentChange:
+      type: object
+      required:
+      - channel
+      - purpose
+      - status
+      - actor
+      - source
+      - occurred_at
+      properties:
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        purpose:
+          type: string
+          enum:
+          - transactional
+          - promotional
+        status:
+          type: string
+        actor:
+          type: string
+        source:
+          type: string
+        evidence:
+          type: string
+        recorded_by:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+    ConsentState:
+      type: object
+      required:
+      - phone
+      - consents
+      - suppressions
+      - decisions
+      - history
+      properties:
+        phone:
+          type: string
+        contact_id:
+          type: string
+        consents:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Consent"
+        suppressions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Suppression"
+        decisions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ConsentDecision"
+        history:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ConsentChange"
+      example:
+        phone: "+254700000001"
+        contact_id: '0193a1b2-7f00-7000-8000-0000000000c1'
+        consents:
+        - channel: sms
+          purpose: promotional
+          status: granted
+          actor: client
+          source: api
+          evidence: Signed up for offers at the Westlands till, 14 Nov
+          recorded_at: '2026-11-17T09:00:00Z'
+        suppressions:
+        - phone: "+254700000002"
+          channel: whatsapp
+          reason: complaint
+          note: Asked us to stop by phone
+          created_at: '2026-11-17T09:00:00Z'
+        decisions:
+        - channel: sms
+          purpose: promotional
+          allowed: true
+        - channel: whatsapp
+          purpose: promotional
+          allowed: false
+          reason: suppressed
+        history:
+        - channel: sms
+          purpose: promotional
+          status: granted
+          actor: client
+          source: api
+          evidence: Signed up for offers at the Westlands till, 14 Nov
+          recorded_by: '0193a1b2-7f00-7000-8000-0000000000f1'
+          occurred_at: '2026-11-17T09:00:00Z'
+    SuppressionRequest:
+      type: object
+      required:
+      - phone
+      - reason
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          maxLength: 40
+          description: Any of the country's usual formats.
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        reason:
+          type: string
+          enum:
+          - client_request
+          - complaint
+          - invalid
+          - other
+        note:
+          type: string
+          maxLength: 500
+      example:
+        phone: '0700000002'
+        channel: whatsapp
+        reason: complaint
+        note: Asked us to stop by phone
+    SuppressionRemovalRequest:
+      type: object
+      required:
+      - phone
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          maxLength: 40
+          description: Any of the country's usual formats.
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+      example:
+        phone: '0700000002'
+        channel: whatsapp
+    Suppression:
+      type: object
+      required:
+      - phone
+      - reason
+      - created_at
+      properties:
+        phone:
+          type: string
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        reason:
+          type: string
+          enum:
+          - client_request
+          - complaint
+          - invalid
+          - other
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      example:
+        phone: "+254700000002"
+        channel: whatsapp
+        reason: complaint
+        note: Asked us to stop by phone
+        created_at: '2026-11-17T09:00:00Z'
+    SuppressionList:
+      type: object
+      required:
+      - suppressions
+      properties:
+        suppressions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Suppression"
+        next_cursor:
+          type: string
+      example:
+        suppressions:
+        - phone: "+254700000002"
+          channel: whatsapp
+          reason: complaint
+          note: Asked us to stop by phone
+          created_at: '2026-11-17T09:00:00Z'
+        next_cursor: KzI1NDcwMDAwMDAwMi93aGF0c2FwcA
+    PreferenceLink:
+      type: object
+      required:
+      - url
+      - expires_at
+      properties:
+        url:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      example:
+        url: https://api.vaspro.test/p/Ab3dE5gH7jK9
+        expires_at: '2027-02-15T09:00:00Z'
+    ChannelPreference:
+      type: object
+      required:
+      - channel
+      - receiving
+      properties:
+        channel:
+          type: string
+          enum:
+          - sms
+          - whatsapp
+          - email
+          - telegram
+          - rcs
+        receiving:
+          type: boolean
+    Preferences:
+      type: object
+      required:
+      - masked_phone
+      - channels
+      - expires_at
+      properties:
+        masked_phone:
+          type: string
+        channels:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ChannelPreference"
+        expires_at:
+          type: string
+          format: date-time
+      example:
+        masked_phone: "+254 7•• ••• 001"
+        expires_at: '2027-02-15T09:00:00Z'
+        channels:
+        - channel: sms
+          receiving: true
+        - channel: whatsapp
+          receiving: false
+    PreferencesUpdateRequest:
+      type: object
+      required:
+      - channels
+      additionalProperties: false
+      properties:
+        channels:
+          type: object
+          minProperties: 1
+          additionalProperties: false
+          properties:
+            sms:
+              type: boolean
+            whatsapp:
+              type: boolean
+          description: true receives promotional messages on the channel, false stops them.
+      example:
+        channels:
+          sms: false
+    SegmentFilter:
+      type: object
+      description: >-
+        A group, {"all": [...]} or {"any": [...]}, of conditions {"field", "op", "value"} and at most
+        one more level of groups; at most 20 conditions. Fields: first_name, last_name, email (ignoring
+        case), created_at (a date in the account's time zone), group, and attributes.<key>. Operators
+        by type: text eq, neq, in, contains, starts_with, exists; number eq, neq, gt, gte, lt, lte, between,
+        exists; date eq, before, after, between, exists; boolean eq, exists; group in, not_in. Text comparisons
+        are exact (case-sensitive) except email; neq and the comparisons need a value, so a contact without
+        one doesn't match; not_in matches a contact in no group. Values suit their field: text of 1 to
+        255 characters, numbers as JSON numbers or decimal text, dates as YYYY-MM-DD, true or false, group
+        IDs; in, not_in take a list of 1 to 100, between two (inclusive). At most 16 KB (data model §10).
+      x-go-type: json.RawMessage
+    SegmentCreateRequest:
+      type: object
+      required:
+      - name
+      - filter
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        filter:
+          "$ref": "#/components/schemas/SegmentFilter"
+      example:
+        name: Nairobi regulars
+        filter:
+          all:
+          - field: attributes.county
+            op: eq
+            value: Nairobi
+          - any:
+            - field: group
+              op: in
+              value:
+              - '0193a1b2-7f00-7000-8000-0000000000b1'
+            - field: attributes.visits
+              op: gte
+              value: 3
+    SegmentUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        filter:
+          "$ref": "#/components/schemas/SegmentFilter"
+      example:
+        name: Nairobi regulars, 2026
+    Segment:
+      type: object
+      required:
+      - id
+      - name
+      - filter
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        filter:
+          "$ref": "#/components/schemas/SegmentFilter"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      example:
+        id: '0193a1b2-7f00-7000-8000-0000000000e1'
+        name: Nairobi regulars
+        filter:
+          all:
+          - field: attributes.county
+            op: eq
+            value: Nairobi
+          - any:
+            - field: group
+              op: in
+              value:
+              - '0193a1b2-7f00-7000-8000-0000000000b1'
+            - field: attributes.visits
+              op: gte
+              value: 3
+        created_at: '2026-11-17T09:00:00Z'
+        updated_at: '2026-11-17T09:00:00Z'
+    SegmentList:
+      type: object
+      required:
+      - segments
+      properties:
+        segments:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Segment"
+      example:
+        segments:
+        - id: '0193a1b2-7f00-7000-8000-0000000000e1'
+          name: Nairobi regulars
+          filter:
+            all:
+            - field: attributes.county
+              op: eq
+              value: Nairobi
+            - any:
+              - field: group
+                op: in
+                value:
+                - '0193a1b2-7f00-7000-8000-0000000000b1'
+              - field: attributes.visits
+                op: gte
+                value: 3
+          created_at: '2026-11-17T09:00:00Z'
+          updated_at: '2026-11-17T09:00:00Z'
+    SegmentCount:
+      type: object
+      required:
+      - count
+      properties:
+        count:
+          type: integer
+          format: int64
+      example:
+        count: 1187
+    GroupCreateRequest:
+      type: object
+      required:
+      - name
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+      example:
+        name: Nairobi customers
+        description: From the November promotion
+    GroupUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+          description: An empty string clears it.
+      example:
+        name: Nairobi VIPs
+    Group:
+      type: object
+      required:
+      - id
+      - name
+      - members
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        members:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      example:
+        id: '0193a1b2-7f00-7000-8000-0000000000b1'
+        name: Nairobi customers
+        members: 1187
+        created_at: '2026-11-17T09:00:00Z'
+        updated_at: '2026-11-17T09:00:00Z'
+    GroupList:
+      type: object
+      required:
+      - groups
+      properties:
+        groups:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Group"
+      example:
+        groups:
+        - id: '0193a1b2-7f00-7000-8000-0000000000b1'
+          name: Nairobi customers
+          members: 1187
+          created_at: '2026-11-17T09:00:00Z'
+          updated_at: '2026-11-17T09:00:00Z'
+    GroupMembersAddRequest:
+      type: object
+      required:
+      - contact_ids
+      additionalProperties: false
+      properties:
+        contact_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: string
+      example:
+        contact_ids:
+        - '0193a1b2-7f00-7000-8000-0000000000c1'
+    GroupMembersAdded:
+      type: object
+      required:
+      - added
+      properties:
+        added:
+          type: integer
+          format: int64
+      example:
+        added: 1
+    ImportCreateRequest:
+      type: object
+      required:
+      - file_name
+      - content_type
+      additionalProperties: false
+      properties:
+        file_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Shown back to you; never used to store the file.
+        content_type:
+          type: string
+          enum:
+          - text/csv
+          - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+        group_id:
+          type: string
+          description: Add every imported contact to this group.
+      example:
+        file_name: customers.csv
+        content_type: text/csv
+        group_id: '0193a1b2-7f00-7000-8000-0000000000b1'
+    Import:
+      type: object
+      required:
+      - id
+      - status
+      - file_name
+      - content_type
+      - rows_valid
+      - rows_failed
+      - upload_expires_at
+      - delete_after
+      - has_error_report
+      - created_at
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+          - awaiting_upload
+          - scanning
+          - validating
+          - processing
+          - completed
+          - completed_with_errors
+          - failed
+          - cancelled
+          - expired
+        file_name:
+          type: string
+        content_type:
+          type: string
+        group_id:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        rows_total:
+          type: integer
+        rows_valid:
+          type: integer
+        rows_failed:
+          type: integer
+        upload_expires_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        delete_after:
+          type: string
+          format: date-time
+          description: When the file and its error report are deleted.
+        deleted_at:
+          type: string
+          format: date-time
+          description: Set once they are.
+        has_error_report:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+      example:
+        id: '0193a1b2-7f00-7000-8000-0000000000a1'
+        status: completed_with_errors
+        file_name: customers.csv
+        content_type: text/csv
+        group_id: '0193a1b2-7f00-7000-8000-0000000000b1'
+        size_bytes: 48211
+        rows_total: 1200
+        rows_valid: 1187
+        rows_failed: 13
+        upload_expires_at: '2026-11-17T09:15:00Z'
+        finished_at: '2026-11-17T09:02:41Z'
+        delete_after: '2026-11-19T09:02:41Z'
+        has_error_report: true
+        created_at: '2026-11-17T09:00:00Z'
+    ImportList:
+      type: object
+      required:
+      - imports
+      properties:
+        imports:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Import"
+        next_cursor:
+          type: string
+      example:
+        imports:
+        - id: '0193a1b2-7f00-7000-8000-0000000000a1'
+          status: completed_with_errors
+          file_name: customers.csv
+          content_type: text/csv
+          group_id: '0193a1b2-7f00-7000-8000-0000000000b1'
+          size_bytes: 48211
+          rows_total: 1200
+          rows_valid: 1187
+          rows_failed: 13
+          upload_expires_at: '2026-11-17T09:15:00Z'
+          finished_at: '2026-11-17T09:02:41Z'
+          delete_after: '2026-11-19T09:02:41Z'
+          has_error_report: true
+          created_at: '2026-11-17T09:00:00Z'
+    UploadForm:
+      type: object
+      required:
+      - url
+      - fields
+      - expires_at
+      - max_bytes
+      properties:
+        url:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        max_bytes:
+          type: integer
+          format: int64
+      example:
+        url: https://files.vaspro.test/contacts
+        expires_at: '2026-11-17T09:15:00Z'
+        max_bytes: 20971520
+        fields:
+          key: quarantine/0193a1b2-7f00-7000-8000-0000000000d1/0193a1b2-7f00-7000-8000-0000000000a1
+          policy: eyJleHBpcmF0aW9uIjoiMjAyNi0xMS0xN1QwOToxNTowMFoifQ
+          x-amz-algorithm: AWS4-HMAC-SHA256
+          x-amz-credential: EXAMPLE/20261117/us-east-1/s3/aws4_request
+          x-amz-date: 20261117T090000Z
+          x-amz-signature: example0000000000000000000000000000000000000000000000000000000000
+    ImportCreated:
+      type: object
+      required:
+      - import
+      - upload
+      properties:
+        import:
+          "$ref": "#/components/schemas/Import"
+        upload:
+          "$ref": "#/components/schemas/UploadForm"
+      example:
+        import:
+          id: '0193a1b2-7f00-7000-8000-0000000000a1'
+          status: awaiting_upload
+          file_name: customers.csv
+          content_type: text/csv
+          group_id: '0193a1b2-7f00-7000-8000-0000000000b1'
+          rows_valid: 0
+          rows_failed: 0
+          upload_expires_at: '2026-11-17T09:15:00Z'
+          delete_after: '2026-11-19T09:15:00Z'
+          has_error_report: false
+          created_at: '2026-11-17T09:00:00Z'
+        upload:
+          url: https://files.vaspro.test/contacts
+          expires_at: '2026-11-17T09:15:00Z'
+          max_bytes: 20971520
+          fields:
+            key: quarantine/0193a1b2-7f00-7000-8000-0000000000d1/0193a1b2-7f00-7000-8000-0000000000a1
+            policy: eyJleHBpcmF0aW9uIjoiMjAyNi0xMS0xN1QwOToxNTowMFoifQ
+            x-amz-algorithm: AWS4-HMAC-SHA256
+            x-amz-credential: EXAMPLE/20261117/us-east-1/s3/aws4_request
+            x-amz-date: 20261117T090000Z
+            x-amz-signature: example0000000000000000000000000000000000000000000000000000000000
+    ImportError:
+      type: object
+      required:
+      - row
+      - field
+      - code
+      - message
+      properties:
+        row:
+          type: integer
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+      example:
+        row: 14
+        field: phone
+        code: VAL-4020
+        message: not a mobile number
+    ImportErrorList:
+      type: object
+      required:
+      - errors
+      properties:
+        errors:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ImportError"
+        next_cursor:
+          type: string
+      example:
+        errors:
+        - row: 1
+          field: Notes
+          code: VAL-4021
+          message: not a contact field or one of the account's attributes; the column was ignored
+        - row: 14
+          field: phone
+          code: VAL-4020
+          message: not a mobile number
+    DownloadLinkRequest:
+      type: object
+      required:
+      - file
+      additionalProperties: false
+      properties:
+        file:
+          type: string
+          enum:
+          - original
+          - errors
+      example:
+        file: errors
+    DownloadLink:
+      type: object
+      required:
+      - url
+      - expires_at
+      properties:
+        url:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      example:
+        url: https://api.vaspro.test/v1/contacts/downloads/EXAMPLE.TOKEN
+        expires_at: '2026-11-17T09:10:00Z'
+    Problem:
+      type: object
+      required:
+      - type
+      - title
+      - status
+      - code
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        request_id:
+          type: string
