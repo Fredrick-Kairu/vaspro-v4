@@ -2564,16 +2564,47 @@ For testers and the frontend team, at your request. It's on branch `ops/dev-envi
     - Everything else passed: lint 0 issues, gen-check clean, every other package green.
     - **The machine was loaded:** a load average of 21 on 10 cores, from Spotify, Chrome, Apple Intelligence, `mobileassetd` and Spotlight, plus two other projects' containers in a restart loop, which were stopped (`docker start survey-platform-api-1 survey-platform-worker-1` brings them back).
     - **No contacts, contacts proto, contacts migration or `platform` code differs from `main`**, whose CI passed this test (PR #9), and it measured 49ms on 17 Nov.
-    - **Committed as it is, your call of 18 Nov.**
+    - **Committed as it is, your call of 18 Nov.** The next `make check` (with the stack additions below) was green, the latency test included.
     - To decide on `p7/phase-7`: moving the timing check out of the everyday `make check` into a benchmark run, so a busy machine can't fail an unrelated change.
-  - **Not deployable yet: the stack doesn't run webhooks, contacts or ClickHouse.** The gateway now needs `GATEWAY_WEBHOOKS_BASE_URL` and `GATEWAY_CONTACTS_BASE_URL` and won't start without them, so **don't `make dev-up` on the host until the stack additions land**. They are:
-    - webhooks and contacts Dockerfiles and services;
-    - ClickHouse;
-    - their database roles in `db-setup`;
-    - the `WEBHOOKS_*`, `CONTACTS_*` and gateway settings and secrets;
-    - object storage's public endpoint and CORS;
-    - nginx for `/p/`;
-    - ClickHouse migrations.
+  - **Webhooks, contacts and ClickHouse added to the stack** (a commit after the merge):
+    - **images:** `deploy/docker/webhooks.Dockerfile` and `contacts.Dockerfile`; the migrate image's goose now has its ClickHouse driver;
+    - **services:**
+      - `clickhouse` (24.3, as the tests use);
+      - `webhooks` (`webhooks:8085`, ClickHouse for the sink and reports, `WEBHOOKS_ALLOW_INSECURE_URLS=false`);
+      - `contacts` (`contacts:8086`, gRPC `contacts:9093`, its own `contacts` bucket, ClamAV);
+      - the gateway now waits for both, with `GATEWAY_WEBHOOKS_BASE_URL` and `GATEWAY_CONTACTS_BASE_URL`.
+    - **`db-setup`:**
+      - `webhooks_owner`/`webhooks_app` and `contacts_owner`/`contacts_app`, their migrations, and `webhooks_service`/`contacts_service` granted to the app roles (payments' pattern);
+      - then ClickHouse's migrations when `CLICKHOUSE_URL` is set (compose sets it).
+    - **Browser uploads** (contacts' signed forms):
+      - object storage's S3 is published on `127.0.0.1:18333` (`OBJECT_STORAGE_HOST_PORT`), and the nginx site sends only POSTs to `https://<API_DOMAIN>/contacts/` there (21 MB, request buffering off), so no new domain or certificate is needed;
+      - `render.sh` takes the origins allowed to read an upload's answer as an optional third argument. Each is checked, and they become one escaped pattern; none matches nothing.
+      - Downloads still go through the gateway.
+    - **Settings:**
+      - `env.example` has every `WEBHOOKS_*` and `CONTACTS_*` setting, with four new 32-byte secrets and four database passwords that `dev-secrets.sh` generates;
+      - **`CONTACTS_OBJECT_STORAGE_PUBLIC_ENDPOINT` (`<API_DOMAIN>`) and `CONTACTS_DOWNLOAD_BASE_URL` (`https://<API_DOMAIN>`) have no defaults:** `make dev-up` stops until they're set, as for `PAYMENTS_CALLBACK_BASE_URL`.
+    - **The runbook:** the services, ports, start order, database, variables, secrets and rotation; new Webhooks and Contacts sections; and the known limits (one country, no messaging yet, ClickHouse events kept with no limit).
+    - **Checked:**
+      - `docker compose config` with a generated `.env`: 16 services; a clear error until each required URL is set.
+      - **`dev-secrets.sh --add-missing`** on a `.env` from the previous `env.example`: 28 settings added with fresh secrets, a second run adds nothing, existing lines unchanged, mode 600.
+      - **The rendered nginx site** passes `nginx -t` (nginx 1.27), with two origins and with none; a malformed origin is refused.
+      - **A live run of the new slice** under a throwaway project (postgres, clickhouse, nats, object storage, clamav, `db-setup`, webhooks and contacts, built from these Dockerfiles):
+        - `db-setup` ran all six services' migrations and ClickHouse's, and a second run is clean;
+        - webhooks and contacts were healthy and ready, and contacts' gRPC port was listening;
+        - the tables are owned by `webhooks_owner` and `contacts_owner`;
+        - both app roles hold their grant role;
+        - ClickHouse has `events`;
+        - `contacts_app` is refused a DELETE on consent history and an UPDATE of a contact's number.
+    - **Not checked:**
+      - the whole stack with the gateway on the host;
+      - an upload through nginx from a browser (the S3 POST through the host's nginx, with its CORS answer);
+      - a webhook delivery to a public endpoint.
+  - **On the dev host:**
+    1. `git pull`;
+    2. `deploy/compose/dev-secrets.sh --add-missing`;
+    3. set `CONTACTS_OBJECT_STORAGE_PUBLIC_ENDPOINT=<API_DOMAIN>` and `CONTACTS_DOWNLOAD_BASE_URL=https://<API_DOMAIN>` in `.env`;
+    4. `make dev-up`;
+    5. render and install the nginx site again with the dashboard's origins, then `sudo nginx -t && sudo systemctl reload nginx` (never restart).
 
 ## Phase 2 plan (agreed 2026-10-30)
 Order changed from ROADMAP: 2.5 moves up to second, since 2.4 and 2.6 both need the tier state machine. Each task adds its own slice of `docs/api/accounts.yaml` and its own `docs/events/` schemas before code, the way `identity.yaml` grew in Phase 1, rather than one up-front spec.

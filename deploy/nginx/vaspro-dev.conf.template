@@ -7,6 +7,13 @@
 # is named vaspro_* or scoped to these two server names, so it can't clash
 # with the other project's sites.
 
+# Origins allowed to read the answer to a browser's signed upload (the
+# dashboard's); render.sh fills the pattern, and no match sends no header.
+map $http_origin $vaspro_upload_origin {
+    default "";
+    "~^(${UPLOAD_ORIGINS})$" $http_origin;
+}
+
 # Upgrade headers for Mailpit's live UI (WebSocket). Named, not the common
 # $connection_upgrade, in case another site already defines that map.
 map $http_upgrade $vaspro_connection_upgrade {
@@ -32,6 +39,29 @@ server {
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
+    }
+
+    # Contacts' signed upload forms (task 6.2): a browser posts the file
+    # straight to object storage, at the bucket's path. Only that POST (and
+    # a CORS preflight) gets through; nothing else of the store is
+    # reachable, and downloads go through the gateway. The form's policy
+    # caps the size at 20 MB; nginx allows a little more for the fields.
+    location ~ ^/contacts/?$ {
+        client_max_body_size 21m;
+        add_header Access-Control-Allow-Origin $vaspro_upload_origin always;
+        add_header Access-Control-Allow-Methods "POST" always;
+        add_header Vary Origin always;
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
+        limit_except POST {
+            deny all;
+        }
+        proxy_pass http://127.0.0.1:${OBJECT_STORAGE_HOST_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+        proxy_request_buffering off;
     }
 }
 

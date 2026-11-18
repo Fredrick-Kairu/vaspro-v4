@@ -14,13 +14,15 @@
 #   3. goose migrations per schema as the owner, each service with its
 #      own version table in the goose schema;
 #   4. the app roles' grants, including the narrow roles each service
-#      reaches only through SET ROLE (WITH INHERIT FALSE).
+#      reaches only through SET ROLE (WITH INHERIT FALSE);
+#   5. ClickHouse's migrations (webhooks' events table, task 5.6), when
+#      CLICKHOUSE_URL is set.
 #
 # Passwords come from <SVC>_OWNER_PASSWORD and <SVC>_DB_PASSWORD and are
 # never printed.
 set -eu
 
-SERVICES="identity accounts ledger payments"
+SERVICES="identity accounts ledger payments webhooks contacts"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/app/migrations}"
 
 for svc in $SERVICES; do
@@ -98,6 +100,17 @@ GRANT ledger_service TO ledger_app;
 -- column-limited grants and reaches payments_system and
 -- payments_operations itself (WITH INHERIT FALSE).
 GRANT payments_service TO payments_app;
+-- Webhooks (task 5.1) and contacts (task 6.1) the same way: the grant
+-- role reaches webhooks_system / contacts_system itself.
+GRANT webhooks_service TO webhooks_app;
+GRANT contacts_service TO contacts_app;
 SQL
+
+if [ -n "${CLICKHOUSE_URL:-}" ]; then
+	echo "db-setup: clickhouse migrations"
+	goose -dir "$MIGRATIONS_DIR/clickhouse" clickhouse "$CLICKHOUSE_URL" up
+else
+	echo "db-setup: CLICKHOUSE_URL unset, skipping clickhouse"
+fi
 
 echo "db-setup: done"

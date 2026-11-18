@@ -1,13 +1,14 @@
 # Dev environment
 
-A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts**, the **ledger** and **payments** behind the **gateway**, with a fake KYC vendor, on a private Docker network.
+A shared environment where testers exercise the APIs and the frontend team builds against them. It runs what's built so far: **identity**, **accounts**, the **ledger**, **payments**, **webhooks** and **contacts** behind the **gateway**, with a fake KYC vendor and ClickHouse for webhooks' reports, on a private Docker network.
 
-Only two ports are published, both on the host's loopback:
+Only three ports are published, all on the host's loopback:
 
 - the gateway on `127.0.0.1:18080`;
-- Mailpit's web UI on `127.0.0.1:18025`.
+- Mailpit's web UI on `127.0.0.1:18025`;
+- object storage's S3 on `127.0.0.1:18333`, only for browsers' signed uploads (contacts' imports).
 
-The host's own nginx serves them as `https://<API_DOMAIN>` and `https://<MAIL_DOMAIN>`, with Let's Encrypt certificates from certbot.
+The host's own nginx serves them as `https://<API_DOMAIN>` and `https://<MAIL_DOMAIN>`, with Let's Encrypt certificates from certbot. Uploads use the API domain: nginx passes only POSTs to `/contacts/` (the bucket) to object storage.
 
 **The host's nginx is shared with another project.** Treat it with care:
 
@@ -28,7 +29,7 @@ Files:
 | `deploy/compose/db-setup.sh` | Roles, migrations and grants (the `db-setup` one-shot) |
 | `deploy/docker/*.Dockerfile` | One image per binary, built from the repository root |
 | `deploy/nginx/vaspro-dev.conf.template` | The two nginx server blocks |
-| `deploy/nginx/render.sh` | Fills the template with the two domains and the ports |
+| `deploy/nginx/render.sh` | Fills the template with the two domains, the ports and the origins allowed to upload |
 
 `deploy/compose/docker-compose.yml` is the separate local stack for running services on your machine with `make run`. Nothing here changes it.
 
@@ -47,6 +48,7 @@ deploy/compose/dev-secrets.sh   # writes deploy/compose/.env; refuses to overwri
 Then edit `deploy/compose/.env`:
 
 - `PAYMENTS_CALLBACK_BASE_URL`: `https://<API_DOMAIN>`. Required: `make dev-up` stops until it's set (see "Payments").
+- `CONTACTS_OBJECT_STORAGE_PUBLIC_ENDPOINT`: `<API_DOMAIN>`, with no scheme, and `CONTACTS_DOWNLOAD_BASE_URL`: `https://<API_DOMAIN>`. Both required (see "Contacts").
 - `GATEWAY_CORS_ALLOWED_ORIGINS`: the frontend team's dev-server origins (see "CORS").
 - `IDENTITY_WEBAUTHN_RP_ID` and `IDENTITY_WEBAUTHN_ORIGINS`: the dashboard's domain and its exact origins.
 - `GATEWAY_HOST_PORT` / `MAILPIT_HOST_PORT`: only if 18080 or 18025 is taken on the host.
@@ -61,10 +63,10 @@ curl http://127.0.0.1:18080/readyz   # ready
 
 The first `make dev-up` takes several minutes: the images build, and ClamAV loads its signatures (allow about 1 GB of memory for it). Later starts are quick. The site can't serve anything until this is up, so start it before nginx.
 
-**4. The site file.** Render it with the two names; set the ports first if you changed them in `.env`. Then install and enable it the way this host's nginx already does it:
+**4. The site file.** Render it with the two names and the dashboard's origins (those allowed to upload contacts' import files, the same as `GATEWAY_CORS_ALLOWED_ORIGINS`); set the ports first if you changed them in `.env`. Then install and enable it the way this host's nginx already does it:
 
 ```sh
-deploy/nginx/render.sh api.dev.example.com mail.dev.example.com > /tmp/vaspro-dev.conf
+deploy/nginx/render.sh api.dev.example.com mail.dev.example.com https://app.dev.example.com,http://localhost:5173 > /tmp/vaspro-dev.conf
 sudo install -m 644 /tmp/vaspro-dev.conf /etc/nginx/sites-available/vaspro-dev.conf
 sudo ln -s /etc/nginx/sites-available/vaspro-dev.conf /etc/nginx/sites-enabled/vaspro-dev.conf
 ```
@@ -128,7 +130,7 @@ Re-rendering replaces certbot's 443 blocks. After installing a new render, run `
 | `make dev-kyc` / `make dev-kyc ID=… STATUS=…` | Lists the fake vendor's checks / decides one |
 | `make dev-staff EMAIL=… BY=…` | Makes a user staff |
 
-To deploy a new version, pull the branch, run `deploy/compose/dev-secrets.sh --add-missing`, and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart. `--add-missing` appends any setting a newer `env.example` has and `.env` lacks, with fresh secrets, and changes nothing already there; it prints the names it added, so check whether one needs a value of yours (such as `PAYMENTS_CALLBACK_BASE_URL`). Nginx needs nothing. It returns 502 for the few seconds the gateway is restarting.
+To deploy a new version, pull the branch, run `deploy/compose/dev-secrets.sh --add-missing`, and run `make dev-up`: changed images rebuild, `db-setup` applies any new migrations, and the changed services restart. `--add-missing` appends any setting a newer `env.example` has and `.env` lacks, with fresh secrets, and changes nothing already there; it prints the names it added, so check whether one needs a value of yours (such as `PAYMENTS_CALLBACK_BASE_URL`, or `CONTACTS_OBJECT_STORAGE_PUBLIC_ENDPOINT` and `CONTACTS_DOWNLOAD_BASE_URL`). Nginx needs nothing, unless the template changed (as it did for contacts' uploads, 18 Nov): then render and install the site again (steps 4 and 6). It returns 502 for the few seconds the gateway is restarting.
 
 Below, `$DC` stands for `docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env`.
 
@@ -138,6 +140,7 @@ Below, `$DC` stands for `docker compose -f deploy/compose/docker-compose.dev.yml
 |---|---|---|
 | `127.0.0.1:${GATEWAY_HOST_PORT}` (18080) | gateway | `https://<API_DOMAIN>`, with an 11 MB body limit |
 | `127.0.0.1:${MAILPIT_HOST_PORT}` (18025) | Mailpit web UI and API | `https://<MAIL_DOMAIN>`, with basic auth |
+| `127.0.0.1:${OBJECT_STORAGE_HOST_PORT}` (18333) | object storage's S3 | `https://<API_DOMAIN>/contacts/`, POST only, 21 MB body limit, CORS for the upload origins |
 
 Nothing else is published. Everything else is reachable only on the `vaspro-dev` network (`10.213.0.0/24`, `DEV_SUBNET`):
 
@@ -148,12 +151,15 @@ Nothing else is published. Everything else is reachable only on the `vaspro-dev`
 | accounts | `accounts:8082` HTTP, `accounts:9091` gRPC | |
 | ledger | `ledger:8083` HTTP, `ledger:9092` gRPC | |
 | payments | `payments:8084` HTTP | Top-ups, M-Pesa callbacks, reconciliation, checkout pages |
+| webhooks | `webhooks:8085` HTTP | Clients' endpoints, deliveries, the delivery log and reports |
+| contacts | `contacts:8086` HTTP, `contacts:9093` gRPC | Contacts, groups, segments, imports, consent, preference pages (`/p/`) |
+| clickhouse | `clickhouse:9000` | Every event, for webhooks' reports |
 | kyc-vendor | `kyc-vendor:8090` | The fake KYC vendor |
 | postgres | `postgres:5432` | One database; one schema per service |
 | redis | `redis:6379` | DB 0 identity sessions, DB 1 gateway rate limits, DB 2 payments' Daraja tokens |
 | nats | `nats:4222` | Event bus (JetStream) |
-| object-storage | `object-storage:8333` | SeaweedFS S3, documents bucket |
-| clamav | `clamav:3310` | Virus scanning of uploads |
+| object-storage | `object-storage:8333` | SeaweedFS S3: the documents and contacts buckets |
+| clamav | `clamav:3310` | Virus scanning of documents and imports |
 | mailpit | `mailpit:1025` SMTP, `mailpit:8025` UI and API | Catches all email |
 
 The gRPC ports are plaintext and trust the caller (mTLS is Phase 17), so never publish them.
@@ -177,16 +183,16 @@ Identity still records the gateway's own address for sign-ins and new-IP login a
 
 Compose enforces it with `depends_on`:
 
-1. postgres, redis, nats, object-storage, clamav, mailpit become healthy;
+1. postgres, redis, nats, object-storage, clamav, clickhouse, mailpit become healthy;
 2. `db-setup` runs once and must exit 0;
-3. identity, accounts, ledger and payments start; each waits for its own infrastructure and reports ready;
-4. the gateway starts once all four are ready, and the kyc-vendor starts alongside it.
+3. identity, accounts, ledger, payments, webhooks and contacts start; each waits for its own infrastructure and reports ready;
+4. the gateway starts once all six are ready, and the kyc-vendor starts alongside it.
 
-Identity and accounts dial each other's gRPC lazily, so neither waits for the other; payments dials accounts, identity and the ledger lazily too. The host's nginx is independent and only needs the two loopback ports.
+Identity and accounts dial each other's gRPC lazily, so neither waits for the other; payments, webhooks and contacts dial theirs lazily too. Webhooks waits for each service's event stream to exist, retrying, so start order doesn't matter there. The host's nginx is independent and only needs the two loopback ports.
 
 ## Database
 
-`db-setup` runs as the PostgreSQL superuser and can be run again safely. For each of `identity`, `accounts`, `ledger` and `payments`, it creates:
+`db-setup` runs as the PostgreSQL superuser and can be run again safely. For each of `identity`, `accounts`, `ledger`, `payments`, `webhooks` and `contacts`, it creates:
 
 - `<svc>_owner`: runs the goose migrations, so it owns the schema and its tables. It has `CREATEROLE`, because the migrations create their own narrow roles, and `BYPASSRLS`, because migrations seed rows no tenant may write (accounts' built-in roles). Nothing else connects as it.
 - `<svc>_app`: the service's login role. It owns nothing, so row-level security and the ledger's grants bind it.
@@ -198,13 +204,16 @@ Grants made after the migrations:
 - identity and accounts: DML on every table and sequence in their schema, plus default privileges, so new migrations' tables are covered.
 - ledger: `ledger_app` is granted `ledger_service`. The ledger's migrations already give that role exactly what the service may do: no UPDATE or DELETE on the journal, and no writes to `balance_minor`.
 - payments: `payments_app` is granted `payments_service`, in the same way: its updates are limited to status and posting columns, and it deletes nothing but idempotency keys.
+- webhooks and contacts: `webhooks_app` and `contacts_app` are granted `webhooks_service` and `contacts_service`, in the same way. For example, contacts' consent history is insert-only, and a contact's number is never rewritten.
 - These narrow roles, `WITH INHERIT FALSE`, reached only through `SET ROLE` inside `WithRoleTx`:
   - for `identity_app`: `identity_token_exchange` and `identity_sso_domain_lookup`;
   - for `accounts_app`: `accounts_membership_lookup`, `accounts_kyc_webhook`, `accounts_registration_lookup` and `accounts_staff_review`.
 
-  The ledger's `ledger_system`, `ledger_price_review`, `ledger_settlement`, `ledger_reversal_review` and `ledger_audit` reach `ledger_app` through `ledger_service`, and payments' `payments_system` and `payments_operations` reach `payments_app` through `payments_service`.
+  The ledger's `ledger_system`, `ledger_price_review`, `ledger_settlement`, `ledger_reversal_review` and `ledger_audit` reach `ledger_app` through `ledger_service`; payments' `payments_system` and `payments_operations` reach `payments_app` through `payments_service`; and `webhooks_system` and `contacts_system` reach their app roles the same way.
 
-To look at the data: `$DC exec postgres psql -U vaspro`.
+Then ClickHouse's migrations (webhooks' `events` table), as ClickHouse's own user; goose records them in ClickHouse's `goose_db_version`.
+
+To look at the data: `$DC exec postgres psql -U vaspro`, or `$DC exec clickhouse clickhouse-client --user vaspro --password vaspro` for events.
 
 ## Variables
 
@@ -219,6 +228,10 @@ All of them are in `deploy/compose/env.example`, grouped by service with what ea
 | `PAYMENTS_CALLBACK_BASE_URL` | (none; required) | `https://<API_DOMAIN>`: M-Pesa calls back on it, and checkout links point at it |
 | `DARAJA_BASE_URL` | `https://sandbox.safaricom.co.ke` | Safaricom's Daraja sandbox |
 | `PAYMENTS_DARAJA_CALLBACK_CIDRS` | empty | Safaricom's callback ranges; empty refuses every M-Pesa callback (see "Payments") |
+| `CONTACTS_OBJECT_STORAGE_PUBLIC_ENDPOINT` | (none; required) | `<API_DOMAIN>`, no scheme: where browsers post signed upload forms. It's in the signature, so it must be exactly the host they use |
+| `CONTACTS_DOWNLOAD_BASE_URL` | (none; required) | `https://<API_DOMAIN>`: download links and preference pages (`/p/<token>`) |
+| `OBJECT_STORAGE_HOST_PORT` | `18333` | The loopback port for uploads. Render the nginx site with the same value |
+| `WEBHOOKS_ALLOW_INSECURE_URLS` | `false` | Keep false: endpoints must then be public HTTPS (see "Webhooks") |
 | `IDENTITY_WEBAUTHN_RP_ID` | `localhost` | The dashboard's domain. Passkeys only work on it or its subdomains |
 | `IDENTITY_WEBAUTHN_ORIGINS` | the two localhost origins | The dashboard's exact origins, comma-separated |
 | `IDENTITY_GOOGLE_*` | empty (off) | Google sign-in needs a Google OAuth client, and a redirect URL registered with Google |
@@ -231,11 +244,13 @@ The database URLs aren't in `.env`: compose builds them from the `*_DB_PASSWORD`
 
 Secrets in `.env`, all generated by `dev-secrets.sh`:
 
-- the eight database passwords;
+- the twelve database passwords;
 - the identity keys `IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY` and `IDENTITY_CHALLENGE_SIGNING_KEY`;
 - `ACCOUNTS_DOCUMENTS_KMS_KEY`;
 - `ACCOUNTS_KYC_WEBHOOK_SECRET`, which the fake vendor shares;
-- payments' `PAYMENTS_CREDENTIALS_KMS_KEY`, `PAYMENTS_CALLBACK_SECRET`, `PAYMENTS_CHECKOUT_SECRET` and `PAYMENTS_CREDENTIAL_FINGERPRINT_KEY` (the last only the `vaspro` CLI uses).
+- payments' `PAYMENTS_CREDENTIALS_KMS_KEY`, `PAYMENTS_CALLBACK_SECRET`, `PAYMENTS_CHECKOUT_SECRET` and `PAYMENTS_CREDENTIAL_FINGERPRINT_KEY` (the last only the `vaspro` CLI uses);
+- webhooks' `WEBHOOKS_SECRETS_KMS_KEY` and `WEBHOOKS_SECRET_FINGERPRINT_KEY`;
+- contacts' `CONTACTS_FILES_KMS_KEY` and `CONTACTS_DOWNLOAD_KEY`.
 
 The keys are base64 of 32 random bytes. `.env` is gitignored: never commit it, and don't reuse its values anywhere else. Mailpit's password isn't in `.env`; it's in nginx's htpasswd file.
 
@@ -323,6 +338,27 @@ Each secret is read from stdin (`-T`), never from the command line. Check each c
 
 **Reconciliation.** Staff upload a day's org-portal CSV with `POST /v1/payments/staff/statement-imports` (up to 10 MB, within nginx's limit). The CSV's columns are still assumed (OQ-22). An unimported day raises `recon.statement_missing` at noon the next day; in this environment that's just an event.
 
+## Webhooks
+
+Clients register endpoints under `/v1/webhooks/tenants/{tenantId}/endpoints` (step-up and `credentials:manage`). The secret `whsec_…` is shown once.
+- **Verification:** a new endpoint must echo a signed challenge (`…/verification`) before anything is delivered.
+- **Endpoints must be public HTTPS.** `WEBHOOKS_ALLOW_INSECURE_URLS=false` refuses `http://` and private, loopback and link-local addresses, so an endpoint inside the dev network can't be used. Testers use a public HTTPS receiver; the verification snippets in `docs/webhooks/verify/` check the signatures.
+- **The delivery log** (`…/deliveries`) shows every attempt and its answer, and a delivery can be replayed. Retries back off from 30 seconds to 24 hours, 11 attempts in all, and an endpoint failing for 72 hours is disabled.
+- **Reports:** `GET …/reports/daily-activity?from&to` (`billing:read`) reads ClickHouse, in the account's country's time zone.
+
+## Contacts
+
+Contacts, attributes, groups, segments, consent and suppressions are under `/v1/contacts/tenants/{tenantId}/` (`contacts:read` or `contacts:manage`).
+
+**Imports**, from CSV or XLSX of at most 20 MB:
+1. `POST …/imports` returns a signed upload form; the browser posts the file to its `url` (`https://<API_DOMAIN>/contacts/`) with the form's fields, and must do so within 15 minutes;
+2. `POST …/imports/{id}/upload-confirmation`;
+3. contacts scans it with ClamAV, encrypts it, and processes it in the background. `GET …/imports/{id}` shows progress, and `…/errors` the rejected rows.
+- **The file and its error report are deleted 2 days after the import finishes;** the import, its counts and its errors stay.
+- From a script, post the form with curl, one `-F` per field, then `-F file=@contacts.csv` last.
+
+**Preference pages** (`POST …/preference-links`) open at `https://<API_DOMAIN>/p/<token>`, through the gateway with no session, like checkout pages. Replies such as STOP are recorded by messaging (Phase 7) over contacts' gRPC, which isn't published.
+
 ## Rotating keys and passwords
 
 - **JWT signing key:** `$DC run --rm vaspro identity rotate-signing-key`. The new key signs from then on. The old one stays in `/.well-known/jwks.json` for its 24-hour overlap, so issued tokens keep working. Nothing restarts.
@@ -331,13 +367,16 @@ Each secret is read from stdin (`-T`), never from the command line. Check each c
 - **Mailpit's password:** `sudo htpasswd /etc/nginx/.htpasswd-vaspro-mail tester` (without `-c`). Nginx reads the file on each request, so no reload is needed.
 - **`ACCOUNTS_KYC_WEBHOOK_SECRET`:** change it and run `make dev-up`. The fake vendor picks it up too.
 - **`PAYMENTS_CALLBACK_SECRET` / `PAYMENTS_CHECKOUT_SECRET`:** change it and run `make dev-up`. Pushes in flight lose their callbacks / every checkout link already sent stops working.
-- **LocalKMS keys** (`IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY`, `ACCOUNTS_DOCUMENTS_KMS_KEY`, `PAYMENTS_CREDENTIALS_KMS_KEY`): data sealed under the old key becomes unreadable (TOTP secrets, signing keys, documents, rail credentials), and there's no re-encryption tool. In this environment, rotating one means `make dev-reset`.
+- **`CONTACTS_DOWNLOAD_KEY`:** change it and run `make dev-up`. Download links already handed out (5 minutes) stop working.
+- **LocalKMS keys** (`IDENTITY_TOTP_KMS_KEY`, `IDENTITY_SIGNING_KEYS_KMS_KEY`, `ACCOUNTS_DOCUMENTS_KMS_KEY`, `PAYMENTS_CREDENTIALS_KMS_KEY`, `WEBHOOKS_SECRETS_KMS_KEY`, `CONTACTS_FILES_KMS_KEY`): data sealed under the old key becomes unreadable (TOTP secrets, signing keys, documents, rail credentials, endpoint secrets, imported files), and there's no re-encryption tool. In this environment, rotating one means `make dev-reset`.
 - **TLS certificates:** certbot renews them on its own timer and reloads nginx.
 
 ## Known limits
 
 - **Identity sees the gateway's IP** for sign-ins and login alerts (see "Client addresses").
 - **Unreachable fake-vendor link.** The KYC "hosted flow" URL points into the private network, and the fake serves no page there. Testers decide checks with `make dev-kyc`.
-- **Unused infrastructure.** RabbitMQ, ClickHouse and Grafana aren't in this stack, because nothing built uses them yet.
+- **Unused infrastructure.** RabbitMQ and Grafana aren't in this stack, because nothing built uses them yet. ClickHouse is, for webhooks' reports; its events are kept with no limit yet.
+- **One country.** Contacts reads imports, STOP replies and preference pages with the one loaded pack (Kenya), an open point in data model §10.
+- **No messaging yet.** Consent is recorded and checked, but nothing sends a message until Phase 7.
 - **No Daraja fake here.** Payments talks to Safaricom's real sandbox, so M-Pesa flows need sandbox credentials and Safaricom's callback ranges. Outcomes can't be scripted the way the tests do with `tools/fakes/daraja`.
 - **UGX wallets don't settle.** Only Kenya has a pack, so the ledger logs a settlement failure for such wallets each window (see STATUS 3.5).
